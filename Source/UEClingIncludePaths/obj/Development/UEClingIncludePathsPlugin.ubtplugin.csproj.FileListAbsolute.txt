@@ -1,0 +1,11 @@
+D:\UnrealProject\UnrealClingTestPack\Plugins\UCling\Source\UEClingIncludePaths\obj\Development\UEClingIncludePathsPlugin.ubtplugin.csproj.AssemblyReference.cache
+D:\UnrealProject\UnrealClingTestPack\Plugins\UCling\Source\UEClingIncludePaths\obj\Development\UEClingIncludePathsPlugin.ubtplugin.GeneratedMSBuildEditorConfig.editorconfig
+D:\UnrealProject\UnrealClingTestPack\Plugins\UCling\Source\UEClingIncludePaths\obj\Development\UEClingIncludePathsPlugin.ubtplugin.csproj.CoreCompileInputs.cache
+D:\UnrealProject\UnrealClingTestPack\Binaries\DotNET\UnrealBuildTool\Plugins\UEClingIncludePathsPlugin\UEClingIncludePathsPlugin.deps.json
+D:\UnrealProject\UnrealClingTestPack\Binaries\DotNET\UnrealBuildTool\Plugins\UEClingIncludePathsPlugin\UEClingIncludePathsPlugin.dll
+D:\UnrealProject\UnrealClingTestPack\Binaries\DotNET\UnrealBuildTool\Plugins\UEClingIncludePathsPlugin\ref\UEClingIncludePathsPlugin.dll
+D:\UnrealProject\UnrealClingTestPack\Binaries\DotNET\UnrealBuildTool\Plugins\UEClingIncludePathsPlugin\UEClingIncludePathsPlugin.pdb
+D:\UnrealProject\UnrealClingTestPack\Plugins\UCling\Source\UEClingIncludePaths\obj\Development\UEClingIncludePathsPlugin.ubtplugin.csproj.CopyComplete
+D:\UnrealProject\UnrealClingTestPack\Plugins\UCling\Source\UEClingIncludePaths\obj\Development\UEClingIncludePathsPlugin.dll
+D:\UnrealProject\UnrealClingTestPack\Plugins\UCling\Source\UEClingIncludePaths\obj\Development\refint\UEClingIncludePathsPlugin.dll
+D:\UnrealProject\UnrealClingTestPack\Plugins\UCling\Source\UEClingIncludePaths\obj\Development\UEClingIncludePathsPlugin.pdb
