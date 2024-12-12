@@ -26,7 +26,9 @@ public:
 	UFUNCTION(CallInEditor)
 	void Process();
 	UFUNCTION(CallInEditor)
-	void TestCallStatic();
+	void TestCallByUE();
+	UFUNCTION(CallInEditor)
+	void TestTArrayStruct();
 	
 	UPROPERTY(EditAnywhere,meta=(MultiLine))
 	FString ProcessString;

@@ -3,5 +3,5 @@
 class UCLING_API TestStatic
 {
 public:
-	static void LogSomeThing();
+	static void LogSomeThing(int* Int = nullptr);
 };

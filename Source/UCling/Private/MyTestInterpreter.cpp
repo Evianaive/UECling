@@ -21,7 +21,6 @@ AMyTestInterpreter::AMyTestInterpreter()
 void AMyTestInterpreter::BeginPlay()
 {
 	Super::BeginPlay();
-	
 }
 
 // Called every frame
@@ -37,8 +36,22 @@ void AMyTestInterpreter::Process()
 	::Process(Module.Interp,StringCast<ANSICHAR>(*ProcessString).Get(),nullptr);
 }
 
-void AMyTestInterpreter::TestCallStatic()
+void AMyTestInterpreter::TestCallByUE()
 {
 	TestStatic::LogSomeThing();
+}
+
+void AMyTestInterpreter::TestTArrayStruct()
+{
+	ProcessString =
+		TEXT("#define WINDOWS_MAX_NUM_TLS_SLOTS 2048\n"
+		"#include \"TestStatic.h\"\n"
+		"#include \"Containers/Array.h\"\n"
+		"struct StructWithTArray{\n"
+		"	TArray<int32> Ints;\n"
+		"};\n"
+		"StructWithTArray Test;\n"
+		"Test.Ints.Add(5);\n"
+		"TestStatic::LogSomeThing(&Test.Ints[0]);");
 }
 

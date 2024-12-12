@@ -26,7 +26,7 @@ void FUClingModule::StartupModule()
 	FString LibraryPath;
 #if PLATFORM_WINDOWS
 	LibraryPath = FPaths::Combine(*BaseDir, TEXT("Source/ThirdParty/UClingLibrary/LLVM/bin/"));
-	TArray<FString> DynamicLinkNames{"libclang.dll", "libcling", "libclingJupyter.dll",	"LLVM-C.dll", "LTO.dll", "Remarks.dll", "RelWithDebInfo/cling-demo.dll"};
+	// TArray<FString> DynamicLinkNames{"libclang.dll", "libcling", "libclingJupyter.dll",	"LLVM-C.dll", "LTO.dll", "Remarks.dll", "RelWithDebInfo/cling-demo.dll"};
 #elif PLATFORM_MAC
     LibraryPath = FPaths::Combine(*BaseDir, TEXT("Source/ThirdParty/UClingLibrary/Mac/Release/libExampleLibrary.dylib"));
 #elif PLATFORM_LINUX
@@ -38,71 +38,67 @@ void FUClingModule::StartupModule()
 	// 	FString DynamicLink = LibraryPath+DynamicLinkName;
 	// 	ExampleLibraryHandles.Add(!DynamicLink.IsEmpty() ? FPlatformProcess::GetDllHandle(*DynamicLink) : nullptr);
 	// }
-
-	//if (ExampleLibraryHandle)
-	//{
-	//	// Call the test function in the third party library that opens a message box
-	//	ExampleLibraryFunction();
-	//}
-	//else
-	//{
-	//	FMessageDialog::Open(EAppMsgType::Ok, LOCTEXT("ThirdPartyLibraryError", "Failed to load example third party library"));
-	//}
-
+	
 	FString LLVMDir = FPaths::ConvertRelativePathToFull(BaseDir/TEXT("Source/ThirdParty/UClingLibrary/LLVM"));
 	FString LLVMInclude = LLVMDir/TEXT("include");
 	
-	
-	// GEngine->
 	FString RelativePath = FPaths::ConvertRelativePathToFull(TEXT(".."));
 	FString UE_Exec = FPlatformProcess::ExecutablePath();
-	// UE_Exec = UE_Exec+TEXT(" -v");
+	
+	UClingSetting* Setting = GetMutableDefault<UClingSetting>();
+	
 	TArray<const char*> Argv;
 	Argv.Add(StringCast<ANSICHAR>(*UE_Exec).Get());
 	Argv.Add("-I");
 	Argv.Add(StringCast<ANSICHAR>(*LLVMInclude).Get());
-	Argv.Add("-v");
-	// cling::Interpreter interp2(1, &Path
-	// 	, StringCast<ANSICHAR>(*LLVMDir).Get()
-	// 	);
-	// FString PathToStaticFuncHeader = BaseDir/TEXT("Source/UCling/Public/TestStatic.h");
-	
+	if(Setting->bVerbose)
+		Argv.Add("-v");
 	Interp = CreateInterp(Argv.Num(), Argv.GetData(), StringCast<ANSICHAR>(*LLVMDir).Get());
-	// Decalre(Interp,"#define UCLING_API ");
-	// Decalre(Interp,"#define TESTCALLANOTHERMODULE_API ");
 	
 	IPluginManager::Get().GetEnabledPlugins();
-	TArray<FModuleStatus> ModuleStatuses;
-	FModuleManager::Get().QueryModules(ModuleStatuses);
-	const UClingSetting* Setting = GetDefault<UClingSetting>();
-	// TJsonReaderFactory<>
-	for (auto& Module : ModuleStatuses)
+#if WITH_EDITOR
+	Decalre(Interp,"#define WITH_EDITOR 1");
+	Decalre(Interp,"#define WITH_EDITORONLY_DATA_1");
+	Decalre(Interp,"#define UE_EDITOR 1");
+	//Todo Read from buildinfo
+	Decalre(Interp,"#define UE_BUILD_DEVELOPMENT 1");
+	Decalre(Interp,"#define WITH_ENGINE 1");
+	Decalre(Interp,"#define WITH_UNREAL_DEVELOPER_TOOLS 1");
+	Decalre(Interp,"#define WITH_PLUGIN_SUPPORT 1");
+	Decalre(Interp,"#define IS_MONOLITHIC 0");
+	Decalre(Interp,"#define IS_PROGRAM 0");
+	Decalre(Interp,"#define UBT_COMPILED_PLATFORM Windows");
+	Decalre(Interp,"#define PLATFORM_WINDOWS 1");
+	Decalre(Interp,"#define WINVER 0x601");
+	Decalre(Interp,"#define __TCHAR_DEFINED 1");
+	Decalre(Interp,"#define _TCHAR_DEFINED 1");
+	Decalre(Interp,"#define _UNICODE 1");
+	Decalre(Interp,"#define WITH_SERVER_CODE 1");
+	Decalre(Interp,"#define WINDOWS_MAX_NUM_TLS_SLOTS 2048");
+#endif
+	
+	Setting->RefreshIncludePaths();
+	 
+	for (auto& ModuleBuildInfo : Setting->ModuleBuildInfos)
 	{
-		// Todo here we assume the module name is the folder name!
-		FString Source = Module.FilePath/TEXT("../../../Source");
-		FString IncludePath = Source/Module.Name;
-		FString IncludePathPublic = Source/Module.Name/TEXT("Public");
-		
-		// UE_LOG(LogTemp, Log,TEXT("name:%s"),*IncludePath);
-		UE_LOG(LogTemp, Log,TEXT("path:%s"),*Module.FilePath);
-		
-		FString MacroDefine = TEXT("#define ") + Module.Name.ToUpper() + TEXT("_API ");
-		Decalre(Interp,StringCast<ANSICHAR>(*MacroDefine).Get());
-		AddIncludePath(Interp,StringCast<ANSICHAR>(*IncludePath).Get());
-		AddIncludePath(Interp,StringCast<ANSICHAR>(*IncludePathPublic).Get());
-		
-		if(const auto* Paths = Setting->ModuleIncludePaths.Find(FName(Module.Name)))
+		// Begin IncludePaths
+		for (const auto& PublicIncludePath : ModuleBuildInfo.Value.PublicIncludePaths)
 		{
-			for (const auto& AdditionalPath : Paths->AdditionIncludePaths)
-			{
-				AddIncludePath(Interp,StringCast<ANSICHAR>(*(Source/AdditionalPath)).Get());
-			}
+			AddIncludePath(Interp,StringCast<ANSICHAR>(*PublicIncludePath).Get());
+		}
+		for (const auto& PrivateIncludePath : ModuleBuildInfo.Value.PrivateIncludePaths)
+		{
+			AddIncludePath(Interp,StringCast<ANSICHAR>(*PrivateIncludePath).Get());
+		}
+		// Begin Definitions
+		FString MacroDefine = TEXT("#define ") + ModuleBuildInfo.Value.Name.ToString().ToUpper() + TEXT("_API ");
+		Decalre(Interp,StringCast<ANSICHAR>(*MacroDefine).Get());
+		for (FString& Define : ModuleBuildInfo.Value.PublicDefinitions)
+		{
+			Define.ReplaceCharInline('=',' ');
+			Decalre(Interp,StringCast<ANSICHAR>(*(TEXT("#define ")+Define)).Get());
 		}
 	}
-	
-	
-	// LoadHeader(Interp,StringCast<ANSICHAR>(*PathToStaticFuncHeader).Get());
-	// Interp->declare()
 }
 
 void FUClingModule::ShutdownModule()

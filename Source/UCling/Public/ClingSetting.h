@@ -11,11 +11,58 @@
  */
 
 USTRUCT(BlueprintType)
-struct FModuleIncludePaths
+struct FModuleCompileInfo
 {
 	GENERATED_BODY()
-	UPROPERTY(EditAnywhere)
-	TArray<FString> AdditionIncludePaths;
+
+	UPROPERTY(VisibleAnywhere)
+	FName Name;
+	UPROPERTY(VisibleAnywhere)
+	FString Type;
+	UPROPERTY(VisibleAnywhere)
+	FString Directory;
+	UPROPERTY(VisibleAnywhere)
+	FString Rules;
+	UPROPERTY(VisibleAnywhere)
+	FName PCHUsage;
+	UPROPERTY(VisibleAnywhere)
+	bool ChainSharedPCH;
+	UPROPERTY(VisibleAnywhere)
+	TArray<FString> PublicDependencyModules;
+	UPROPERTY(VisibleAnywhere)
+	TArray<FString> PublicIncludePathModules;
+	UPROPERTY(VisibleAnywhere)
+	TArray<FString> PrivateDependencyModules;
+	UPROPERTY(VisibleAnywhere)
+	TArray<FString> PrivateIncludePathModules;
+	UPROPERTY(VisibleAnywhere)
+	TArray<FString> DynamicallyLoadedModules;
+	UPROPERTY(VisibleAnywhere)
+	TArray<FString> PublicSystemIncludePaths;
+	UPROPERTY(VisibleAnywhere)
+	TArray<FString> PublicIncludePaths;
+	UPROPERTY(VisibleAnywhere)
+	TArray<FString> InternalIncludePaths;
+	UPROPERTY(VisibleAnywhere)
+	TArray<FString> PrivateIncludePaths;
+	UPROPERTY(VisibleAnywhere)
+	TArray<FString> PublicLibraries;
+	UPROPERTY(VisibleAnywhere)
+	TArray<FString> PublicSystemLibraries;
+	UPROPERTY(VisibleAnywhere)
+	TArray<FString> PublicSystemLibraryPaths;
+	UPROPERTY(VisibleAnywhere)
+	TArray<FString> PublicFrameworks;
+	UPROPERTY(VisibleAnywhere)
+	TArray<FString> PublicWeakFrameworks;
+	UPROPERTY(VisibleAnywhere)
+	TArray<FString> PublicDelayLoadDLLs;
+	UPROPERTY(VisibleAnywhere)
+	TArray<FString> PublicDefinitions;
+	UPROPERTY(VisibleAnywhere)
+	TArray<FString> CircularlyReferencedModules;
+	UPROPERTY(VisibleAnywhere)
+	TArray<FString> RuntimeDependencies;
 };
 
 UCLASS(Config=Cling)
@@ -29,8 +76,10 @@ public:
 	virtual FName GetSectionName() const override;
 
 	UPROPERTY(EditAnywhere,Config)
-	TMap<FName,FModuleIncludePaths> ModuleIncludePaths;
+	bool bVerbose{true};
+	UPROPERTY(EditAnywhere)
+	TMap<FName,FModuleCompileInfo> ModuleBuildInfos;
 
 	UFUNCTION(BlueprintCallable,CallInEditor)
-	void RefreshIncludePaths();	
+	void RefreshIncludePaths();
 };
