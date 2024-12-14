@@ -77,6 +77,17 @@ public:
 
 	UPROPERTY(EditAnywhere,Config)
 	bool bVerbose{true};
+	UPROPERTY(EditAnywhere,Config,DisplayName="-Wno-inconsistent-missing-override")
+	bool bIgnoreMissingOverride{true};
+	UPROPERTY(EditAnywhere,Config,DisplayName="-Wno-invalid-offsetof")
+	bool bIgnoreInvalidOffsetOf{true};
+	UPROPERTY(EditAnywhere,Config,DisplayName="-Wno-deprecated-enum-enum-conversion")
+	bool bIgnoreDeprecatedEnumEnumConversion{true};
+	UPROPERTY(EditAnywhere,Config,DisplayName="-Wno-switch")
+	bool bIgnoreInCompleteSwitch{true};
+	UPROPERTY(EditAnywhere,Config,DisplayName="-Wno-tautological-undefined-compare")
+	bool bIgnoreAutoLogicalUndefinedCompare{true};
+	
 	UPROPERTY(EditAnywhere)
 	TMap<FName,FModuleCompileInfo> ModuleBuildInfos;
 	UPROPERTY(VisibleAnywhere)
