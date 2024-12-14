@@ -4,3 +4,4 @@
 /Source/UEClingIncludePaths/obj
 /Source/UEClingIncludePaths/UEClingIncludePathsPlugin.ubtplugin.csproj.props
 /*.bat
+/GeneratedHeaderPaths.txt

@@ -35,9 +35,9 @@ class GeneratedCodeModifier
 		string UBTPath = Path.Combine(Unreal.EngineDirectory.ToString(), "Binaries", "DotNET", "UnrealBuildTool", "UnrealBuildTool.exe");
 		if (Factory.Session.Manifest != null)
 		{
-			string Target = Factory.Session.Manifest.TargetName;
-			string Platform = BuildHostPlatform.Current.Platform.ToString();
-			string? Project = Factory.Session.ProjectFile;
+			// string Target = Factory.Session.Manifest.TargetName;
+			// string Platform = BuildHostPlatform.Current.Platform.ToString();
+			// string? Project = Factory.Session.ProjectFile;
 
 			// string JsonFile = Path.Combine(Factory.PluginModule!.IncludeBase,"..","ModuleBuildInfos.json");
 			string BatFile = Path.Combine(Factory.PluginModule!.IncludeBase,"..", "ExportModuleBuildInfos.bat");
@@ -53,28 +53,14 @@ class GeneratedCodeModifier
 			Factory.Session.LogInfo(Result);
 		}
 		
-		// if (Factory.PluginModule != null)
-		// {
-		// 	Factory.Session.LogInfo(Factory.Session.ReferenceDirectory);
-		// 	foreach (UhtHeaderFile headerFile in Factory.Session.HeaderFiles)
-		// 	{
-		// 		Factory.Session.LogInfo(headerFile.IncludeFilePath);
-		// 	}
-		// }
-		
-		// foreach (UhtPackage package in Factory.Session.Packages)
-		// {
-		// 	if (package.ToString().Contains("MassScriptSample"))
-		// 	{
-		// 		foreach (UhtType packageChild in package.Children)
-		// 		{
-		// 			UhtHeaderFile? headerFile = (UhtHeaderFile?)packageChild;
-		// 			if (headerFile == null)
-		// 				continue;
-		// 			ModifyHeaderGenFile(headerFile);
-		// 		}
-		// 	}
-		// }
+		// Create file of Generated Header Include Paths
+		string GeneratedHeaderPathsFile = Path.Combine(Factory.PluginModule!.IncludeBase,"..", "GeneratedHeaderPaths.txt");
+		List<string> GeneratedHeaderPaths = new List<string>();
+		foreach (UhtPackage package in Factory.Session.Packages)
+		{
+			GeneratedHeaderPaths.Add(package.Module.OutputDirectory);
+		}
+		File.WriteAllLines(GeneratedHeaderPathsFile,GeneratedHeaderPaths);
 	}
 
 	void ModifyHeaderGenFile(UhtHeaderFile headerFile)

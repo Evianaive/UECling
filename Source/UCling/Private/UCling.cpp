@@ -107,7 +107,12 @@ void FUClingModule::StartupModule()
 			Decalre(Interp,StringCast<ANSICHAR>(*(TEXT("#define ")+Define)).Get());
 		}
 	}
+	for (const auto& GeneratedHeaderIncludePath : Setting->GeneratedHeaderIncludePaths)
+	{
+		AddIncludePath(Interp,StringCast<ANSICHAR>(*GeneratedHeaderIncludePath).Get());
+	}
 	Decalre(Interp,"#include \"CoreMinimal.h\"");
+	Decalre(Interp,"#include \"UObject/Object.h\"");
 }
 
 void FUClingModule::ShutdownModule()

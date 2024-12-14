@@ -30,35 +30,60 @@ FName UClingSetting::GetSectionName() const
 
 void UClingSetting::RefreshIncludePaths()
 {
+	UE_LOG(LogTemp,Log,TEXT("Begin Refresh IncludePaths"))
+	RefreshModuleIncludePaths();
+	RefreshGeneratedHeaderIncludePaths();
+}
+
+template<typename T>
+void GetFileContent(const FString& FileName, T& Result)
+{
+	FString ModuleBuildInfoJson = IPluginManager::Get().FindPlugin("UCling")->GetBaseDir()/FileName;
+	if constexpr (TIsTArray<typename TDecay<T>::Type>::Value)
+	{
+		FFileHelper::LoadFileToStringArray(Result,*ModuleBuildInfoJson);
+	}
+	else
+	{
+		FFileHelper::LoadFileToString(Result,*ModuleBuildInfoJson);	
+	}
+}
+
+void UClingSetting::RefreshModuleIncludePaths()
+{
 	// auto& Module = FModuleManager::Get().GetModuleChecked<FUClingModule>(TEXT("UCling"));
-    FString ModuleBuildInfoJson = IPluginManager::Get().FindPlugin("UCling")->GetBaseDir()/TEXT("ModuleBuildInfos.json");
-    FString JsonString;
-    FFileHelper::LoadFileToString(JsonString,*ModuleBuildInfoJson);
+	FString JsonString;
+	::GetFileContent(TEXT("ModuleBuildInfos.json"),JsonString);
+	// Parse the JSON string
+	TSharedRef<TJsonReader<>> JsonReader = TJsonReaderFactory<>::Create(JsonString);
+	TSharedPtr<FJsonObject> JsonObject;    
 
-    // Parse the JSON string
-    TSharedRef<TJsonReader<>> JsonReader = TJsonReaderFactory<>::Create(JsonString);
-    TSharedPtr<FJsonObject> JsonObject;    
+	if (FJsonSerializer::Deserialize(JsonReader, JsonObject) && JsonObject.IsValid())
+	{
+		// Access the "Modules" object
+		TSharedPtr<FJsonObject> ModulesObject = JsonObject->GetObjectField(TEXT("Modules"));
+		if (ModulesObject && ModulesObject.IsValid())
+		{
+			// Access the "UnrealClingTestPack" object within "Modules"
+			for (auto Value : ModulesObject->Values)
+			{
+				auto& Struct = ModuleBuildInfos.Add(FName(Value.Key));
+				FJsonObjectConverter::JsonObjectToUStruct(Value.Value->AsObject().ToSharedRef(),&Struct);
+			}
+		}
+		else
+		{
+			UE_LOG(LogTemp, Error, TEXT("Failed to find 'Modules' object in JSON!"));
+		}
+	}
+	else
+	{
+		UE_LOG(LogTemp, Error, TEXT("Failed to deserialize JSON!"));
+	}
+}
 
-    if (FJsonSerializer::Deserialize(JsonReader, JsonObject) && JsonObject.IsValid())
-    {
-        // Access the "Modules" object
-        TSharedPtr<FJsonObject> ModulesObject = JsonObject->GetObjectField(TEXT("Modules"));
-        if (ModulesObject && ModulesObject.IsValid())
-        {
-            // Access the "UnrealClingTestPack" object within "Modules"
-            for (auto Value : ModulesObject->Values)
-            {
-                auto& Struct = ModuleBuildInfos.Add(FName(Value.Key));
-                FJsonObjectConverter::JsonObjectToUStruct(Value.Value->AsObject().ToSharedRef(),&Struct);
-            }
-        }
-        else
-        {
-            UE_LOG(LogTemp, Error, TEXT("Failed to find 'Modules' object in JSON!"));
-        }
-    }
-    else
-    {
-        UE_LOG(LogTemp, Error, TEXT("Failed to deserialize JSON!"));
-    }
+void UClingSetting::RefreshGeneratedHeaderIncludePaths()
+{	
+	GeneratedHeaderIncludePaths.Reset(); 
+	::GetFileContent(TEXT("GeneratedHeaderPaths.txt"),GeneratedHeaderIncludePaths);
 }

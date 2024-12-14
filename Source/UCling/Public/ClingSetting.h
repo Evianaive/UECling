@@ -79,7 +79,13 @@ public:
 	bool bVerbose{true};
 	UPROPERTY(EditAnywhere)
 	TMap<FName,FModuleCompileInfo> ModuleBuildInfos;
+	UPROPERTY(VisibleAnywhere)
+	TArray<FString> GeneratedHeaderIncludePaths;
 
 	UFUNCTION(BlueprintCallable,CallInEditor)
 	void RefreshIncludePaths();
+	UFUNCTION(BlueprintCallable,CallInEditor)
+	void RefreshModuleIncludePaths();
+	UFUNCTION(BlueprintCallable,CallInEditor)
+	void RefreshGeneratedHeaderIncludePaths();
 };
