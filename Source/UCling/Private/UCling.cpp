@@ -55,27 +55,35 @@ void FUClingModule::StartupModule()
 		Argv.Add("-v");
 	Interp = CreateInterp(Argv.Num(), Argv.GetData(), StringCast<ANSICHAR>(*LLVMDir).Get());
 	
-	IPluginManager::Get().GetEnabledPlugins();
-#if WITH_EDITOR
-	Decalre(Interp,"#define WITH_EDITOR 1");
-	Decalre(Interp,"#define WITH_EDITORONLY_DATA_1");
-	Decalre(Interp,"#define UE_EDITOR 1");
-	//Todo Read from buildinfo
-	Decalre(Interp,"#define UE_BUILD_DEVELOPMENT 1");
-	Decalre(Interp,"#define WITH_ENGINE 1");
-	Decalre(Interp,"#define WITH_UNREAL_DEVELOPER_TOOLS 1");
-	Decalre(Interp,"#define WITH_PLUGIN_SUPPORT 1");
-	Decalre(Interp,"#define IS_MONOLITHIC 0");
-	Decalre(Interp,"#define IS_PROGRAM 0");
-	Decalre(Interp,"#define UBT_COMPILED_PLATFORM Windows");
-	Decalre(Interp,"#define PLATFORM_WINDOWS 1");
-	Decalre(Interp,"#define WINVER 0x601");
-	Decalre(Interp,"#define __TCHAR_DEFINED 1");
-	Decalre(Interp,"#define _TCHAR_DEFINED 1");
-	Decalre(Interp,"#define _UNICODE 1");
-	Decalre(Interp,"#define WITH_SERVER_CODE 1");
-	Decalre(Interp,"#define WINDOWS_MAX_NUM_TLS_SLOTS 2048");
-#endif
+	// IPluginManager::Get().GetEnabledPlugins();
+	
+	
+	// FString GlobalDefinesString;
+	UE_Exec.ReplaceCharInline('\\','/');
+	FString GlobalDefinesFilePath = UE_Exec/TEXT("../UECling/BuildGlobalDefines.h");
+	// FFileHelper::LoadFileToString(GlobalDefinesString,*GlobalDefinesFilePath);
+	// Decalre(Interp,StringCast<ANSICHAR>(*GlobalDefinesString).Get());
+	Decalre(Interp,StringCast<ANSICHAR>(*(TEXT("#include \"")+GlobalDefinesFilePath+TEXT("\""))).Get());
+// #if WITH_EDITOR
+// 	Decalre(Interp,"#define WITH_EDITOR 1");
+// 	Decalre(Interp,"#define WITH_EDITORONLY_DATA_1");
+// 	Decalre(Interp,"#define UE_EDITOR 1");
+// 	Decalre(Interp,"#define UE_BUILD_DEVELOPMENT 1");
+// 	Decalre(Interp,"#define WITH_ENGINE 1");
+// 	Decalre(Interp,"#define WITH_UNREAL_DEVELOPER_TOOLS 1");
+// 	Decalre(Interp,"#define WITH_PLUGIN_SUPPORT 1");
+// 	Decalre(Interp,"#define IS_MONOLITHIC 0");
+// 	Decalre(Interp,"#define IS_PROGRAM 0");
+// 	Decalre(Interp,"#define UBT_COMPILED_PLATFORM Windows");
+// 	Decalre(Interp,"#define PLATFORM_WINDOWS 1");
+// 	Decalre(Interp,"#define WINVER 0x601");
+// 	Decalre(Interp,"#define __TCHAR_DEFINED 1");
+// 	Decalre(Interp,"#define _TCHAR_DEFINED 1");
+// 	Decalre(Interp,"#define _UNICODE 1");
+// 	Decalre(Interp,"#define WITH_SERVER_CODE 1");
+// 	Decalre(Interp,"#define WINDOWS_MAX_NUM_TLS_SLOTS 2048");
+// 	Decalre(Interp,"#define WINDOWS_MAX_NUM_THREADS_WITH_TLS_SLOTS 512");
+// #endif
 	
 	Setting->RefreshIncludePaths();
 	 
@@ -99,6 +107,7 @@ void FUClingModule::StartupModule()
 			Decalre(Interp,StringCast<ANSICHAR>(*(TEXT("#define ")+Define)).Get());
 		}
 	}
+	Decalre(Interp,"#include \"CoreMinimal.h\"");
 }
 
 void FUClingModule::ShutdownModule()

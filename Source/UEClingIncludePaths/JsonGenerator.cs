@@ -39,12 +39,17 @@ class GeneratedCodeModifier
 			string Platform = BuildHostPlatform.Current.Platform.ToString();
 			string? Project = Factory.Session.ProjectFile;
 
-			string JsonFile = Path.Combine(Factory.PluginModule!.IncludeBase,"..","ModuleBuildInfos.json");
+			// string JsonFile = Path.Combine(Factory.PluginModule!.IncludeBase,"..","ModuleBuildInfos.json");
+			string BatFile = Path.Combine(Factory.PluginModule!.IncludeBase,"..", "ExportModuleBuildInfos.bat");
+			
 			string Result = UnrealBuildTool.Utils.RunLocalProcessAndReturnStdOut(
-				UBTPath, Utils.FormatCommandLine(new List<string>(new string[]
-				{
-					Target,Platform,"Development","-Mode=JsonExport","-Project="+Project,"-NoMutex","-OutputFile="+JsonFile
-				})));
+				UBTPath,
+				// Utils.FormatCommandLine(new List<string>(new string[]
+				// {
+				// 	Target,Platform,"Development","-Mode=JsonExport","-Project="+Project,"-NoMutex","-OutputFile="+JsonFile
+				// }))
+				File.ReadAllText(BatFile)
+				);
 			Factory.Session.LogInfo(Result);
 		}
 		

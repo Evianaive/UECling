@@ -44,9 +44,9 @@ void AMyTestInterpreter::TestCallByUE()
 void AMyTestInterpreter::TestTArrayStruct()
 {
 	ProcessString =
-		TEXT("#define WINDOWS_MAX_NUM_TLS_SLOTS 2048\n"
+		TEXT(
+		"#include \"Containers/Array.h\""
 		"#include \"TestStatic.h\"\n"
-		"#include \"Containers/Array.h\"\n"
 		"struct StructWithTArray{\n"
 		"	TArray<int32> Ints;\n"
 		"};\n"
