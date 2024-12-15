@@ -48,7 +48,7 @@ void FUClingModule::StartupModule()
 	Argv.Add(StringCast<ANSICHAR>(*LLVMInclude).Get());
 	
 	// Forbid RTTI	
-	Argv.Add("-frtti");
+	// Argv.Add("-frtti");
 	if(Setting->bVerbose)
 		Argv.Add("-v");
 	if(Setting->bIgnoreMissingOverride)

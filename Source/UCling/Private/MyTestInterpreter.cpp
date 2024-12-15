@@ -45,7 +45,7 @@ void AMyTestInterpreter::TestTArrayStruct()
 {
 	ProcessString =
 		TEXT(
-		"#include \"Containers/Array.h\""
+		"#include \"Containers/Array.h\"\n"
 		"#include \"TestStatic.h\"\n"
 		"struct StructWithTArray{\n"
 		"	TArray<int32> Ints;\n"
