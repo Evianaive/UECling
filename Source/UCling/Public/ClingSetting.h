@@ -92,8 +92,7 @@ public:
 	TMap<FName,FModuleCompileInfo> ModuleBuildInfos;
 	UPROPERTY(VisibleAnywhere)
 	TArray<FString> GeneratedHeaderIncludePaths;
-
-	UFUNCTION(BlueprintCallable,CallInEditor)
+	
 	void RefreshIncludePaths();
 	UFUNCTION(BlueprintCallable,CallInEditor)
 	void RefreshModuleIncludePaths();

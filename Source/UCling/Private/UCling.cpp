@@ -46,6 +46,9 @@ void FUClingModule::StartupModule()
 	Argv.Add(StringCast<ANSICHAR>(*UE_Exec).Get());
 	Argv.Add("-I");
 	Argv.Add(StringCast<ANSICHAR>(*LLVMInclude).Get());
+	
+	// Forbid RTTI	
+	Argv.Add("-frtti");
 	if(Setting->bVerbose)
 		Argv.Add("-v");
 	if(Setting->bIgnoreMissingOverride)
@@ -92,6 +95,12 @@ void FUClingModule::StartupModule()
 	{
 		AddIncludePath(Interp,StringCast<ANSICHAR>(*GeneratedHeaderIncludePath).Get());
 	}
+// #ifdef _MSC_VER
+// #define EVA_MACRO(_M) #_M
+// #define STR_MACRO(_M) "#define " #_M " " EVA_MACRO(_M)	
+// 	Decalre(Interp,StringCast<ANSICHAR>(TEXT(STR_MACRO(_MSC_VER))).Get());
+// 	Decalre(Interp,StringCast<ANSICHAR>(TEXT(STR_MACRO(_WIN64))).Get());
+// #endif
 	// Declare some files which are general in Unreal
 	Decalre(Interp,"#include \"CoreMinimal.h\"");
 	Decalre(Interp,"#include \"UObject/Object.h\"");

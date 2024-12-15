@@ -19,6 +19,16 @@
 			"Name": "UCling",
 			"Type": "Runtime",
 			"LoadingPhase": "PostDefault"
+		},
+		{
+			"Name": "ClingEditor",
+			"Type": "Editor",
+			"LoadingPhase": "Default"
+		},
+		{
+			"Name": "ClingKismet",
+			"Type": "UncookedOnly",
+			"LoadingPhase": "Default"
 		}
 	]
 }
