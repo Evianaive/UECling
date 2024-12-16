@@ -27,3 +27,5 @@ EXAMPLELIBRARY_IMPORT void Decalre(cling::Interpreter* interpreter, const std::s
 			   cling::Transaction** T = nullptr);
 
 EXAMPLELIBRARY_IMPORT void AddIncludePath(cling::Interpreter* interpreter, const std::string& String);
+
+EXAMPLELIBRARY_IMPORT void ProcessCommand(cling::Interpreter* interpreter, const std::string& String);

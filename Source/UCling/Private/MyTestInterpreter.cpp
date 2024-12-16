@@ -36,6 +36,12 @@ void AMyTestInterpreter::Process()
 	::Process(Module.Interp,StringCast<ANSICHAR>(*ProcessString).Get(),nullptr);
 }
 
+void AMyTestInterpreter::ProcessCommand()
+{
+	auto& Module = FModuleManager::Get().GetModuleChecked<FUClingModule>(TEXT("UCling"));
+	::ProcessCommand(Module.Interp, StringCast<ANSICHAR>(*ProcessString).Get());
+}
+
 void AMyTestInterpreter::TestCallByUE()
 {
 	TestStatic::LogSomeThing();

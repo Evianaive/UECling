@@ -77,7 +77,14 @@ void FUClingModule::StartupModule()
 		{
 			AddIncludePath(Interp,StringCast<ANSICHAR>(*PublicIncludePath).Get());
 		}
-		for (const auto& PrivateIncludePath : ModuleBuildInfo.Value.PrivateIncludePaths)
+		// We don't need to add Private Include Path! A module should not add path to headers
+		// that can be include by other module in PrivateIncludePaths		
+		// for (const auto& PrivateIncludePath : ModuleBuildInfo.Value.PrivateIncludePaths)
+		// {
+		// 	AddIncludePath(Interp,StringCast<ANSICHAR>(*PrivateIncludePath).Get());
+		// }
+
+		for (const auto& PrivateIncludePath : ModuleBuildInfo.Value.PublicSystemIncludePaths)
 		{
 			AddIncludePath(Interp,StringCast<ANSICHAR>(*PrivateIncludePath).Get());
 		}
