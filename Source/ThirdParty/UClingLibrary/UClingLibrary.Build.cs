@@ -86,12 +86,12 @@ public class UClingLibrary : ModuleRules
 			foreach (var dll in new string[]
 			         {
 				         "cling-demo.dll",
-				         "libclang.dll",
-				         "libcling.dll",
-				         "libclingJupyter.dll",
-				         "LLVM-C.dll",
-				         "LTO.dll",
-				         "Remarks.dll"
+				         // "libclang.dll",
+				         // "libcling.dll",
+				         // "libclingJupyter.dll",
+				         // "LLVM-C.dll",
+				         // "LTO.dll",
+				         // "Remarks.dll"
 			         })
 			{
 				string BinariesDir = Path.Combine(PluginDirectory, "Binaries", Target.Platform.ToString());

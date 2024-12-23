@@ -48,7 +48,7 @@ void FUClingModule::StartupModule()
 	Argv.Add(StringCast<ANSICHAR>(*LLVMInclude).Get());
 	
 	// Forbid RTTI	
-	// Argv.Add("-frtti");
+	// Argv.Add("-fno-rtti");
 	if(Setting->bVerbose)
 		Argv.Add("-v");
 	if(Setting->bIgnoreMissingOverride)
@@ -69,7 +69,8 @@ void FUClingModule::StartupModule()
 	Decalre(Interp,StringCast<ANSICHAR>(*(TEXT("#include \"")+GlobalDefinesFilePath+TEXT("\""))).Get());
 
 	// Load file contains all module build infos
-	Setting->RefreshIncludePaths();	 
+	Setting->RefreshIncludePaths();
+	AddIncludePath(Interp,StringCast<ANSICHAR>(*FPaths::EngineSourceDir()).Get());
 	for (auto& ModuleBuildInfo : Setting->ModuleBuildInfos)
 	{
 		// Begin IncludePaths
@@ -97,6 +98,8 @@ void FUClingModule::StartupModule()
 			Define.ReplaceCharInline('=',' ');
 			Decalre(Interp,StringCast<ANSICHAR>(*(TEXT("#define ")+Define)).Get());
 		}
+		if(!ModuleBuildInfo.Value.Directory.Contains(TEXT("Engine/Source")))
+			AddIncludePath(Interp,StringCast<ANSICHAR>(*ModuleBuildInfo.Value.Directory).Get());
 	}
 	for (const auto& GeneratedHeaderIncludePath : Setting->GeneratedHeaderIncludePaths)
 	{
@@ -109,6 +112,11 @@ void FUClingModule::StartupModule()
 // 	Decalre(Interp,StringCast<ANSICHAR>(TEXT(STR_MACRO(_WIN64))).Get());
 // #endif
 	// Declare some files which are general in Unreal
+#ifdef __clang__
+#else 
+	Decalre(Interp,"#include \"Microsoft/MinimalWindowsApi.h\"");
+	Decalre(Interp,"#include \"Runtime/Core/Private/Microsoft/MinimalWindowsApi.cpp\"");
+#endif
 	Decalre(Interp,"#include \"CoreMinimal.h\"");
 	Decalre(Interp,"#include \"UObject/Object.h\"");
 }
