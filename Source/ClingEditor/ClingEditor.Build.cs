@@ -20,7 +20,9 @@ public class ClingEditor : ModuleRules
                 "Engine",
                 "Slate",
                 "SlateCore",
-                "UCling"
+                "UCling",
+                "UnrealEd",
+                "UClingLibrary"
             }
         );
     }

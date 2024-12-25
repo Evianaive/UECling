@@ -87,6 +87,8 @@ public:
 	bool bIgnoreInCompleteSwitch{true};
 	UPROPERTY(EditAnywhere,Config,DisplayName="-Wno-tautological-undefined-compare")
 	bool bIgnoreAutoLogicalUndefinedCompare{true};
+	UPROPERTY(EditAnywhere,Config,DisplayName="-Wno-gnu-string-literal-operator-template")
+	bool bIgnoreStringLiteralOperatorTemplate{true};
 	
 	UPROPERTY(EditAnywhere)
 	TMap<FName,FModuleCompileInfo> ModuleBuildInfos;

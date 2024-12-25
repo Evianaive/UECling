@@ -62,6 +62,10 @@ void FUClingModule::StartupModule()
 		Argv.Add("-Wno-switch");
 	if(Setting->bIgnoreAutoLogicalUndefinedCompare)
 		Argv.Add("-Wno-tautological-undefined-compare");
+	if(Setting->bIgnoreStringLiteralOperatorTemplate)
+		Argv.Add("-Wno-gnu-string-literal-operator-template");
+	Argv.Add("-march=native");
+	// Todo #include "HAL/Platform.h"	
 	Interp = CreateInterp(Argv.Num(), Argv.GetData(), StringCast<ANSICHAR>(*LLVMDir).Get());
 
 	// Include file of all global definitions of build context export by UnrealBuildTool 
@@ -120,6 +124,7 @@ void FUClingModule::StartupModule()
 #endif
 	Decalre(Interp,"#include \"CoreMinimal.h\"");
 	Decalre(Interp,"#include \"UObject/Object.h\"");
+	Decalre(Interp,"#include \"Logging/LogMacros.h\"");
 }
 
 void FUClingModule::ShutdownModule()
