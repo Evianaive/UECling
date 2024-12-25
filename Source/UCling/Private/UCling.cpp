@@ -12,6 +12,7 @@
 #include "Engine/Engine.h"
 #include "cling-demo.h"
 #include "ClingSetting.h"
+#include "ClingLog/LogRedirector.h"
 
 #define LOCTEXT_NAMESPACE "FUClingModule"
 
@@ -46,7 +47,7 @@ void FUClingModule::StartupModule()
 	Argv.Add(StringCast<ANSICHAR>(*UE_Exec).Get());
 	Argv.Add("-I");
 	Argv.Add(StringCast<ANSICHAR>(*LLVMInclude).Get());
-	
+	FLogRedirector::RedirectToUELog();
 	// Forbid RTTI	
 	// Argv.Add("-fno-rtti");
 	if(Setting->bVerbose)
