@@ -20,6 +20,7 @@ public:
 	static bool RunCppScript(
 		UPARAM(meta=(MultiLine=True)) const FString& Includes,
 		UPARAM(meta=(MultiLine=True)) const FString& CppScript,
+		UPARAM(ref)int64& FunctionPtr,
 		const TArray<FString>& CppInputs,
 		const TArray<FString>& CppOutputs);
 	DECLARE_FUNCTION(execRunCppScript);

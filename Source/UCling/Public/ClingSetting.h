@@ -9,6 +9,15 @@
 /**
  * 
  */
+USTRUCT()
+struct FRuntimeDependencies
+{
+	GENERATED_BODY()
+	UPROPERTY(VisibleAnywhere)
+	FString Path;
+	UPROPERTY(VisibleAnywhere)
+	FString Type;
+};
 
 USTRUCT(BlueprintType)
 struct FModuleCompileInfo
@@ -62,7 +71,7 @@ struct FModuleCompileInfo
 	UPROPERTY(VisibleAnywhere)
 	TArray<FString> CircularlyReferencedModules;
 	UPROPERTY(VisibleAnywhere)
-	TArray<FString> RuntimeDependencies;
+	TArray<FRuntimeDependencies> RuntimeDependencies;
 };
 
 UCLASS(Config=Cling)
@@ -89,6 +98,9 @@ public:
 	bool bIgnoreAutoLogicalUndefinedCompare{true};
 	UPROPERTY(EditAnywhere,Config,DisplayName="-Wno-gnu-string-literal-operator-template")
 	bool bIgnoreStringLiteralOperatorTemplate{true};
+	
+	UPROPERTY(EditAnywhere,Config,DisplayName="Allow Redefine")
+	bool bAllowRedefine{true};
 	
 	UPROPERTY(EditAnywhere)
 	TMap<FName,FModuleCompileInfo> ModuleBuildInfos;

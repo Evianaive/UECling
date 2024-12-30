@@ -31,15 +31,10 @@ void AMyTestInterpreter::Tick(float DeltaTime)
 
 void AMyTestInterpreter::Process()
 {
-	TBaseStructure<FVector>::Get();
+	// TBaseStructure<FVector>::Get();
+	SCOPED_NAMED_EVENT(Cling_EXEC, FColor::Red);
 	auto& Module = FModuleManager::Get().GetModuleChecked<FUClingModule>(TEXT("UCling"));
-	::Process(Module.Interp,StringCast<ANSICHAR>(*ProcessString).Get(),nullptr);
-}
-
-void AMyTestInterpreter::ProcessCommand()
-{
-	auto& Module = FModuleManager::Get().GetModuleChecked<FUClingModule>(TEXT("UCling"));
-	::ProcessCommand(Module.Interp, StringCast<ANSICHAR>(*ProcessString).Get(),nullptr);
+	::Execute(Module.Interp,StringCast<ANSICHAR>(*ProcessString).Get());
 }
 
 void AMyTestInterpreter::TestCallByUE()

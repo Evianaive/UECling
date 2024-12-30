@@ -12,3 +12,8 @@ void TestStatic::LogSomeThing(int* Int)
 	else
 		UE_LOG(LogTemp,Log,TEXT("Something is loged %i"),Test++);
 }
+
+int TestStatic::Add(int A, int B)
+{
+	return A+B;
+}

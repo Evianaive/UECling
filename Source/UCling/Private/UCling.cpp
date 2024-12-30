@@ -125,6 +125,9 @@ void FUClingModule::StartupModule()
 	Decalre(Interp,"#include \"CoreMinimal.h\"");
 	Decalre(Interp,"#include \"UObject/Object.h\"");
 	Decalre(Interp,"#include \"Logging/LogMacros.h\"");
+	Decalre(Interp,"#define WITH_CLING 1");
+	if(Setting->bAllowRedefine)
+		Execute(Interp,"gClingOpts->AllowRedefinition = true;");
 }
 
 void FUClingModule::ShutdownModule()

@@ -17,6 +17,8 @@ EXAMPLELIBRARY_IMPORT void CreateInterp2(int argc,
 EXAMPLELIBRARY_IMPORT void LoadHeader(cling::Interpreter* interpreter, const std::string& filename,
 	cling::Transaction** T = nullptr);
 
+EXAMPLELIBRARY_IMPORT void Execute(cling::Interpreter* interpreter, const std::string& String);
+
 EXAMPLELIBRARY_IMPORT void Process(cling::Interpreter* interpreter, const std::string& String,
 	cling::Value* V = nullptr,
 	cling::Transaction** T = nullptr,
