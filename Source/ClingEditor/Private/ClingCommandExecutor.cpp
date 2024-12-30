@@ -48,6 +48,7 @@ void FClingCommandExecutor::GetExecHistory(TArray<FString>& Out)
 
 bool FClingCommandExecutor::Exec(const TCHAR* Input)
 {
+	SCOPED_NAMED_EVENT(Cling_EXEC, FColor::Red);
 	IConsoleManager::Get().AddConsoleHistoryEntry(TEXT("Cling"), Input);
 	UE_LOG(LogTemp, Log, TEXT("%s"), Input);
 	::ProcessCommand(Interpreter,TCHAR_TO_ANSI(Input),nullptr);
