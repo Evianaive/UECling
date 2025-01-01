@@ -3,15 +3,20 @@
 
 #include "K2Node_ExecuteCppScript.h"
 
-#include "UObject/Package.h"
-#include "KismetCompiler.h"
+#include "BlueprintActionDatabaseRegistrar.h"
+#include "BlueprintNodeSpawner.h"
+#include "CallFunctionHandler.h"
+#include "cling-demo.h"
 #include "EdGraphSchema_K2.h"
 #include "K2Node_MakeArray.h"
+#include "KismetCompiler.h"
+#include "UCling.h"
 #include "Kismet/KismetSystemLibrary.h"
 #include "Kismet2/BlueprintEditorUtils.h"
-#include "BlueprintNodeSpawner.h"
-#include "BlueprintActionDatabaseRegistrar.h"
 #include "UCling/Public/ClingBlueprintFunctionLibrary.h"
+//We have to recompile these files because they are not exported!
+#include "Editor/BlueprintGraph/Private/CallFunctionHandler.cpp"
+#include "Editor/BlueprintGraph/Private/PushModelHelpers.cpp"
 
 #include UE_INLINE_GENERATED_CPP_BY_NAME(K2Node_ExecuteCppScript)
 
@@ -20,7 +25,6 @@
 namespace ExecuteCppScriptUtil
 {
 
-const FName CppScriptPinName = "CppScript";
 const FName CppInputsPinName = "CppInputs";
 const FName CppOutputsPinName = "CppOutputs";
 
@@ -36,9 +40,129 @@ FString CppizePinName(const UEdGraphPin* InPin)
 
 }
 
+
+struct FBlueprintCompiledStatement;
+
+class FKCHandler_CompileAndStorePtr : public FKCHandler_CallFunction
+{
+public:
+	FKCHandler_CompileAndStorePtr(FKismetCompilerContext& InCompilerContext)
+		: FKCHandler_CallFunction(InCompilerContext)
+	{
+	}
+	UK2Node_ExecuteCppScript* CurNode{nullptr};
+	
+	virtual void RegisterNets(FKismetFunctionContext& Context, UEdGraphNode* Node) override
+	{
+		/* auto register other pin(literal) by default method*/
+		TGuardValue GuardCurNode{CurNode,CastChecked<UK2Node_ExecuteCppScript>(Node)};
+		FKCHandler_CallFunction::RegisterNets(Context, Node);
+		
+		CurNode->CreateTempFunctionPtrPin();
+		auto PtrPin = CurNode->GetFunctionPtrPin();
+		// int64 to store Function ptr, get PtrTerm
+		// FKCHandler_CallFunction::RegisterNet(Context,PtrPin);
+		RegisterLiteral(Context,PtrPin);
+		FBPTerminal** PtrTermResult = Context.NetMap.Find(PtrPin);
+		if(PtrTermResult==nullptr)
+		{
+			Context.MessageLog.Error(*LOCTEXT("Error_PtrPinNotFounded", "ICE: Ptr Pin is not created @@").ToString(), CurNode);
+		}
+	}
+
+	virtual void Compile(FKismetFunctionContext& Context, UEdGraphNode* Node) override
+	{
+		TGuardValue GuardCurNode{CurNode,CastChecked<UK2Node_ExecuteCppScript>(Node)};
+		FKCHandler_CallFunction::Compile(Context, Node);
+		auto PtrPin = CurNode->GetFunctionPtrPin();
+		
+		// Todo use function name property?
+		FString LambdaName = TEXT("Lambda") + FGuid::NewGuid().ToString();
+		FString NameSpaceAvoidReDefine = TEXT("auto ")+LambdaName+TEXT(" = [](signed long long* Args){\n");
+		NameSpaceAvoidReDefine += FString::Printf(TEXT("\tSCOPED_NAMED_EVENT(%s, FColor::Red);\n\t//Begin recover Args\n"),*CurNode->FunctionName.ToString());
+		
+		FString AddressInjectCode;
+		int DynamicParamCount = 0;
+		auto ExportParam = [&AddressInjectCode](FProperty* Property,const FString& ParamName, int32 ParamIndex){
+			FString CppType = Property->GetCPPType(&CppType);
+			if(auto StructProperty = CastField<FStructProperty>(Property))
+			{
+				if(!StructProperty->Struct->IsNative())
+				{
+					// Todo Generate define of this struct if it is a blueprint struct!
+				}
+			}
+			AddressInjectCode += FString::Printf(TEXT("\t%s& %s = *(%s*)Args[%i];\n"),*CppType,*ParamName,*CppType,ParamIndex);
+		};
+		auto GetBPTerminal=[this, &Context](const FName& PinName)->FBPTerminal*
+		{
+			auto Pin = CurNode->FindPin(PinName);
+			if(!Pin)
+				return nullptr;
+			UEdGraphPin* PinToTry = FEdGraphUtilities::GetNetFromPin(Pin);
+			FBPTerminal** Term = Context.NetMap.Find(PinToTry);
+			if(!Term)
+				return nullptr;
+			return (*Term);			
+		};
+		
+		auto& Module = FModuleManager::Get().GetModuleChecked<FUClingModule>(TEXT("UCling"));
+		::Decalre(Module.Interp,StringCast<ANSICHAR>(*CurNode->Includes).Get(),nullptr);
+		for (const FName& Input : CurNode->Inputs)
+		{
+			if(auto* Term = GetBPTerminal(Input))
+			{
+				ExportParam(Term->AssociatedVarProperty, Input.ToString(), DynamicParamCount++);	
+			}
+		}
+		for (const FName& Output : CurNode->Outputs)
+		{
+			if(auto* Term = GetBPTerminal(Output))
+			{
+				ExportParam(Term->AssociatedVarProperty, Output.ToString(), DynamicParamCount++);	
+			}
+		}
+		int64 FunctionPtr = 0;
+		NameSpaceAvoidReDefine += AddressInjectCode + TEXT("	//You CppScript start from here\n") + CurNode->Snippet + TEXT("\n};\n{\n");
+		NameSpaceAvoidReDefine += FString::Printf(TEXT("	signed long long& FunctionPtr = *(signed long long*)%I64d;\n"),size_t(&FunctionPtr));
+		NameSpaceAvoidReDefine += FString::Printf(TEXT("	FunctionPtr = reinterpret_cast<int64>((void(*)(signed long long*))(%s));\n}"),*LambdaName);
+		::Process(Module.Interp,StringCast<ANSICHAR>(*NameSpaceAvoidReDefine).Get(),nullptr);
+
+		if(auto* CompileResult = reinterpret_cast<FCppScriptCompiledResult*>(CurNode->ResultPtr))
+		{
+			CompileResult->CodePreview = NameSpaceAvoidReDefine;
+			CompileResult->FunctionPtrAddress = FunctionPtr;
+		}		 
+		UEdGraphPin* PtrLiteral = FEdGraphUtilities::GetNetFromPin(PtrPin);
+		if (FBPTerminal** Term = Context.NetMap.Find(PtrLiteral))
+		{
+			//Name is the literal value of int64! See FScriptBuilderBase::EmitTermExpr
+			(*Term)->Name = FString::Printf(TEXT("%I64d"),FunctionPtr);		
+			if(auto StatementsResult = Context.StatementsPerNode.Find(Node))
+			{
+				const int32 CurrentStatementCount = StatementsResult->Num();			
+				for (int i = 0; i<CurrentStatementCount;i++)
+				{
+					auto* Statement = (*StatementsResult)[i];
+					if(Statement->Type == KCST_CallFunction && Statement->FunctionToCall == CurNode->GetTargetFunction())
+					{
+						Statement->RHS.Add(*Term);
+					}
+				}
+			}
+		}
+		if (FunctionPtr == 0)
+		{
+			CompilerContext.MessageLog.Error(*NSLOCTEXT("KismetCompiler", "CompileCppScriptFaild_Error", "faild to compile cpp script of @@, check output log and code preview to get more information!").ToString(), Node);
+		}
+	}
+};
+
 UK2Node_ExecuteCppScript::UK2Node_ExecuteCppScript()
 {
 	FunctionReference.SetExternalMember(GET_FUNCTION_NAME_CHECKED(UClingBlueprintFunctionLibrary, RunCppScript), UClingBlueprintFunctionLibrary::StaticClass());
+	ResultPtr = reinterpret_cast<int64>(&Result);
+	FunctionName = TEXT("MyFunction");
 }
 
 void UK2Node_ExecuteCppScript::AllocateDefaultPins()
@@ -51,11 +175,6 @@ void UK2Node_ExecuteCppScript::AllocateDefaultPins()
 	CppInputsPin->bHidden = true;
 	UEdGraphPin* CppOutputsPin = FindPinChecked(ExecuteCppScriptUtil::CppOutputsPinName, EGPD_Input);
 	CppOutputsPin->bHidden = true;
-
-	// Give the Cpp script pin a default value
-	UEdGraphPin* CppScriptPin = FindPinChecked(ExecuteCppScriptUtil::CppScriptPinName, EGPD_Input);
-	CppScriptPin->AutogeneratedDefaultValue = TEXT("print('Hello World!')");
-	CppScriptPin->DefaultValue = CppScriptPin->AutogeneratedDefaultValue;
 
 	// Rename the result pin
 	UEdGraphPin* ResultPin = FindPinChecked(UEdGraphSchema_K2::PN_ReturnValue, EGPD_Output);
@@ -88,6 +207,11 @@ void UK2Node_ExecuteCppScript::PostReconstructNode()
 	};
 	SynchronizeUserDefinedPins(Inputs, EGPD_Input);
 	SynchronizeUserDefinedPins(Outputs, EGPD_Output);
+}
+
+FNodeHandlingFunctor* UK2Node_ExecuteCppScript::CreateNodeHandler(FKismetCompilerContext& CompilerContext) const
+{
+	return new FKCHandler_CompileAndStorePtr(CompilerContext);
 }
 
 void UK2Node_ExecuteCppScript::SynchronizeArgumentPinType(UEdGraphPin* Pin)
@@ -155,6 +279,18 @@ UEdGraphPin* UK2Node_ExecuteCppScript::FindArgumentPinChecked(const FName PinNam
 	return Pin;
 }
 
+void UK2Node_ExecuteCppScript::CreateTempFunctionPtrPin()
+{
+	FunctionPtrAddressPin = CreatePin(EGPD_Input,
+		UEdGraphSchema_K2::PC_Int64,FName(TEXT("FunctionPtr")));
+	Pins.RemoveAt(Pins.Num()-1);
+}
+
+UEdGraphPin* UK2Node_ExecuteCppScript::GetFunctionPtrPin() const
+{
+	return FunctionPtrAddressPin;
+}
+
 void UK2Node_ExecuteCppScript::PostEditChangeProperty(struct FPropertyChangedEvent& PropertyChangedEvent)
 {
 	const FName PropertyName = (PropertyChangedEvent.Property  ? PropertyChangedEvent.Property->GetFName() : NAME_None);
@@ -164,6 +300,30 @@ void UK2Node_ExecuteCppScript::PostEditChangeProperty(struct FPropertyChangedEve
 	}
 	Super::PostEditChangeProperty(PropertyChangedEvent);
 	GetGraph()->NotifyNodeChanged(this);
+}
+
+void UK2Node_ExecuteCppScript::PostLoad()
+{
+	Super::PostLoad();
+	// if(!HasAnyFlags(RF_Transient))
+	// {
+	// 	ResultPtr = reinterpret_cast<int64>(&Result);		
+	// }
+}
+
+void UK2Node_ExecuteCppScript::PreDuplicate(FObjectDuplicationParameters& DupParams)
+{
+	Super::PreDuplicate(DupParams);
+}
+
+void UK2Node_ExecuteCppScript::PreloadRequiredAssets()
+{
+	Super::PreloadRequiredAssets();
+	
+	if(!HasAnyFlags(RF_Transient))
+	{
+		ResultPtr = reinterpret_cast<int64>(&Result);
+	}
 }
 
 void UK2Node_ExecuteCppScript::PinConnectionListChanged(UEdGraphPin* Pin)
@@ -203,7 +363,6 @@ void UK2Node_ExecuteCppScript::EarlyValidation(FCompilerResultsLog& MessageLog) 
 			if (PinName == UEdGraphSchema_K2::PN_Execute ||
 				PinName == UEdGraphSchema_K2::PN_Then ||
 				PinName == UEdGraphSchema_K2::PN_ReturnValue ||
-				PinName == ExecuteCppScriptUtil::CppScriptPinName ||
 				PinName == ExecuteCppScriptUtil::CppInputsPinName ||
 				PinName == ExecuteCppScriptUtil::CppOutputsPinName
 				)

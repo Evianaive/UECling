@@ -18,9 +18,6 @@ class UCLING_API UClingBlueprintFunctionLibrary : public UBlueprintFunctionLibra
 public:
 	UFUNCTION(BlueprintCallable,CustomThunk,Category = "Cling|Execution",meta=(Variadic, BlueprintInternalUseOnly="true"))
 	static bool RunCppScript(
-		UPARAM(meta=(MultiLine=True)) const FString& Includes,
-		UPARAM(meta=(MultiLine=True)) const FString& CppScript,
-		UPARAM(ref)int64& FunctionPtr,
 		const TArray<FString>& CppInputs,
 		const TArray<FString>& CppOutputs);
 	DECLARE_FUNCTION(execRunCppScript);

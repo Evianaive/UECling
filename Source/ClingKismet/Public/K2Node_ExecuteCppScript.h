@@ -7,6 +7,16 @@
 #include "UObject/Object.h"
 #include "K2Node_ExecuteCppScript.generated.h"
 
+
+USTRUCT()
+struct FCppScriptCompiledResult
+{
+	GENERATED_BODY()
+	UPROPERTY(VisibleAnywhere, Transient, Category="Preview")
+	int64 FunctionPtrAddress{0};
+	UPROPERTY(VisibleAnywhere, Transient, Category="Preview")
+	FString CodePreview;
+};
 /**
  * 
  */
@@ -18,6 +28,9 @@ class CLINGKISMET_API UK2Node_ExecuteCppScript : public UK2Node_CallFunction
 	
 	//~ Begin UObject Interface
 	virtual void PostEditChangeProperty(struct FPropertyChangedEvent& PropertyChangedEvent) override;
+	virtual void PostLoad() override;
+	virtual void PreDuplicate(FObjectDuplicationParameters& DupParams) override;
+	virtual void PreloadRequiredAssets() override;
 	//~ End UObject Interface
 
 	//~ Begin UEdGraphNode Interface.
@@ -36,6 +49,7 @@ class CLINGKISMET_API UK2Node_ExecuteCppScript : public UK2Node_CallFunction
 	virtual bool IsActionFilteredOut(const class FBlueprintActionFilter& Filter) override;
 	virtual void GetMenuActions(FBlueprintActionDatabaseRegistrar& ActionRegistrar) const override;
 	virtual int32 GetNodeRefreshPriority() const override { return EBaseNodeRefreshPriority::Low_UsesDependentWildcard; }
+	virtual FNodeHandlingFunctor* CreateNodeHandler(FKismetCompilerContext& CompilerContext) const override;
 	//~ End UK2Node Interface.
 
 private:
@@ -48,11 +62,25 @@ private:
 	UEdGraphPin* FindArgumentPinChecked(const FName PinName, EEdGraphPinDirection PinDirection = EGPD_MAX);
 
 private:
+	UEdGraphPin* FunctionPtrAddressPin{nullptr};
+public:
+	// Todo add function to get enum selection
+	UPROPERTY(EditAnywhere, Category="Function")
+	FName FunctionName;
+	UPROPERTY(EditAnywhere, Category="Code", meta=(MultiLine))
+	FString Includes;
+	UPROPERTY(EditAnywhere, Category="Code", meta=(MultiLine))
+	FString Snippet;
 	/** User-defined input pins */
 	UPROPERTY(EditAnywhere, Category="Arguments")
 	TArray<FName> Inputs;
-
 	/** User-defined output pins */
 	UPROPERTY(EditAnywhere, Category="Arguments")
 	TArray<FName> Outputs;
+	UPROPERTY(EditAnywhere, Category="Preview")
+	FCppScriptCompiledResult Result;
+	UPROPERTY()
+	int64 ResultPtr;
+	void CreateTempFunctionPtrPin();
+	UEdGraphPin* GetFunctionPtrPin() const;
 };

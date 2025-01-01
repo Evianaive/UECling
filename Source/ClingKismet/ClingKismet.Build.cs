@@ -20,10 +20,12 @@ public class ClingKismet : ModuleRules
                 "Engine",
                 "Slate",
                 "SlateCore",
-                "UCling",
-                "BlueprintGraph",
                 "UnrealEd",
-                "KismetCompiler"
+                "BlueprintGraph",
+                "KismetCompiler",
+                "Kismet",
+                "UClingLibrary",
+                "UCling"
             }
         );
     }
