@@ -18,7 +18,6 @@ class UCLING_API UClingBlueprintFunctionLibrary : public UBlueprintFunctionLibra
 public:
 	UFUNCTION(BlueprintCallable,CustomThunk,Category = "Cling|Execution",meta=(Variadic, BlueprintInternalUseOnly="true"))
 	static bool RunCppScript(
-		const TArray<FString>& CppInputs,
-		const TArray<FString>& CppOutputs);
+		int32 ArgCount);
 	DECLARE_FUNCTION(execRunCppScript);
 };

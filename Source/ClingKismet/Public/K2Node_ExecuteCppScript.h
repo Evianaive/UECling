@@ -15,7 +15,9 @@ struct FCppScriptCompiledResult
 	UPROPERTY(VisibleAnywhere, Transient, Category="Preview")
 	int64 FunctionPtrAddress{0};
 	UPROPERTY(VisibleAnywhere, Transient, Category="Preview")
-	FString CodePreview;
+	FString CodePreview;	
+	UPROPERTY(EditAnywhere, Transient, Category="Preview")
+	bool DebugCodeGen{false};
 };
 /**
  * 

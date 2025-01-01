@@ -24,20 +24,19 @@
 
 namespace ExecuteCppScriptUtil
 {
+	// const FName CppInputsPinName = "CppInputs";
+	// const FName CppOutputsPinName = "CppOutputs";
+	const FName ArgCountPinName = "ArgCount";
 
-const FName CppInputsPinName = "CppInputs";
-const FName CppOutputsPinName = "CppOutputs";
+	FString CppizePinName(const FName InPinName)
+	{
+		return InPinName.ToString();
+	}
 
-FString CppizePinName(const FName InPinName)
-{
-	return InPinName.ToString();
-}
-
-FString CppizePinName(const UEdGraphPin* InPin)
-{
-	return CppizePinName(InPin->PinName);
-}
-
+	FString CppizePinName(const UEdGraphPin* InPin)
+	{
+		return CppizePinName(InPin->PinName);
+	}
 }
 
 
@@ -70,6 +69,72 @@ public:
 		}
 	}
 
+	// Generate cpp type name of property
+	static FString GetCppTypeOfProperty(const FProperty* Property)
+	{
+		FString CppType = Property->GetCPPType();
+		if(const FArrayProperty* ArrayProp = CastField<FArrayProperty>(Property))
+		{
+			CppType += TEXT("<")+GetCppTypeOfProperty(ArrayProp->Inner)+TEXT(">");
+		}
+		else if(const FSetProperty* SetProp = CastField<FSetProperty>(Property))
+		{
+			CppType += TEXT("<")+GetCppTypeOfProperty(SetProp->ElementProp)+TEXT(">");
+		}
+		else if(const FMapProperty* MapProp = CastField<FMapProperty>(Property))
+		{
+			CppType += TEXT("<")+GetCppTypeOfProperty(MapProp->KeyProp)+TEXT(",")+GetCppTypeOfProperty(MapProp->ValueProp)+TEXT(">");
+		}
+		return CppType;
+	}
+
+	// Generate define of this struct if it is a blueprint struct!
+	static void GenerateStructCode(const UScriptStruct* Struct, FString& InOutDeclare)
+	{
+		if(IsValid(Struct) && !Struct->IsNative())
+		{
+			auto SuperStruct = Cast<UScriptStruct>(Struct->GetSuperStruct());
+			GenerateStructCode(SuperStruct,InOutDeclare);
+			for (const FProperty* ChildProperty : TFieldRange<FProperty>(Struct))
+			{
+				RecursivelyGenerateDeclareOfNonNativeProp(ChildProperty,InOutDeclare);
+			}
+			FString StructName = Struct->GetStructCPPName();
+			if(SuperStruct)
+				StructName +=TEXT(" : public ") + SuperStruct->GetStructCPPName();
+			
+			InOutDeclare += FString::Printf(TEXT("struct %s{\n"),*StructName);	
+			
+			for (const FProperty* ChildProperty : TFieldRange<FProperty>(Struct))
+			{
+				InOutDeclare += FString::Printf(TEXT("%s %s;\n"),*GetCppTypeOfProperty(ChildProperty),*ChildProperty->GetAuthoredName());
+			}
+			InOutDeclare += TEXT("};\n");
+		}
+	}
+
+	// Find Struct in the property
+	static void RecursivelyGenerateDeclareOfNonNativeProp(const FProperty* Property, FString& InOutDeclare)
+	{
+		if(auto StructProperty = CastField<FStructProperty>(Property))
+		{
+			GenerateStructCode(StructProperty->Struct,InOutDeclare);
+		}
+		else if(const FArrayProperty* ArrayProp = CastField<FArrayProperty>(Property))
+		{
+			RecursivelyGenerateDeclareOfNonNativeProp(ArrayProp->Inner,InOutDeclare);
+		}
+		else if(const FSetProperty* SetProp = CastField<FSetProperty>(Property))
+		{
+			RecursivelyGenerateDeclareOfNonNativeProp(SetProp->ElementProp,InOutDeclare);
+		}
+		else if(const FMapProperty* MapProp = CastField<FMapProperty>(Property))
+		{
+			RecursivelyGenerateDeclareOfNonNativeProp(MapProp->KeyProp,InOutDeclare);
+			RecursivelyGenerateDeclareOfNonNativeProp(MapProp->ValueProp,InOutDeclare);			
+		}
+	}
+
 	virtual void Compile(FKismetFunctionContext& Context, UEdGraphNode* Node) override
 	{
 		TGuardValue GuardCurNode{CurNode,CastChecked<UK2Node_ExecuteCppScript>(Node)};
@@ -83,15 +148,11 @@ public:
 		
 		FString AddressInjectCode;
 		int DynamicParamCount = 0;
-		auto ExportParam = [&AddressInjectCode](FProperty* Property,const FString& ParamName, int32 ParamIndex){
-			FString CppType = Property->GetCPPType(&CppType);
-			if(auto StructProperty = CastField<FStructProperty>(Property))
-			{
-				if(!StructProperty->Struct->IsNative())
-				{
-					// Todo Generate define of this struct if it is a blueprint struct!
-				}
-			}
+		auto ExportParam = [&AddressInjectCode](const FProperty* Property,const FString& ParamName, int32 ParamIndex){
+			FString NecessaryPreDeclare;			
+			RecursivelyGenerateDeclareOfNonNativeProp(Property,NecessaryPreDeclare);
+			FString CppType = GetCppTypeOfProperty(Property);
+			AddressInjectCode += NecessaryPreDeclare;
 			AddressInjectCode += FString::Printf(TEXT("\t%s& %s = *(%s*)Args[%i];\n"),*CppType,*ParamName,*CppType,ParamIndex);
 		};
 		auto GetBPTerminal=[this, &Context](const FName& PinName)->FBPTerminal*
@@ -105,9 +166,6 @@ public:
 				return nullptr;
 			return (*Term);			
 		};
-		
-		auto& Module = FModuleManager::Get().GetModuleChecked<FUClingModule>(TEXT("UCling"));
-		::Decalre(Module.Interp,StringCast<ANSICHAR>(*CurNode->Includes).Get(),nullptr);
 		for (const FName& Input : CurNode->Inputs)
 		{
 			if(auto* Term = GetBPTerminal(Input))
@@ -126,9 +184,15 @@ public:
 		NameSpaceAvoidReDefine += AddressInjectCode + TEXT("	//You CppScript start from here\n") + CurNode->Snippet + TEXT("\n};\n{\n");
 		NameSpaceAvoidReDefine += FString::Printf(TEXT("	signed long long& FunctionPtr = *(signed long long*)%I64d;\n"),size_t(&FunctionPtr));
 		NameSpaceAvoidReDefine += FString::Printf(TEXT("	FunctionPtr = reinterpret_cast<int64>((void(*)(signed long long*))(%s));\n}"),*LambdaName);
-		::Process(Module.Interp,StringCast<ANSICHAR>(*NameSpaceAvoidReDefine).Get(),nullptr);
-
-		if(auto* CompileResult = reinterpret_cast<FCppScriptCompiledResult*>(CurNode->ResultPtr))
+		
+		auto* CompileResult = reinterpret_cast<FCppScriptCompiledResult*>(CurNode->ResultPtr);
+		if(CompileResult==nullptr || !CompileResult->DebugCodeGen)
+		{
+			auto& Module = FModuleManager::Get().GetModuleChecked<FUClingModule>(TEXT("UCling"));
+			::Decalre(Module.Interp,StringCast<ANSICHAR>(*CurNode->Includes).Get(),nullptr);
+			::Process(Module.Interp,StringCast<ANSICHAR>(*NameSpaceAvoidReDefine).Get(),nullptr);
+		}
+		if(CompileResult)
 		{
 			CompileResult->CodePreview = NameSpaceAvoidReDefine;
 			CompileResult->FunctionPtrAddress = FunctionPtr;
@@ -169,12 +233,9 @@ void UK2Node_ExecuteCppScript::AllocateDefaultPins()
 {
 	Super::AllocateDefaultPins();
 
-	// Hide the argument name pins
-	// Note: Have to do this manually as the "HidePin" meta-data only lets you hide a single pin :(
-	UEdGraphPin* CppInputsPin = FindPinChecked(ExecuteCppScriptUtil::CppInputsPinName, EGPD_Input);
-	CppInputsPin->bHidden = true;
-	UEdGraphPin* CppOutputsPin = FindPinChecked(ExecuteCppScriptUtil::CppOutputsPinName, EGPD_Input);
-	CppOutputsPin->bHidden = true;
+	// Hide the argument count pin
+	UEdGraphPin* ArgCountPin = FindPinChecked(ExecuteCppScriptUtil::ArgCountPinName, EGPD_Input);
+	ArgCountPin->bHidden = true;
 
 	// Rename the result pin
 	UEdGraphPin* ResultPin = FindPinChecked(UEdGraphSchema_K2::PN_ReturnValue, EGPD_Output);
@@ -363,8 +424,7 @@ void UK2Node_ExecuteCppScript::EarlyValidation(FCompilerResultsLog& MessageLog) 
 			if (PinName == UEdGraphSchema_K2::PN_Execute ||
 				PinName == UEdGraphSchema_K2::PN_Then ||
 				PinName == UEdGraphSchema_K2::PN_ReturnValue ||
-				PinName == ExecuteCppScriptUtil::CppInputsPinName ||
-				PinName == ExecuteCppScriptUtil::CppOutputsPinName
+				PinName == ExecuteCppScriptUtil::ArgCountPinName
 				)
 			{
 				MessageLog.Error(*FText::Format(LOCTEXT("InvalidPinName_RestrictedName", "Pin '{0}' ({1}) on @@ is using a restricted name."), FText::AsCultureInvariant(PinName.ToString()), FText::AsCultureInvariant(CppizedPinName)).ToString(), this);
@@ -393,46 +453,17 @@ void UK2Node_ExecuteCppScript::EarlyValidation(FCompilerResultsLog& MessageLog) 
 
 void UK2Node_ExecuteCppScript::ExpandNode(FKismetCompilerContext& CompilerContext, UEdGraph* SourceGraph)
 {
-	auto MakeArgumentNamesNode = [this, &CompilerContext, SourceGraph](const TArray<FName>& ArgNames, UEdGraphPin* TargetPin)
-	{
-		// Create a "Make Array" node to compile the list of arguments into an array for the Format function being called
-		UK2Node_MakeArray* MakeArrayNode = CompilerContext.SpawnIntermediateNode<UK2Node_MakeArray>(this, SourceGraph);
-		MakeArrayNode->NumInputs = ArgNames.Num();
-		MakeArrayNode->AllocateDefaultPins();
-
-		// Connect the output of the "Make Array" pin to the destination input pin
-		// PinConnectionListChanged will set the "Make Array" node's type, only works if one pin is connected
-		UEdGraphPin* ArrayOut = MakeArrayNode->GetOutputPin();
-		ArrayOut->MakeLinkTo(TargetPin);
-		MakeArrayNode->PinConnectionListChanged(ArrayOut);
-
-		// For each argument we need to make a literal string node
-		int32 ArgIndex = 0;
-		for (const FName& ArgName : ArgNames)
-		{
-			static const FName MakeLiteralStringFunctionName = GET_FUNCTION_NAME_CHECKED(UKismetSystemLibrary, MakeLiteralString);
-
-			// Create the "Make Literal String" node
-			UK2Node_CallFunction* MakeLiteralStringNode = CompilerContext.SpawnIntermediateNode<UK2Node_CallFunction>(this, SourceGraph);
-			MakeLiteralStringNode->SetFromFunction(UKismetSystemLibrary::StaticClass()->FindFunctionByName(MakeLiteralStringFunctionName));
-			MakeLiteralStringNode->AllocateDefaultPins();
-
-			// Set the literal value to the Cppized argument name
-			UEdGraphPin* MakeLiteralIntValuePin = MakeLiteralStringNode->FindPinChecked(TEXT("Value"), EGPD_Input);
-			MakeLiteralIntValuePin->DefaultValue = ExecuteCppScriptUtil::CppizePinName(ArgName);
-
-			// Find the input pin on the "Make Array" node by index and link it to the literal string
-			UEdGraphPin* ArrayIn = MakeArrayNode->FindPinChecked(FString::Printf(TEXT("[%d]"), ArgIndex++));
-			MakeLiteralStringNode->GetReturnValuePin()->MakeLinkTo(ArrayIn);
-		}
-
-		return MakeArrayNode;
-	};
-
-	// Create and connect the argument name nodes
-	MakeArgumentNamesNode(Inputs, FindPinChecked(ExecuteCppScriptUtil::CppInputsPinName, EGPD_Input));
-	MakeArgumentNamesNode(Outputs, FindPinChecked(ExecuteCppScriptUtil::CppOutputsPinName, EGPD_Input));
-
+	static const FName MakeLiteralIntFunctionName = GET_FUNCTION_NAME_CHECKED(UKismetSystemLibrary, MakeLiteralInt);
+	// Create the "Make Literal Int" node
+	UK2Node_CallFunction* MakeLiteralIntNode = CompilerContext.SpawnIntermediateNode<UK2Node_CallFunction>(this, SourceGraph);
+	MakeLiteralIntNode->SetFromFunction(UKismetSystemLibrary::StaticClass()->FindFunctionByName(MakeLiteralIntFunctionName));
+	MakeLiteralIntNode->AllocateDefaultPins();
+	
+	UEdGraphPin* MakeLiteralIntValuePin = MakeLiteralIntNode->FindPinChecked(TEXT("Value"), EGPD_Input);
+	MakeLiteralIntValuePin->DefaultValue = FString::FromInt(Inputs.Num()+Outputs.Num());
+	
+	MakeLiteralIntNode->GetReturnValuePin()->MakeLinkTo(FindPinChecked(ExecuteCppScriptUtil::ArgCountPinName, EGPD_Input));	
+	
 	Super::ExpandNode(CompilerContext, SourceGraph);
 }
 

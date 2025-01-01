@@ -5,8 +5,7 @@
 #include "Blueprint/BlueprintExceptionInfo.h"
 
 bool UClingBlueprintFunctionLibrary::RunCppScript(
-	const TArray<FString>& BPInputs,
-	const TArray<FString>& BPOutputs)
+	int32 ArgCount)
 {
 	check(0)
 	return false;
@@ -14,58 +13,30 @@ bool UClingBlueprintFunctionLibrary::RunCppScript(
 
 DEFINE_FUNCTION(UClingBlueprintFunctionLibrary::execRunCppScript)
 {
-	auto ExecuteCustomPythonScriptImpl = [&]() -> bool
+	P_GET_PROPERTY(FIntProperty,ArgCount);
+	TArray<int64> Args;
+	Args.SetNum(ArgCount);
+	for (int i = 0;i<ArgCount;i++)
 	{
-		const FString FunctionErrorName = Stack.Node->GetName();
-		const FString FunctionErrorCtxt = Stack.Node->GetOutermost()->GetName();
-
-		// Read the standard function arguments
-		P_GET_TARRAY_REF(FString, BPInputs);
-		P_GET_TARRAY_REF(FString, BPOutputs);
-		
-		struct FClingOutputParam
-		{
-			FProperty* Property = nullptr;
-			uint8* PropAddr = nullptr;
-			const TCHAR* OutputName = nullptr;			
-		};
-
-		TArray<int64> Args;
-		for (const FString& Input : BPInputs)
-		{
-			Stack.StepCompiledIn<FProperty>(nullptr);
-			Args.Add(reinterpret_cast<int64>(Stack.MostRecentPropertyAddress));
-		}
-		for (const FString& Output : BPOutputs)
-		{
-			Stack.StepCompiledIn<FProperty>(nullptr);
-			Args.Add(reinterpret_cast<int64>(Stack.MostRecentPropertyAddress));
-		}
-		
-		P_GET_PROPERTY_REF(FInt64Property, FunctionPtr);
-		
-		if(FunctionPtr!=0)
-		{
-			void(*Function)(int64*) = reinterpret_cast<void(*)(int64*)>(FunctionPtr);
-			if(Function)
-			{
-				Function(Args.GetData());
-			}
-		}
-		else
-		{
-			FBlueprintExceptionInfo ExceptionInfo(
-			EBlueprintExceptionType::AbortExecution,
-			NSLOCTEXT("RunCppScript", "RunCppScript_Function_Error", "Function Faild to Compile")
-			);
-			FBlueprintCoreDelegates::ThrowScriptException(P_THIS, Stack, ExceptionInfo);
-			return false;
-		}
-		
-		P_FINISH;
-		return true;
-	};
-
-	// We still need to call this function to step the bytecode correctly...
-	*(bool*)RESULT_PARAM = ExecuteCustomPythonScriptImpl();
+		Stack.StepCompiledIn<FProperty>(nullptr);
+		Args[i] = reinterpret_cast<int64>(Stack.MostRecentPropertyAddress);
+	}		
+	P_GET_PROPERTY_REF(FInt64Property, FunctionPtr);		
+	if(UNLIKELY(FunctionPtr==0))
+	{
+		FBlueprintExceptionInfo ExceptionInfo(
+		EBlueprintExceptionType::AbortExecution,
+		NSLOCTEXT("RunCppScript", "RunCppScript_Function_Error", "Function Faild to Compile")
+		);
+		FBlueprintCoreDelegates::ThrowScriptException(P_THIS, Stack, ExceptionInfo);
+		*(bool*)RESULT_PARAM = false;
+		return;
+	}
+	void(*Function)(int64*) = reinterpret_cast<void(*)(int64*)>(FunctionPtr);
+	if(Function)
+	{
+		Function(Args.GetData());
+	}		
+	P_FINISH;
+	*(bool*)RESULT_PARAM = true;
 }
