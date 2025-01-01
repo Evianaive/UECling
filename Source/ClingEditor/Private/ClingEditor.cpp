@@ -1,6 +1,6 @@
 ﻿#include "ClingEditor.h"
 
-#include "UCling.h"
+#include "ClingRuntime.h"
 #include "ClingEditor/Public/ClingCommandExecutor.h"
 
 #define LOCTEXT_NAMESPACE "FClingEditorModule"
@@ -8,7 +8,7 @@
 void FClingEditorModule::StartupModule()
 {
 	StartupCommandExecutor();
-	FModuleManager::LoadModuleChecked<FUClingModule>(TEXT("UCling"));
+	FModuleManager::LoadModuleChecked<FClingRuntimeModule>(TEXT("ClingRuntime"));
 }
 
 void FClingEditorModule::ShutdownModule()
@@ -18,7 +18,7 @@ void FClingEditorModule::ShutdownModule()
 
 void FClingEditorModule::StartupCommandExecutor()
 {
-	Executor = new FClingCommandExecutor(FModuleManager::LoadModuleChecked<FUClingModule>(TEXT("UCling")).Interp);
+	Executor = new FClingCommandExecutor(FModuleManager::LoadModuleChecked<FClingRuntimeModule>(TEXT("ClingRuntime")).Interp);
 	IModularFeatures::Get().RegisterModularFeature(IConsoleCommandExecutor::ModularFeatureName(), Executor);
 }
 

@@ -24,8 +24,8 @@ public class ClingKismet : ModuleRules
                 "BlueprintGraph",
                 "KismetCompiler",
                 "Kismet",
-                "UClingLibrary",
-                "UCling"
+                "ClingLibrary",
+                "ClingRuntime"
             }
         );
     }

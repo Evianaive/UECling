@@ -10,10 +10,10 @@
 #include "EdGraphSchema_K2.h"
 #include "K2Node_MakeArray.h"
 #include "KismetCompiler.h"
-#include "UCling.h"
+#include "ClingRuntime.h"
 #include "Kismet/KismetSystemLibrary.h"
 #include "Kismet2/BlueprintEditorUtils.h"
-#include "UCling/Public/ClingBlueprintFunctionLibrary.h"
+#include "ClingRuntime/Public/ClingBlueprintFunctionLibrary.h"
 //We have to recompile these files because they are not exported!
 #include "Editor/BlueprintGraph/Private/CallFunctionHandler.cpp"
 #include "Editor/BlueprintGraph/Private/PushModelHelpers.cpp"
@@ -211,7 +211,7 @@ public:
 		auto* CompileResult = reinterpret_cast<FCppScriptCompiledResult*>(CurNode->ResultPtr);
 		if(CompileResult==nullptr || !CompileResult->DebugCodeGen)
 		{
-			auto& Module = FModuleManager::Get().GetModuleChecked<FUClingModule>(TEXT("UCling"));
+			auto& Module = FModuleManager::Get().GetModuleChecked<FClingRuntimeModule>(TEXT("ClingRuntime"));
 			::Decalre(Module.Interp,StringCast<ANSICHAR>(*CurNode->Includes).Get(),nullptr);
 			::Process(Module.Interp,StringCast<ANSICHAR>(*NameSpaceAvoidReDefine).Get(),nullptr);
 		}
