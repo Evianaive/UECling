@@ -73,7 +73,14 @@ public:
 	static FString GetCppTypeOfProperty(const FProperty* Property)
 	{
 		FString CppType = Property->GetCPPType();
-		if(const FArrayProperty* ArrayProp = CastField<FArrayProperty>(Property))
+		if(const FObjectProperty* ObjProp = CastField<FObjectProperty>(Property))
+		{
+			if(!ObjProp->PropertyClass->IsNative())
+			{
+				CppType = TEXT("UObject*");
+			}
+		}
+		else if(const FArrayProperty* ArrayProp = CastField<FArrayProperty>(Property))
 		{
 			CppType += TEXT("<")+GetCppTypeOfProperty(ArrayProp->Inner)+TEXT(">");
 		}
@@ -148,11 +155,27 @@ public:
 		
 		FString AddressInjectCode;
 		int DynamicParamCount = 0;
-		auto ExportParam = [&AddressInjectCode](const FProperty* Property,const FString& ParamName, int32 ParamIndex){
-			FString NecessaryPreDeclare;			
-			RecursivelyGenerateDeclareOfNonNativeProp(Property,NecessaryPreDeclare);
-			FString CppType = GetCppTypeOfProperty(Property);
-			AddressInjectCode += NecessaryPreDeclare;
+		auto ExportParam = [&AddressInjectCode, this](const FBPTerminal* Term,const FString& ParamName, int32 ParamIndex){
+			const FProperty* Property = Term->AssociatedVarProperty;
+			FString CppType;
+			if(Property)
+			{
+				FString NecessaryPreDeclare;
+				RecursivelyGenerateDeclareOfNonNativeProp(Property,NecessaryPreDeclare);
+				AddressInjectCode += NecessaryPreDeclare;
+				CppType = GetCppTypeOfProperty(Property);
+			}
+			else if(Term->SourcePin->PinType.PinCategory==UEdGraphSchema_K2::PC_Object)
+			{
+				// when ref to self 
+				CppType = TEXT("UObject*");
+			}
+			else
+			{
+				// unable to resolve type for term
+				CppType = TEXT("int64");
+				CompilerContext.MessageLog.Warning(*NSLOCTEXT("KismetCompiler", "GenerateCppScriptFaild_Warn", "faild to generate recover script of @@, check output log and code preview to get more information!").ToString(), CurNode);
+			}
 			AddressInjectCode += FString::Printf(TEXT("\t%s& %s = *(%s*)Args[%i];\n"),*CppType,*ParamName,*CppType,ParamIndex);
 		};
 		auto GetBPTerminal=[this, &Context](const FName& PinName)->FBPTerminal*
@@ -170,14 +193,14 @@ public:
 		{
 			if(auto* Term = GetBPTerminal(Input))
 			{
-				ExportParam(Term->AssociatedVarProperty, Input.ToString(), DynamicParamCount++);	
+				ExportParam(Term, Input.ToString(), DynamicParamCount++);	
 			}
 		}
 		for (const FName& Output : CurNode->Outputs)
 		{
 			if(auto* Term = GetBPTerminal(Output))
 			{
-				ExportParam(Term->AssociatedVarProperty, Output.ToString(), DynamicParamCount++);	
+				ExportParam(Term, Output.ToString(), DynamicParamCount++);	
 			}
 		}
 		int64 FunctionPtr = 0;
