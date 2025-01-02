@@ -1,2 +1,0 @@
-
-// class UDeveloperSettings : public UObject
