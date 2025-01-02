@@ -13,12 +13,12 @@ using EpicGames.UHT.Types;
 using UnrealBuildBase;
 using UnrealBuildTool;
 
-namespace Plugins.UECling.UEClingIncludePathsPlugin;
+namespace Plugins.ClingRuntime.UEClingIncludePathsPlugin;
 
 [UnrealHeaderTool]
 class GeneratedCodeModifier
 {
-	[UhtExporter(Name = "UEClingIncludePathsPlugin", Description = "Modify the thunk function of UFUNCTION", Options = UhtExporterOptions.Default, ModuleName="UECling")]
+	[UhtExporter(Name = "UEClingIncludePathsPlugin", Description = "Modify the thunk function of UFUNCTION", Options = UhtExporterOptions.Default, ModuleName="ClingRuntime")]
 	private static void ScriptGeneratorExporter(IUhtExportFactory Factory)
 	{
 		// Factory.Session.LogInfo("This is a log44");

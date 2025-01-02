@@ -11,7 +11,7 @@
     <GenerateTargetFrameworkAttribute>false</GenerateTargetFrameworkAttribute>
     <Configurations>Debug;Release;Development</Configurations>
     <AssemblyName>UEClingIncludePathsPlugin</AssemblyName>
-    <RootNamespace>Plugins.UCling.UEClingIncludePathsPlugin</RootNamespace>
+    <RootNamespace>Plugins.ClingRuntime.UEClingIncludePathsPlugin</RootNamespace>
     <OutputPath>..\..\..\..\Binaries\DotNET\UnrealBuildTool\Plugins\UEClingIncludePathsPlugin\</OutputPath>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
     <DebugType>pdbonly</DebugType>
