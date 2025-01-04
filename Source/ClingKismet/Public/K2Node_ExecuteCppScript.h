@@ -66,6 +66,7 @@ private:
 private:
 	UEdGraphPin* FunctionPtrAddressPin{nullptr};
 public:
+	FString GenerateCode();
 	// Todo add function to get enum selection
 	UPROPERTY(EditAnywhere, Category="Function")
 	FName FunctionName;
@@ -81,6 +82,8 @@ public:
 	TArray<FName> Outputs;
 	UPROPERTY(EditAnywhere, Category="Preview")
 	FCppScriptCompiledResult Result;
+	UPROPERTY(VisibleAnywhere, Category="Preview")
+	FGuid FunctionGuid;
 	UPROPERTY()
 	int64 ResultPtr;
 	void CreateTempFunctionPtrPin();

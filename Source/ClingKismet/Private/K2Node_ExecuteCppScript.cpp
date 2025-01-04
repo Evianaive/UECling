@@ -14,6 +14,8 @@
 #include "Kismet/KismetSystemLibrary.h"
 #include "Kismet2/BlueprintEditorUtils.h"
 #include "ClingRuntime/Public/ClingBlueprintFunctionLibrary.h"
+#include "RecoverCodeGeneration.h"
+
 //We have to recompile these files because they are not exported!
 #include "Editor/BlueprintGraph/Private/CallFunctionHandler.cpp"
 #include "Editor/BlueprintGraph/Private/PushModelHelpers.cpp"
@@ -69,79 +71,6 @@ public:
 		}
 	}
 
-	// Generate cpp type name of property
-	static FString GetCppTypeOfProperty(const FProperty* Property)
-	{
-		FString CppType = Property->GetCPPType();
-		if(const FObjectProperty* ObjProp = CastField<FObjectProperty>(Property))
-		{
-			if(!ObjProp->PropertyClass->IsNative())
-			{
-				CppType = TEXT("UObject*");
-			}
-		}
-		else if(const FArrayProperty* ArrayProp = CastField<FArrayProperty>(Property))
-		{
-			CppType += TEXT("<")+GetCppTypeOfProperty(ArrayProp->Inner)+TEXT(">");
-		}
-		else if(const FSetProperty* SetProp = CastField<FSetProperty>(Property))
-		{
-			CppType += TEXT("<")+GetCppTypeOfProperty(SetProp->ElementProp)+TEXT(">");
-		}
-		else if(const FMapProperty* MapProp = CastField<FMapProperty>(Property))
-		{
-			CppType += TEXT("<")+GetCppTypeOfProperty(MapProp->KeyProp)+TEXT(",")+GetCppTypeOfProperty(MapProp->ValueProp)+TEXT(">");
-		}
-		return CppType;
-	}
-
-	// Generate define of this struct if it is a blueprint struct!
-	static void GenerateStructCode(const UScriptStruct* Struct, FString& InOutDeclare)
-	{
-		if(IsValid(Struct) && !Struct->IsNative())
-		{
-			auto SuperStruct = Cast<UScriptStruct>(Struct->GetSuperStruct());
-			GenerateStructCode(SuperStruct,InOutDeclare);
-			for (const FProperty* ChildProperty : TFieldRange<FProperty>(Struct))
-			{
-				RecursivelyGenerateDeclareOfNonNativeProp(ChildProperty,InOutDeclare);
-			}
-			FString StructName = Struct->GetStructCPPName();
-			if(SuperStruct)
-				StructName +=TEXT(" : public ") + SuperStruct->GetStructCPPName();
-			
-			InOutDeclare += FString::Printf(TEXT("struct %s{\n"),*StructName);	
-			
-			for (const FProperty* ChildProperty : TFieldRange<FProperty>(Struct))
-			{
-				InOutDeclare += FString::Printf(TEXT("%s %s;\n"),*GetCppTypeOfProperty(ChildProperty),*ChildProperty->GetAuthoredName());
-			}
-			InOutDeclare += TEXT("};\n");
-		}
-	}
-
-	// Find Struct in the property
-	static void RecursivelyGenerateDeclareOfNonNativeProp(const FProperty* Property, FString& InOutDeclare)
-	{
-		if(auto StructProperty = CastField<FStructProperty>(Property))
-		{
-			GenerateStructCode(StructProperty->Struct,InOutDeclare);
-		}
-		else if(const FArrayProperty* ArrayProp = CastField<FArrayProperty>(Property))
-		{
-			RecursivelyGenerateDeclareOfNonNativeProp(ArrayProp->Inner,InOutDeclare);
-		}
-		else if(const FSetProperty* SetProp = CastField<FSetProperty>(Property))
-		{
-			RecursivelyGenerateDeclareOfNonNativeProp(SetProp->ElementProp,InOutDeclare);
-		}
-		else if(const FMapProperty* MapProp = CastField<FMapProperty>(Property))
-		{
-			RecursivelyGenerateDeclareOfNonNativeProp(MapProp->KeyProp,InOutDeclare);
-			RecursivelyGenerateDeclareOfNonNativeProp(MapProp->ValueProp,InOutDeclare);			
-		}
-	}
-
 	virtual void Compile(FKismetFunctionContext& Context, UEdGraphNode* Node) override
 	{
 		TGuardValue GuardCurNode{CurNode,CastChecked<UK2Node_ExecuteCppScript>(Node)};
@@ -149,8 +78,9 @@ public:
 		auto PtrPin = CurNode->GetFunctionPtrPin();
 		
 		// Todo use function name property?
+		// Todo Should use pin type to generate code!! So we can implement open in IDE button!
 		FString LambdaName = TEXT("Lambda") + FGuid::NewGuid().ToString();
-		FString NameSpaceAvoidReDefine = TEXT("auto ")+LambdaName+TEXT(" = [](signed long long* Args){\n");
+		FString NameSpaceAvoidReDefine = CurNode->Includes + TEXT("\nauto ")+LambdaName+TEXT(" = [](signed long long* Args){\n");
 		NameSpaceAvoidReDefine += FString::Printf(TEXT("\tSCOPED_NAMED_EVENT(%s, FColor::Red);\n\t//Begin recover Args\n"),*CurNode->FunctionName.ToString());
 		
 		FString AddressInjectCode;
@@ -161,9 +91,9 @@ public:
 			if(Property)
 			{
 				FString NecessaryPreDeclare;
-				RecursivelyGenerateDeclareOfNonNativeProp(Property,NecessaryPreDeclare);
+				FRecoverCodeGeneration::RecursivelyGenerateDeclareOfNonNativeProp(Property,NecessaryPreDeclare);
 				AddressInjectCode += NecessaryPreDeclare;
-				CppType = GetCppTypeOfProperty(Property);
+				CppType = FRecoverCodeGeneration::GetCppTypeOfProperty(Property);
 			}
 			else if(Term->SourcePin->PinType.PinCategory==UEdGraphSchema_K2::PC_Object)
 			{
@@ -204,16 +134,18 @@ public:
 			}
 		}
 		int64 FunctionPtr = 0;
-		NameSpaceAvoidReDefine += AddressInjectCode + TEXT("	//You CppScript start from here\n") + CurNode->Snippet + TEXT("\n};\n{\n");
-		NameSpaceAvoidReDefine += FString::Printf(TEXT("	signed long long& FunctionPtr = *(signed long long*)%I64d;\n"),size_t(&FunctionPtr));
-		NameSpaceAvoidReDefine += FString::Printf(TEXT("	FunctionPtr = reinterpret_cast<int64>((void(*)(signed long long*))(%s));\n}"),*LambdaName);
+		NameSpaceAvoidReDefine += AddressInjectCode + TEXT("	//You CppScript start from here\n") + CurNode->Snippet + TEXT("\n};\n");
+		
+		FString StubLambda;
+		StubLambda += FString::Printf(TEXT("{\n\tsigned long long& FunctionPtr = *(signed long long*)%I64d;\n"),size_t(&FunctionPtr));
+		StubLambda += FString::Printf(TEXT("\tFunctionPtr = reinterpret_cast<int64>((void(*)(signed long long*))(%s));\n}"),*LambdaName);
 		
 		auto* CompileResult = reinterpret_cast<FCppScriptCompiledResult*>(CurNode->ResultPtr);
 		if(CompileResult==nullptr || !CompileResult->DebugCodeGen)
 		{
 			auto& Module = FModuleManager::Get().GetModuleChecked<FClingRuntimeModule>(TEXT("ClingRuntime"));
-			::Decalre(Module.Interp,StringCast<ANSICHAR>(*CurNode->Includes).Get(),nullptr);
-			::Process(Module.Interp,StringCast<ANSICHAR>(*NameSpaceAvoidReDefine).Get(),nullptr);
+			::Decalre(Module.Interp,StringCast<ANSICHAR>(*NameSpaceAvoidReDefine).Get(),nullptr);
+			::Process(Module.Interp,StringCast<ANSICHAR>(*StubLambda).Get(),nullptr);
 		}
 		if(CompileResult)
 		{
@@ -296,6 +228,72 @@ void UK2Node_ExecuteCppScript::PostReconstructNode()
 FNodeHandlingFunctor* UK2Node_ExecuteCppScript::CreateNodeHandler(FKismetCompilerContext& CompilerContext) const
 {
 	return new FKCHandler_CompileAndStorePtr(CompilerContext);
+}
+
+FString UK2Node_ExecuteCppScript::GenerateCode()
+{
+	struct FWrapToLambdaFunction
+	{
+		FWrapToLambdaFunction(FString& InCode, UK2Node_ExecuteCppScript* InSelf)
+		:Code(InCode)
+		,Self(InSelf)
+		{
+			Self->FunctionGuid = FGuid::NewGuid();
+			InCode += Self->Includes + TEXT("\n");
+			InCode += FString::Printf(TEXT("auto %s_%s = [](signed long long* Args){\n"),*Self->FunctionName.ToString(),*Self->FunctionGuid.ToString());
+			InCode += FString::Printf(TEXT("\tSCOPED_NAMED_EVENT(%s, FColor::Red);\n\t//Begin recover Args\n"),*Self->FunctionName.ToString());
+		}
+		~FWrapToLambdaFunction()
+		{
+			Code += TEXT("	//You CppScript start from here\n");
+			Code += Self->Snippet;
+			Code += TEXT("\n};\n");
+		}
+		UK2Node_ExecuteCppScript* Self;
+		FString& Code;
+	};
+	FString Lambda;
+	FWrapToLambdaFunction WrapLambdaRAII{Lambda,this};
+	
+	FName FirstArg;
+	if(Inputs.Num())
+		FirstArg = Inputs[0];
+	else if(Outputs.Num())
+		FirstArg = Outputs[0];
+	
+	int32 PinIndex = 0;
+	for(;PinIndex<Pins.Num();PinIndex++)
+	{
+		if(Pins[PinIndex]->GetFName() == FirstArg)
+			break;
+	}
+	if(PinIndex==Pins.Num())
+		return Lambda;
+
+	auto RecoverPin = [&Lambda](UEdGraphPin* Pin, int32 ParamIndex)
+	{
+		if(Pin->PinType.PinCategory == UEdGraphSchema_K2::PC_Struct)
+		{
+			FRecoverCodeGeneration::GenerateStructCode(Cast<UScriptStruct>(Pin->PinType.PinSubCategoryObject), Lambda);		
+		}	
+		if(Pin->PinType.IsMap())
+		{
+			FRecoverCodeGeneration::GenerateStructCode(Cast<UScriptStruct>(Pin->PinType.PinValueType.TerminalSubCategoryObject), Lambda);
+		}
+		FString CppType;
+		FRecoverCodeGeneration::GetCppTypeFromPin(CppType,Pin->PinType,Pin);
+		Lambda += FString::Printf(TEXT("\t%s& %s = *(%s*)Args[%i];\n"),*CppType,*Pin->GetName(),*CppType,ParamIndex);
+	};
+	int32 ParamIndex = 0;
+	for (auto& Input : Inputs)
+	{
+		RecoverPin(Pins[PinIndex++],ParamIndex++);
+	}
+	for (auto& Output : Outputs)
+	{
+		RecoverPin(Pins[PinIndex++],ParamIndex++);
+	}
+	return Lambda;
 }
 
 void UK2Node_ExecuteCppScript::SynchronizeArgumentPinType(UEdGraphPin* Pin)

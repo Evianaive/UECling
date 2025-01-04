@@ -14,7 +14,7 @@ bool UClingBlueprintFunctionLibrary::RunCppScript(
 DEFINE_FUNCTION(UClingBlueprintFunctionLibrary::execRunCppScript)
 {
 	P_GET_PROPERTY(FIntProperty,ArgCount);
-	TArray<int64> Args;
+	TArray<int64,TInlineAllocator<16>> Args;
 	Args.SetNum(ArgCount);
 	for (int i = 0;i<ArgCount;i++)
 	{
