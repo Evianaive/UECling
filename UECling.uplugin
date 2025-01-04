@@ -29,6 +29,11 @@
 			"Name": "ClingKismet",
 			"Type": "UncookedOnly",
 			"LoadingPhase": "Default"
+		},
+		{
+			"Name": "ClingScript",
+			"Type": "Runtime",
+			"LoadingPhase": "Default"
 		}
 	]
 }
