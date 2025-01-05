@@ -346,6 +346,7 @@ void UK2Node_ExecuteCppScript::OpenInIDE()
 			ISourceCodeAccessor& SourceCodeAccessor = SourceCodeAccessModule.GetAccessor();
 			if (FPaths::FileExists(File))
 			{
+				// Todo IDE like rider will not include this file in solution automatically
 				SourceCodeAccessor.OpenFileAtLine(File, Line);
 				Self->bFileOpenedInIDE = true;
 				// Todo check if this is right
@@ -379,7 +380,7 @@ void UK2Node_ExecuteCppScript::OpenInIDE()
 		return;
 	}
 	// We dont need to check whether file exist
-	FString File = GetFileFolderPath();
+	FString File = GetTempFilePath();
 	if(!FPaths::FileExists(File))
 	{
 		if(bOpenedInIDE)

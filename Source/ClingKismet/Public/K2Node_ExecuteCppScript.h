@@ -90,7 +90,7 @@ public:
 	// Todo add function to get enum selection
 	UPROPERTY(EditAnywhere, Category="Function")
 	FName FunctionName;
-	UPROPERTY(EditAnywhere, Category="Code", meta=(MultiLine))
+	UPROPERTY(EditAnywhere, Category="Code", meta=(MultiLine, EditCondition="!bFileOpenedInIDE"))
 	FString Includes;
 	UPROPERTY(EditAnywhere, Category="Code", meta=(MultiLine, EditCondition="!bFileOpenedInIDE"))
 	FString Snippet;
