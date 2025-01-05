@@ -11,6 +11,10 @@ UClingSetting::UClingSetting()
 {
 	CategoryName = TEXT("Plugins");
 	SectionName = TEXT("Cling");
+	
+	FString Path = IPluginManager::Get().FindPlugin(UE_PLUGIN_NAME)->GetBaseDir()/TEXT("Source/ClingScript");
+	PathForLambdaScriptCompile.Path = Path/TEXT("Private/LambdaScript");
+	PathForFunctionLibrarySync.Path = Path/TEXT("Private/FunctionLibrary");
 }
 
 FName UClingSetting::GetCategoryName() const

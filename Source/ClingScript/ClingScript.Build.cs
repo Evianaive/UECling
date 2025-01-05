@@ -1,4 +1,5 @@
-﻿using UnrealBuildTool;
+﻿using System.IO;
+using UnrealBuildTool;
 
 public class ClingScript : ModuleRules
 {
@@ -22,5 +23,7 @@ public class ClingScript : ModuleRules
                 "SlateCore"
             }
         );
+        PublicIncludePaths.Add(Path.Combine(ModuleDirectory, "Private/FunctionLibrary"));
+        PublicIncludePaths.Add(Path.Combine(ModuleDirectory, "Private/LambdaScript"));
     }
 }

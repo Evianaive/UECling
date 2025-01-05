@@ -1,0 +1,8 @@
+﻿
+#pragma once
+
+#define CLING_MARK "//CLING_MARK"
+#define MARK_INC "//CLING_MARK_INCLUDE"
+#define MARK_RCVR "//CLING_MARK_RECOVER"
+#define MARK_SCRPT "//CLING_MARK_SCRIPT"
+#define MARK_STRCT "//CLING_MARK_STRUCT"

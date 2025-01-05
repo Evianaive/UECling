@@ -37,7 +37,11 @@ void GetCppTypeFromPinType(FString& InOutString, const FName& ValidatedPropertyN
 		if (SubType)
 		{
 			const bool bIsInterface = SubType->HasAnyClassFlags(CLASS_Interface)
-				|| ((SubType == SelfClass) && ensure(SelfClass->ClassGeneratedBy) && FBlueprintEditorUtils::IsInterfaceBlueprint(CastChecked<UBlueprint>(SelfClass->ClassGeneratedBy)));
+				|| ((SubType == SelfClass)
+					// Todo We can't get the blueprint class that use thi node before compile
+					// Todo But here Self Pin and UObject* will pass bIsInterface now! Fix it 
+					// && ensure(SelfClass->ClassGeneratedBy) && FBlueprintEditorUtils::IsInterfaceBlueprint(CastChecked<UBlueprint>(SelfClass->ClassGeneratedBy))
+					);
 
 			if (bIsInterface)
 			{
@@ -50,6 +54,10 @@ void GetCppTypeFromPinType(FString& InOutString, const FName& ValidatedPropertyN
 				if(SubType->HasAnyClassFlags(CLASS_Interface))
 				{
 					InOutString.Append(FString::Printf(TEXT("TScriptInterface<I%s>"), *SubType->GetName()));
+				}
+				else
+				{
+					InOutString.Append(TEXT("UObject*"));
 				}
 			}
 			else
@@ -71,7 +79,10 @@ void GetCppTypeFromPinType(FString& InOutString, const FName& ValidatedPropertyN
 					}
 					else
 					{
-						InOutString.Append(FString::Printf(TEXT("%s%s*"), SubType->GetPrefixCPP(),*SubType->GetName()));
+						if(SubType->IsNative())
+							InOutString.Append(FString::Printf(TEXT("%s%s*"), SubType->GetPrefixCPP(),*SubType->GetName()));
+						else
+							InOutString.Append(TEXT("UObject*"));
 					}
 				}
 			}

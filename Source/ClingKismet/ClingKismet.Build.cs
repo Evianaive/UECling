@@ -25,7 +25,8 @@ public class ClingKismet : ModuleRules
                 "KismetCompiler",
                 "Kismet",
                 "ClingLibrary",
-                "ClingRuntime"
+                "ClingRuntime", 
+                "SourceCodeAccess"
             }
         );
     }

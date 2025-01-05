@@ -85,6 +85,11 @@ public:
 	virtual FName GetSectionName() const override;
 
 	UPROPERTY(EditAnywhere,Config)
+	FDirectoryPath PathForLambdaScriptCompile;
+	UPROPERTY(EditAnywhere,Config)
+	FDirectoryPath PathForFunctionLibrarySync;
+
+	UPROPERTY(EditAnywhere,Config)
 	bool bVerbose{true};
 	UPROPERTY(EditAnywhere,Config,DisplayName="-Wno-inconsistent-missing-override")
 	bool bIgnoreMissingOverride{true};

@@ -7,17 +7,25 @@
 #include "UObject/Object.h"
 #include "K2Node_ExecuteCppScript.generated.h"
 
+// UENUM()
+// enum ECppScriptNodeState
+// {
+// 	CodeEditingInIDE,
+// 	CodeEditingInline	
+// };
 
 USTRUCT()
 struct FCppScriptCompiledResult
 {
 	GENERATED_BODY()
 	UPROPERTY(VisibleAnywhere, Transient, Category="Preview")
+	FGuid FunctionGuid;
+	UPROPERTY(VisibleAnywhere, Transient, Category="Preview")
+	bool bGuidCompiled;
+	UPROPERTY(VisibleAnywhere, Transient, Category="Preview")
 	int64 FunctionPtrAddress{0};
 	UPROPERTY(VisibleAnywhere, Transient, Category="Preview")
-	FString CodePreview;	
-	UPROPERTY(EditAnywhere, Transient, Category="Preview")
-	bool DebugCodeGen{false};
+	FString CodePreview;
 };
 /**
  * 
@@ -66,13 +74,25 @@ private:
 private:
 	UEdGraphPin* FunctionPtrAddressPin{nullptr};
 public:
-	FString GenerateCode();
+	FString GenerateCode(bool UpdateGuid = false);
+	FString GetLambdaName() const;
+	FString GetTempFileName() const;
+	FString GetFileFolderPath() const;
+	FString GetTempFilePath() const;
+	bool HasTempFile(bool bCheckFile = false) const;
+	bool IsOpenedInIDE() const;
+	bool IsCurrentGuidCompiled() const;
+
+	UFUNCTION(CallInEditor)
+	void OpenInIDE();
+	UFUNCTION(CallInEditor)
+	void BackFromIDE();
 	// Todo add function to get enum selection
 	UPROPERTY(EditAnywhere, Category="Function")
 	FName FunctionName;
 	UPROPERTY(EditAnywhere, Category="Code", meta=(MultiLine))
 	FString Includes;
-	UPROPERTY(EditAnywhere, Category="Code", meta=(MultiLine))
+	UPROPERTY(EditAnywhere, Category="Code", meta=(MultiLine, EditCondition="!bFileOpenedInIDE"))
 	FString Snippet;
 	/** User-defined input pins */
 	UPROPERTY(EditAnywhere, Category="Arguments")
@@ -80,10 +100,12 @@ public:
 	/** User-defined output pins */
 	UPROPERTY(EditAnywhere, Category="Arguments")
 	TArray<FName> Outputs;
-	UPROPERTY(EditAnywhere, Category="Preview")
-	FCppScriptCompiledResult Result;
 	UPROPERTY(VisibleAnywhere, Category="Preview")
 	FGuid FunctionGuid;
+	UPROPERTY(VisibleAnywhere)
+	bool bFileOpenedInIDE;
+	UPROPERTY(EditAnywhere, Category="Preview")
+	FCppScriptCompiledResult Result;
 	UPROPERTY()
 	int64 ResultPtr;
 	void CreateTempFunctionPtrPin();

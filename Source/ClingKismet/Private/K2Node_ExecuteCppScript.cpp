@@ -17,6 +17,10 @@
 #include "RecoverCodeGeneration.h"
 
 //We have to recompile these files because they are not exported!
+#include "ClingScriptMarks.h"
+#include "ClingSetting.h"
+#include "ISourceCodeAccessModule.h"
+#include "ISourceCodeAccessor.h"
 #include "Editor/BlueprintGraph/Private/CallFunctionHandler.cpp"
 #include "Editor/BlueprintGraph/Private/PushModelHelpers.cpp"
 
@@ -75,104 +79,68 @@ public:
 	{
 		TGuardValue GuardCurNode{CurNode,CastChecked<UK2Node_ExecuteCppScript>(Node)};
 		FKCHandler_CallFunction::Compile(Context, Node);
-		auto PtrPin = CurNode->GetFunctionPtrPin();
 		
-		// Todo use function name property?
-		// Todo Should use pin type to generate code!! So we can implement open in IDE button!
-		FString LambdaName = TEXT("Lambda") + FGuid::NewGuid().ToString();
-		FString NameSpaceAvoidReDefine = CurNode->Includes + TEXT("\nauto ")+LambdaName+TEXT(" = [](signed long long* Args){\n");
-		NameSpaceAvoidReDefine += FString::Printf(TEXT("\tSCOPED_NAMED_EVENT(%s, FColor::Red);\n\t//Begin recover Args\n"),*CurNode->FunctionName.ToString());
+		FString FunctionDeclare;
+		// Todo check recover code is valid or not 
+		// Code only exist in Node Property
+		if(!CurNode->HasTempFile())
+			// CurNode is copied so it is temp
+			FunctionDeclare = CurNode->GenerateCode(true);
+		// Node have a temp local file
+		else
+			FunctionDeclare = FString::Printf(TEXT("#include \"%s\""),*CurNode->GetTempFileName());
 		
-		FString AddressInjectCode;
-		int DynamicParamCount = 0;
-		auto ExportParam = [&AddressInjectCode, this](const FBPTerminal* Term,const FString& ParamName, int32 ParamIndex){
-			const FProperty* Property = Term->AssociatedVarProperty;
-			FString CppType;
-			if(Property)
-			{
-				FString NecessaryPreDeclare;
-				FRecoverCodeGeneration::RecursivelyGenerateDeclareOfNonNativeProp(Property,NecessaryPreDeclare);
-				AddressInjectCode += NecessaryPreDeclare;
-				CppType = FRecoverCodeGeneration::GetCppTypeOfProperty(Property);
-			}
-			else if(Term->SourcePin->PinType.PinCategory==UEdGraphSchema_K2::PC_Object)
-			{
-				// when ref to self 
-				CppType = TEXT("UObject*");
-			}
-			else
-			{
-				// unable to resolve type for term
-				CppType = TEXT("int64");
-				CompilerContext.MessageLog.Warning(*NSLOCTEXT("KismetCompiler", "GenerateCppScriptFaild_Warn", "faild to generate recover script of @@, check output log and code preview to get more information!").ToString(), CurNode);
-			}
-			AddressInjectCode += FString::Printf(TEXT("\t%s& %s = *(%s*)Args[%i];\n"),*CppType,*ParamName,*CppType,ParamIndex);
-		};
-		auto GetBPTerminal=[this, &Context](const FName& PinName)->FBPTerminal*
-		{
-			auto Pin = CurNode->FindPin(PinName);
-			if(!Pin)
-				return nullptr;
-			UEdGraphPin* PinToTry = FEdGraphUtilities::GetNetFromPin(Pin);
-			FBPTerminal** Term = Context.NetMap.Find(PinToTry);
-			if(!Term)
-				return nullptr;
-			return (*Term);			
-		};
-		for (const FName& Input : CurNode->Inputs)
-		{
-			if(auto* Term = GetBPTerminal(Input))
-			{
-				ExportParam(Term, Input.ToString(), DynamicParamCount++);	
-			}
-		}
-		for (const FName& Output : CurNode->Outputs)
-		{
-			if(auto* Term = GetBPTerminal(Output))
-			{
-				ExportParam(Term, Output.ToString(), DynamicParamCount++);	
-			}
-		}
 		int64 FunctionPtr = 0;
-		NameSpaceAvoidReDefine += AddressInjectCode + TEXT("	//You CppScript start from here\n") + CurNode->Snippet + TEXT("\n};\n");
+		
+		auto PtrPin = CurNode->GetFunctionPtrPin();
+		FString LogInformation = NSLOCTEXT("KismetCompiler", "CompileCppScriptFaild_Error", "faild to compile cpp script of @@, check output log and code preview to get more information!").ToString();
+		ON_SCOPE_EXIT
+		{
+			UEdGraphPin* PtrLiteral = FEdGraphUtilities::GetNetFromPin(PtrPin);
+			if (FBPTerminal** Term = Context.NetMap.Find(PtrLiteral))
+			{
+				//Name is the literal value of int64! See FScriptBuilderBase::EmitTermExpr
+				(*Term)->Name = FString::Printf(TEXT("%I64d"),FunctionPtr);		
+				if(auto StatementsResult = Context.StatementsPerNode.Find(Node))
+				{
+					const int32 CurrentStatementCount = StatementsResult->Num();			
+					for (int i = 0; i<CurrentStatementCount;i++)
+					{
+						auto* Statement = (*StatementsResult)[i];
+						if(Statement->Type == KCST_CallFunction && Statement->FunctionToCall == CurNode->GetTargetFunction())
+						{
+							Statement->RHS.Add(*Term);
+						}
+					}
+				}
+			}			
+			if (FunctionPtr == 0)
+			{
+				CompilerContext.MessageLog.Error(*LogInformation, Node);
+			}
+		};
+		// File will not be included, left it un-compiled
+		if(CurNode->bFileOpenedInIDE)
+		{
+			LogInformation = NSLOCTEXT("KismetCompiler", "CompileCppScriptFaild_Error", "faild to compile cpp script of @@, node must be compiled after read back all code from IDE!").ToString();
+			return;
+		}
+		auto& Module = FModuleManager::Get().GetModuleChecked<FClingRuntimeModule>(TEXT("ClingRuntime"));
+		::Decalre(Module.Interp,StringCast<ANSICHAR>(*FunctionDeclare).Get(),nullptr);
 		
 		FString StubLambda;
 		StubLambda += FString::Printf(TEXT("{\n\tsigned long long& FunctionPtr = *(signed long long*)%I64d;\n"),size_t(&FunctionPtr));
-		StubLambda += FString::Printf(TEXT("\tFunctionPtr = reinterpret_cast<int64>((void(*)(signed long long*))(%s));\n}"),*LambdaName);
+		StubLambda += FString::Printf(TEXT("\tFunctionPtr = reinterpret_cast<int64>((void(*)(signed long long*))(%s));\n}"),*CurNode->GetLambdaName());
 		
 		auto* CompileResult = reinterpret_cast<FCppScriptCompiledResult*>(CurNode->ResultPtr);
-		if(CompileResult==nullptr || !CompileResult->DebugCodeGen)
-		{
-			auto& Module = FModuleManager::Get().GetModuleChecked<FClingRuntimeModule>(TEXT("ClingRuntime"));
-			::Decalre(Module.Interp,StringCast<ANSICHAR>(*NameSpaceAvoidReDefine).Get(),nullptr);
-			::Process(Module.Interp,StringCast<ANSICHAR>(*StubLambda).Get(),nullptr);
-		}
+		::Process(Module.Interp,StringCast<ANSICHAR>(*StubLambda).Get(),nullptr);
+		
 		if(CompileResult)
 		{
-			CompileResult->CodePreview = NameSpaceAvoidReDefine;
+			CompileResult->CodePreview = FunctionDeclare;
 			CompileResult->FunctionPtrAddress = FunctionPtr;
-		}		 
-		UEdGraphPin* PtrLiteral = FEdGraphUtilities::GetNetFromPin(PtrPin);
-		if (FBPTerminal** Term = Context.NetMap.Find(PtrLiteral))
-		{
-			//Name is the literal value of int64! See FScriptBuilderBase::EmitTermExpr
-			(*Term)->Name = FString::Printf(TEXT("%I64d"),FunctionPtr);		
-			if(auto StatementsResult = Context.StatementsPerNode.Find(Node))
-			{
-				const int32 CurrentStatementCount = StatementsResult->Num();			
-				for (int i = 0; i<CurrentStatementCount;i++)
-				{
-					auto* Statement = (*StatementsResult)[i];
-					if(Statement->Type == KCST_CallFunction && Statement->FunctionToCall == CurNode->GetTargetFunction())
-					{
-						Statement->RHS.Add(*Term);
-					}
-				}
-			}
-		}
-		if (FunctionPtr == 0)
-		{
-			CompilerContext.MessageLog.Error(*NSLOCTEXT("KismetCompiler", "CompileCppScriptFaild_Error", "faild to compile cpp script of @@, check output log and code preview to get more information!").ToString(), Node);
+			CompileResult->bGuidCompiled = true;
+			CompileResult->FunctionGuid = CurNode->FunctionGuid;
 		}
 	}
 };
@@ -230,30 +198,34 @@ FNodeHandlingFunctor* UK2Node_ExecuteCppScript::CreateNodeHandler(FKismetCompile
 	return new FKCHandler_CompileAndStorePtr(CompilerContext);
 }
 
-FString UK2Node_ExecuteCppScript::GenerateCode()
+FString UK2Node_ExecuteCppScript::GenerateCode(bool UpdateGuid)
 {
 	struct FWrapToLambdaFunction
 	{
-		FWrapToLambdaFunction(FString& InCode, UK2Node_ExecuteCppScript* InSelf)
+		FWrapToLambdaFunction(FString& InCode, UK2Node_ExecuteCppScript* InSelf, bool InUpdateGuid)
 		:Code(InCode)
 		,Self(InSelf)
 		{
-			Self->FunctionGuid = FGuid::NewGuid();
+			if(InUpdateGuid)
+				Self->FunctionGuid = FGuid::NewGuid();
+			InCode += TEXT(MARK_INC "\n");
 			InCode += Self->Includes + TEXT("\n");
-			InCode += FString::Printf(TEXT("auto %s_%s = [](signed long long* Args){\n"),*Self->FunctionName.ToString(),*Self->FunctionGuid.ToString());
-			InCode += FString::Printf(TEXT("\tSCOPED_NAMED_EVENT(%s, FColor::Red);\n\t//Begin recover Args\n"),*Self->FunctionName.ToString());
+			InCode += TEXT(MARK_INC "\n");
+			InCode += FString::Printf(TEXT("auto %s = [](signed long long* Args){\n"),*Self->GetLambdaName());
+			InCode += FString::Printf(TEXT("\tSCOPED_NAMED_EVENT(%s, FColor::Red);\n" MARK_INC ":Begin recover Args\n"),*Self->FunctionName.ToString());
 		}
 		~FWrapToLambdaFunction()
 		{
-			Code += TEXT("	//You CppScript start from here\n");
-			Code += Self->Snippet;
-			Code += TEXT("\n};\n");
+			Code += TEXT(MARK_INC ":End recover Args\n");
+			Code += TEXT(MARK_SCRPT ":You CppScript start from here\n");
+			Code += Self->Snippet + TEXT("\n");
+			Code += TEXT(MARK_SCRPT ":You CppScript end at here\n\n};\n");
 		}
-		UK2Node_ExecuteCppScript* Self;
 		FString& Code;
+		UK2Node_ExecuteCppScript* Self;
 	};
-	FString Lambda;
-	FWrapToLambdaFunction WrapLambdaRAII{Lambda,this};
+	FString LambdaString;
+	FWrapToLambdaFunction WrapLambdaRAII{LambdaString,this,UpdateGuid};
 	
 	FName FirstArg;
 	if(Inputs.Num())
@@ -268,21 +240,23 @@ FString UK2Node_ExecuteCppScript::GenerateCode()
 			break;
 	}
 	if(PinIndex==Pins.Num())
-		return Lambda;
+		return LambdaString;
 
-	auto RecoverPin = [&Lambda](UEdGraphPin* Pin, int32 ParamIndex)
+	auto RecoverPin = [&LambdaString](UEdGraphPin* Pin, int32 ParamIndex)
 	{
+		// LambdaString += TEXT(MARK_STRCT ":Begin Depends Blueprint Struct\n");
 		if(Pin->PinType.PinCategory == UEdGraphSchema_K2::PC_Struct)
 		{
-			FRecoverCodeGeneration::GenerateStructCode(Cast<UScriptStruct>(Pin->PinType.PinSubCategoryObject), Lambda);		
+			FRecoverCodeGeneration::GenerateStructCode(Cast<UScriptStruct>(Pin->PinType.PinSubCategoryObject), LambdaString);		
 		}	
 		if(Pin->PinType.IsMap())
 		{
-			FRecoverCodeGeneration::GenerateStructCode(Cast<UScriptStruct>(Pin->PinType.PinValueType.TerminalSubCategoryObject), Lambda);
+			FRecoverCodeGeneration::GenerateStructCode(Cast<UScriptStruct>(Pin->PinType.PinValueType.TerminalSubCategoryObject), LambdaString);
 		}
+		// LambdaString += TEXT(MARK_STRCT ":End Depends Blueprint Struct\n");
 		FString CppType;
 		FRecoverCodeGeneration::GetCppTypeFromPin(CppType,Pin->PinType,Pin);
-		Lambda += FString::Printf(TEXT("\t%s& %s = *(%s*)Args[%i];\n"),*CppType,*Pin->GetName(),*CppType,ParamIndex);
+		LambdaString += FString::Printf(TEXT("\t%s& %s = *(%s*)Args[%i];\n"),*CppType,*Pin->GetName(),*CppType,ParamIndex);
 	};
 	int32 ParamIndex = 0;
 	for (auto& Input : Inputs)
@@ -293,7 +267,206 @@ FString UK2Node_ExecuteCppScript::GenerateCode()
 	{
 		RecoverPin(Pins[PinIndex++],ParamIndex++);
 	}
-	return Lambda;
+	return LambdaString;
+}
+
+FString UK2Node_ExecuteCppScript::GetLambdaName() const
+{
+	return FString::Printf(TEXT("%s_%s"),*FunctionName.ToString(),*FunctionGuid.ToString());
+}
+
+FString UK2Node_ExecuteCppScript::GetTempFileName() const
+{
+	return GetLambdaName() + TEXT(".h");
+}
+
+bool UK2Node_ExecuteCppScript::HasTempFile(bool bCheckFile) const
+{
+	if(!bCheckFile)
+		return FunctionGuid.IsValid();	
+	return FunctionGuid.IsValid() && FPaths::FileExists(GetFileFolderPath()/GetTempFileName());
+}
+
+FString UK2Node_ExecuteCppScript::GetFileFolderPath() const
+{
+	// Todo use PathForFunctionLibrarySync when function come from a library
+	return FPaths::ConvertRelativePathToFull(GetDefault<UClingSetting>()->PathForLambdaScriptCompile.Path);
+}
+
+FString UK2Node_ExecuteCppScript::GetTempFilePath() const
+{
+	return GetFileFolderPath()/GetTempFileName();
+}
+
+bool UK2Node_ExecuteCppScript::IsOpenedInIDE() const
+{
+	return bFileOpenedInIDE;
+}
+
+bool UK2Node_ExecuteCppScript::IsCurrentGuidCompiled() const
+{
+	if(reinterpret_cast<FCppScriptCompiledResult*>(ResultPtr)->FunctionGuid==FunctionGuid)
+		return reinterpret_cast<FCppScriptCompiledResult*>(ResultPtr)->bGuidCompiled;
+	return false;
+}
+
+void UK2Node_ExecuteCppScript::OpenInIDE()
+{
+	struct FEnsureOpenInIDE
+	{
+		FEnsureOpenInIDE(UK2Node_ExecuteCppScript* InSelf)
+			:Self(InSelf){}
+		~FEnsureOpenInIDE()
+		{
+			auto CountLinesInFString = [](const FString& InString)
+			{
+				int32 LineCount = 1; 
+				for (TCHAR Ch : InString)
+				{
+					if (Ch == TEXT('\n'))
+					{
+						LineCount++;
+					}
+				}
+				return LineCount;
+			};
+			FString File;
+			if(bRegenerated)
+			{
+				FString NewCode = Self->GenerateCode(true);
+				File = Self->GetTempFilePath();
+				FFileHelper::SaveStringToFile(NewCode,*File);
+			}
+			else
+			{
+				File = Self->GetTempFilePath();
+			}			
+			int32 Line = CountLinesInFString(Self->Includes)+1;
+			ISourceCodeAccessModule& SourceCodeAccessModule = FModuleManager::LoadModuleChecked<ISourceCodeAccessModule>("SourceCodeAccess");
+			ISourceCodeAccessor& SourceCodeAccessor = SourceCodeAccessModule.GetAccessor();
+			if (FPaths::FileExists(File))
+			{
+				SourceCodeAccessor.OpenFileAtLine(File, Line);
+				Self->bFileOpenedInIDE = true;
+				// Todo check if this is right
+				Self->Modify();
+			}
+			else
+			{
+				if(bRegenerated)
+				{
+					// Todo tell user that file is not generated rightly!
+				}
+				// Todo change to display a model window
+				SourceCodeAccessModule.OnOpenFileFailed().Broadcast(File);
+			}
+		}
+		UK2Node_ExecuteCppScript* Self;
+		bool bRegenerated{false};
+		TSharedPtr<SWidget> WidgetToShow;
+	};
+	FEnsureOpenInIDE EnsureOpenInIDE{this};
+	// We always need to create a new file if file is compiled(included)!
+	bool bFunctionCompiled = IsCurrentGuidCompiled();
+	bool bOpenedInIDE = IsOpenedInIDE();
+	
+	ensureMsgf(!(bFunctionCompiled&&bOpenedInIDE),TEXT("Function should be compiled when code is write back from IDE"));
+
+	FString NewCode;
+	if(bFunctionCompiled)
+	{
+		EnsureOpenInIDE.bRegenerated = true;
+		return;
+	}
+	// We dont need to check whether file exist
+	FString File = GetFileFolderPath();
+	if(!FPaths::FileExists(File))
+	{
+		if(bOpenedInIDE)
+		{
+			// Show UI to tell user the temp file should not be deleted
+			// EnsureOpenInIDE.WidgetToShow;
+			return;
+		}
+		EnsureOpenInIDE.bRegenerated = true;
+		return;
+	}
+}
+
+void UK2Node_ExecuteCppScript::BackFromIDE()
+{
+	if(!IsOpenedInIDE())
+	{
+		//Todo this means we will get old code from file. It may be not compatible with node
+	}
+	if(!FPaths::FileExists(GetTempFilePath()))
+	{
+		bFileOpenedInIDE = false;
+		FunctionGuid.Invalidate();
+		//Todo allow user edit in node
+		return;
+	}
+	
+	TArray<FString> Lines;
+	FFileHelper::LoadFileToStringArray(Lines,*GetTempFilePath());
+	// Todo Currently it should only have one element
+	TArray<int32> ScopeStartIds;
+	TArray<FName> ScopeStartNames;
+
+	TArray<FName> CodeBlockNames;
+	TArray<FString> CodeBlocks;
+	for (int i = 0; i<Lines.Num(); i++)
+	{
+		auto& Line = Lines[i];
+		if(Line.StartsWith(CLING_MARK))
+		{
+			int32 LineMarkEnd = INDEX_NONE;
+			Line.FindChar(':',LineMarkEnd);
+			if(LineMarkEnd != INDEX_NONE)
+			{
+				Line.LeftInline(LineMarkEnd);				
+			}
+			else
+			{
+				Line.RemoveSpacesInline();
+			}
+			FName Mark{Line};
+			if(ScopeStartNames.Num() && ScopeStartNames.Last()==Mark)
+			{
+				ScopeStartNames.Pop();
+				ScopeStartIds.Pop();
+				continue;
+			}
+			ScopeStartNames.Add(Mark);
+			ScopeStartIds.Add(i);
+			
+			CodeBlockNames.Add(Mark);
+			CodeBlocks.Emplace();
+			continue;
+		}
+		if(ScopeStartNames.Num())
+			CodeBlocks.Last().Append(Line+TEXT("\n"));
+	}
+	// Todo check if recover code match inputs and outputs!
+	auto Id = CodeBlockNames.Find(FName(MARK_INC));
+	if(Id!=INDEX_NONE)
+	{
+		CodeBlocks[Id].RemoveAt(CodeBlocks[Id].Len()-1);
+		Includes = CodeBlocks[Id];
+	}
+	Id = CodeBlockNames.Find(FName(MARK_RCVR));
+	if(Id!=INDEX_NONE)
+	{
+		//CodeBlocks[Id];
+		// Todo Check recover code!
+	}
+	Id = CodeBlockNames.Find(FName(MARK_SCRPT));
+    if(Id!=INDEX_NONE)
+    {
+    	CodeBlocks[Id].RemoveAt(CodeBlocks[Id].Len()-1);
+    	Snippet = CodeBlocks[Id];
+    }
+	bFileOpenedInIDE = false;
 }
 
 void UK2Node_ExecuteCppScript::SynchronizeArgumentPinType(UEdGraphPin* Pin)

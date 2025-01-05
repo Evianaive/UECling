@@ -5,3 +5,4 @@
 /Source/UEClingIncludePaths/UEClingIncludePathsPlugin.ubtplugin.csproj.props
 /*.bat
 /GeneratedHeaderPaths.txt
+/Source/ClingScript/LambdaScript
