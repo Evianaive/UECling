@@ -351,6 +351,7 @@ void UK2Node_ExecuteCppScript::OpenInIDE()
 				Self->bFileOpenedInIDE = true;
 				// Todo check if this is right
 				Self->Modify();
+				Self->GetGraph()->NotifyNodeChanged(Self);
 			}
 			else
 			{
@@ -468,6 +469,7 @@ void UK2Node_ExecuteCppScript::BackFromIDE()
     	Snippet = CodeBlocks[Id];
     }
 	bFileOpenedInIDE = false;
+	GetGraph()->NotifyNodeChanged(this);
 }
 
 void UK2Node_ExecuteCppScript::SynchronizeArgumentPinType(UEdGraphPin* Pin)
@@ -553,6 +555,13 @@ void UK2Node_ExecuteCppScript::PostEditChangeProperty(struct FPropertyChangedEve
 	if (PropertyName == GET_MEMBER_NAME_CHECKED(UK2Node_ExecuteCppScript, Inputs) || PropertyName == GET_MEMBER_NAME_CHECKED(UK2Node_ExecuteCppScript, Outputs))
 	{
 		ReconstructNode();
+	}
+	if( PropertyName == GET_MEMBER_NAME_CHECKED(UK2Node_ExecuteCppScript, bEditInIDE))
+	{
+		if(bEditInIDE)
+			OpenInIDE();
+		else
+			BackFromIDE();
 	}
 	Super::PostEditChangeProperty(PropertyChangedEvent);
 	GetGraph()->NotifyNodeChanged(this);

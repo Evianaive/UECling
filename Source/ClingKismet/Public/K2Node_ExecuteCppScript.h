@@ -83,13 +83,15 @@ public:
 	bool IsOpenedInIDE() const;
 	bool IsCurrentGuidCompiled() const;
 
-	UFUNCTION(CallInEditor)
+	// UFUNCTION(CallInEditor)
 	void OpenInIDE();
-	UFUNCTION(CallInEditor)
+	// UFUNCTION(CallInEditor)
 	void BackFromIDE();
 	// Todo add function to get enum selection
 	UPROPERTY(EditAnywhere, Category="Function")
 	FName FunctionName;
+	UPROPERTY(EditAnywhere, Category="Code", Transient)
+	bool bEditInIDE{false};
 	UPROPERTY(EditAnywhere, Category="Code", meta=(MultiLine, EditCondition="!bFileOpenedInIDE"))
 	FString Includes;
 	UPROPERTY(EditAnywhere, Category="Code", meta=(MultiLine, EditCondition="!bFileOpenedInIDE"))
