@@ -3,6 +3,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "CodeString.h"
 #include "K2Node_CallFunction.h"
 #include "UObject/Object.h"
 #include "K2Node_ExecuteCppScript.generated.h"
@@ -89,13 +90,15 @@ public:
 	void BackFromIDE();
 	// Todo add function to get enum selection
 	UPROPERTY(EditAnywhere, Category="Function")
+	FName FileName;
+	UPROPERTY(EditAnywhere, Category="Function")
 	FName FunctionName;
 	UPROPERTY(EditAnywhere, Category="Code", Transient)
 	bool bEditInIDE{false};
 	UPROPERTY(EditAnywhere, Category="Code", meta=(MultiLine, EditCondition="!bFileOpenedInIDE"))
 	FString Includes;
 	UPROPERTY(EditAnywhere, Category="Code", meta=(MultiLine, EditCondition="!bFileOpenedInIDE"))
-	FString Snippet;
+	FCodeString Snippet;
 	/** User-defined input pins */
 	UPROPERTY(EditAnywhere, Category="Arguments")
 	TArray<FName> Inputs;

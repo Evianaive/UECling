@@ -9,7 +9,7 @@ public class ClingEditor : ModuleRules
         PublicDependencyModuleNames.AddRange(
             new string[]
             {
-                "Core"
+                "Core", "CodeEditor"
             }
         );
 
@@ -22,7 +22,8 @@ public class ClingEditor : ModuleRules
                 "SlateCore",
                 "ClingRuntime",
                 "UnrealEd",
-                "ClingLibrary"
+                "ClingLibrary",
+                "DeveloperSettings"
             }
         );
     }
