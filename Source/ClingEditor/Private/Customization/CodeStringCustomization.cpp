@@ -2,6 +2,7 @@
 
 #include "CodeString.h"
 #include "DetailWidgetRow.h"
+#include "K2Node_ExecuteCppScript.h"
 #include "CppHighLight/CodeEditorStyle.h"
 #include "CppHighLight/CppRichTextSyntaxHighlightMarshaller.h"
 #include "Widgets/Input/SMultiLineEditableTextBox.h"
@@ -15,9 +16,15 @@ void FCodeStringCustomization::CustomizeChildren(TSharedRef<IPropertyHandle> Str
 
 void FCodeStringCustomization::CustomizeHeader(TSharedRef<IPropertyHandle> StructPropertyHandle, class FDetailWidgetRow& HeaderRow, IPropertyTypeCustomizationUtils& StructCustomizationUtils)
 {
-	CodeStringProperty = StructPropertyHandle->GetChildHandle(GET_MEMBER_NAME_CHECKED(FCodeString, Code));
+	// CodeStringProperty = StructPropertyHandle->GetChildHandle(GET_MEMBER_NAME_CHECKED(FCodeString, Code));
+	// ->GetChildHandle("Code")
+	CodeStringProperty = StructPropertyHandle->GetParentHandle()->GetParentHandle()->GetChildHandle(GET_MEMBER_NAME_CHECKED(UK2Node_ExecuteCppScript, Snippet));
+	
+	// auto HandleDataSource = StructPropertyHandle->GetParentHandle()->GetChildHandle(GET_MEMBER_NAME_CHECKED(UK2Node_ExecuteCppScript, Snippet));
+	// StructPropertyHandle->
 	check(CodeStringProperty);
 
+	// StructCustomizationUtils.GetPropertyUtilities()
 	HeaderRow
 	.NameContent()
 	[
@@ -31,7 +38,7 @@ void FCodeStringCustomization::CustomizeHeader(TSharedRef<IPropertyHandle> Struc
 		.Style(&FClingCodeEditorStyle::Get().GetWidgetStyle<FEditableTextBoxStyle>("TextEditor.EditableTextBox"))
 		.Text(this, &FCodeStringCustomization::GetText)
 		.OnTextChanged(this, &FCodeStringCustomization::SetText)
-		// .Marshaller(FCppRichTextSyntaxHighlightMarshaller::Create(FCppRichTextSyntaxHighlightMarshaller::FSyntaxTextStyle()))
+		.Marshaller(FCppRichTextSyntaxHighlightMarshaller::Create(FSyntaxTextStyle::GetSyntaxTextStyle()))
 		.AllowMultiLine(true)
 		.OverflowPolicy(ETextOverflowPolicy::Ellipsis)
 		.Margin(0.0f)

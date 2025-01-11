@@ -4,19 +4,20 @@
 
 #include "CoreMinimal.h"
 #include "UObject/Object.h"
+#include "CppHighLight/SyntaxTextStyle.h"
 #include "ClingEditorSetting.generated.h"
 
 
-USTRUCT()
-struct FClingTextBlockStyleWrapper
-{
-	GENERATED_BODY()
-	FClingTextBlockStyleWrapper();
-	FClingTextBlockStyleWrapper(const FColor& Color);
-	UPROPERTY(EditAnywhere, meta=(ShowOnlyInnerProperties))
-	FTextBlockStyle NormalTextStyle;
-	TSharedPtr<FTextBlockStyle> RefToSelf;
-};
+// USTRUCT()
+// struct FClingTextBlockStyleWrapper
+// {
+// 	GENERATED_BODY()
+// 	FClingTextBlockStyleWrapper();
+// 	FClingTextBlockStyleWrapper(const FColor& Color);
+// 	UPROPERTY(EditAnywhere, meta=(ShowOnlyInnerProperties))
+// 	FTextBlockStyle NormalTextStyle;
+// 	TSharedPtr<FTextBlockStyle> RefToSelf;
+// };
 
 /**
  * 
@@ -31,18 +32,5 @@ public:
 	virtual FName GetContainerName() const override;
 	virtual FName GetSectionName() const override;
 	UPROPERTY(EditAnywhere)
-	FClingTextBlockStyleWrapper NormalTextStyle;
-	UPROPERTY(EditAnywhere)
-	FClingTextBlockStyleWrapper OperatorTextStyle;
-	UPROPERTY(EditAnywhere)
-	FClingTextBlockStyleWrapper KeywordTextStyle;
-	UPROPERTY(EditAnywhere)
-	FClingTextBlockStyleWrapper StringTextStyle;
-	UPROPERTY(EditAnywhere)
-	FClingTextBlockStyleWrapper NumberTextStyle;
-	UPROPERTY(EditAnywhere)
-	FClingTextBlockStyleWrapper CommentTextStyle;
-	UPROPERTY(EditAnywhere)
-	FClingTextBlockStyleWrapper PreProcessorKeywordTextStyle;
-
+	FSyntaxTextStyle SyntaxTextStyle;
 };

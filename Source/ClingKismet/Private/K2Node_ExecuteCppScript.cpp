@@ -218,7 +218,7 @@ FString UK2Node_ExecuteCppScript::GenerateCode(bool UpdateGuid)
 		{
 			Code += TEXT(MARK_INC ":End recover Args\n");
 			Code += TEXT(MARK_SCRPT ":You CppScript start from here\n");
-			Code += Self->Snippet.Code + TEXT("\n");
+			Code += Self->Snippet + TEXT("\n");
 			Code += TEXT(MARK_SCRPT ":You CppScript end at here\n\n};\n");
 		}
 		FString& Code;
@@ -466,7 +466,7 @@ void UK2Node_ExecuteCppScript::BackFromIDE()
     if(Id!=INDEX_NONE)
     {
     	CodeBlocks[Id].RemoveAt(CodeBlocks[Id].Len()-1);
-    	Snippet.Code = CodeBlocks[Id];
+    	Snippet = CodeBlocks[Id];
     }
 	bFileOpenedInIDE = false;
 	GetGraph()->NotifyNodeChanged(this);

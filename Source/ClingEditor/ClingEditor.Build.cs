@@ -23,7 +23,8 @@ public class ClingEditor : ModuleRules
                 "ClingRuntime",
                 "UnrealEd",
                 "ClingLibrary",
-                "DeveloperSettings"
+                "DeveloperSettings", 
+                "ClingKismet"
             }
         );
     }

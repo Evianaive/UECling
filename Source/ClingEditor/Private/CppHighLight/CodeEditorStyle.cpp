@@ -1,8 +1,7 @@
 // Copyright Epic Games, Inc. All Rights Reserved.
 
 #include "CppHighLight/CodeEditorStyle.h"
-
-#include "ClingEditorSetting.h"
+#include "CppHighLight/SyntaxTextStyle.h"
 #include "PrivateAccessor.hpp"
 #include "Brushes/SlateBoxBrush.h"
 #include "Styling/SlateStyleRegistry.h"
@@ -44,9 +43,17 @@ static const FVector2D Icon360x32(360.0f, 32.0f);
 static const FVector2D Icon171x39(171.0f, 39.0f);
 static const FVector2D Icon170x50(170.0f, 50.0f);
 static const FVector2D Icon267x140(170.0f, 50.0f);
-
-
-FTextBlockStyle FClingCodeEditorStyle::NormalText;
+ 
+FString ContentRoot = FPaths::EnginePluginsDir() / TEXT("Experimental/FClingCodeEditorStyle/Resources");
+FSlateFontInfo Consolas10  = DEFAULT_FONT("Mono", 9);
+FTextBlockStyle FClingCodeEditorStyle::NormalText = FTextBlockStyle()
+	.SetFont(Consolas10)
+	.SetColorAndOpacity(FLinearColor::White)
+	.SetShadowOffset(FVector2D::ZeroVector)
+	.SetShadowColorAndOpacity(FLinearColor::Black)
+	.SetHighlightColor(FLinearColor(0.02f, 0.3f, 0.0f))
+	.SetHighlightShape(FSlateBoxBrush( ContentRoot /"UI/TextBlockHighlightShape"/TEXT(".png") , FMargin(3.f / 8.f) ))
+	;
 
 void FClingCodeEditorStyle::Initialize()
 {
@@ -55,11 +62,9 @@ void FClingCodeEditorStyle::Initialize()
 	{
 		return;
 	}
-
+	
 	StyleSet = MakeShareable(new FSlateStyleSet("ClingCodeEditor") );
-
-	StyleSet->SetContentRoot(FPaths::EnginePluginsDir() / TEXT("Experimental/FClingCodeEditorStyle/Resources"));
-
+	StyleSet->SetContentRoot(ContentRoot);
 	// Icons
 	{
 		StyleSet->Set("FClingCodeEditorStyle.TabIcon", new IMAGE_BRUSH("UI/CodeEditor_16x", Icon16x16));
@@ -68,38 +73,31 @@ void FClingCodeEditorStyle::Initialize()
 		StyleSet->Set("FClingCodeEditorStyle.SaveAll", new IMAGE_BRUSH("UI/SaveAll_40x", Icon40x40));
 		StyleSet->Set("FClingCodeEditorStyle.SaveAll.Small", new IMAGE_BRUSH("UI/SaveAll_40x", Icon16x16));
 	}
-
-	const FSlateFontInfo Consolas10  = DEFAULT_FONT("Mono", 9);
-
-	NormalText = FTextBlockStyle()
-		.SetFont(Consolas10)
-		.SetColorAndOpacity(FLinearColor::White)
-		.SetShadowOffset(FVector2D::ZeroVector)
-		.SetShadowColorAndOpacity(FLinearColor::Black)
-		.SetHighlightColor(FLinearColor(0.02f, 0.3f, 0.0f))
-		.SetHighlightShape(BOX_BRUSH("UI/TextBlockHighlightShape", FMargin(3.f / 8.f)));
+	
 
 	// Text editor
 	{
 		StyleSet->Set("TextEditor.NormalText", NormalText);
-		auto EditorSettings = GetDefault<UClingEditorSetting>();
-		(StyleSet.Get()->*PRIVATE_ACCESS(FSlateStyleSet,WidgetStyleValues)).Add("SyntaxHighlight.CPP.Normal",EditorSettings->NormalTextStyle.RefToSelf.ToSharedRef());
+		auto& SyntaxTextStyle = const_cast<FSyntaxTextStyle&>(FSyntaxTextStyle::GetSyntaxTextStyle());
 		
-		(StyleSet.Get()->*PRIVATE_ACCESS(FSlateStyleSet,WidgetStyleValues)).Add("SyntaxHighlight.CPP.Operator", EditorSettings->NormalTextStyle.RefToSelf.ToSharedRef());
-		(StyleSet.Get()->*PRIVATE_ACCESS(FSlateStyleSet,WidgetStyleValues)).Add("SyntaxHighlight.CPP.Keyword", EditorSettings->NormalTextStyle.RefToSelf.ToSharedRef());
-		(StyleSet.Get()->*PRIVATE_ACCESS(FSlateStyleSet,WidgetStyleValues)).Add("SyntaxHighlight.CPP.String", EditorSettings->NormalTextStyle.RefToSelf.ToSharedRef());
-		(StyleSet.Get()->*PRIVATE_ACCESS(FSlateStyleSet,WidgetStyleValues)).Add("SyntaxHighlight.CPP.Number", EditorSettings->NormalTextStyle.RefToSelf.ToSharedRef());
-		(StyleSet.Get()->*PRIVATE_ACCESS(FSlateStyleSet,WidgetStyleValues)).Add("SyntaxHighlight.CPP.Comment", EditorSettings->NormalTextStyle.RefToSelf.ToSharedRef());
-		(StyleSet.Get()->*PRIVATE_ACCESS(FSlateStyleSet,WidgetStyleValues)).Add("SyntaxHighlight.CPP.PreProcessorKeyword", EditorSettings->NormalTextStyle.RefToSelf.ToSharedRef());
-
+		(StyleSet.Get()->*PRIVATE_ACCESS(FSlateStyleSet,WidgetStyleValues)).Add("SyntaxHighlight.CPP.Normal",MakeShareable(&SyntaxTextStyle.NormalTextStyle));
+		(StyleSet.Get()->*PRIVATE_ACCESS(FSlateStyleSet,WidgetStyleValues)).Add("SyntaxHighlight.CPP.Operator", MakeShareable(&SyntaxTextStyle.OperatorTextStyle));
+		(StyleSet.Get()->*PRIVATE_ACCESS(FSlateStyleSet,WidgetStyleValues)).Add("SyntaxHighlight.CPP.Keyword", MakeShareable(&SyntaxTextStyle.KeywordTextStyle));
+		(StyleSet.Get()->*PRIVATE_ACCESS(FSlateStyleSet,WidgetStyleValues)).Add("SyntaxHighlight.CPP.String", MakeShareable(&SyntaxTextStyle.StringTextStyle));
+		(StyleSet.Get()->*PRIVATE_ACCESS(FSlateStyleSet,WidgetStyleValues)).Add("SyntaxHighlight.CPP.Number", MakeShareable(&SyntaxTextStyle.NumberTextStyle));
+		(StyleSet.Get()->*PRIVATE_ACCESS(FSlateStyleSet,WidgetStyleValues)).Add("SyntaxHighlight.CPP.Comment", MakeShareable(&SyntaxTextStyle.CommentTextStyle));
+		(StyleSet.Get()->*PRIVATE_ACCESS(FSlateStyleSet,WidgetStyleValues)).Add("SyntaxHighlight.CPP.PreProcessorKeyword", MakeShareable(&SyntaxTextStyle.PreProcessorKeywordTextStyle));
+		
 		StyleSet->Set("TextEditor.Border", new BOX_BRUSH("UI/TextEditorBorder", FMargin(4.0f/16.0f), FLinearColor(0.02f,0.02f,0.02f,1)));
 
-		const FEditableTextBoxStyle EditableTextBoxStyle = FEditableTextBoxStyle()
+		const FEditableTextBoxStyle& NormalEditableTextBoxStyle = FAppStyle::GetWidgetStyle<FEditableTextBoxStyle>("NormalEditableTextBox");
+		const FEditableTextBoxStyle EditableTextBoxStyle = FEditableTextBoxStyle(NormalEditableTextBoxStyle)
 			.SetTextStyle(NormalText)
-			.SetBackgroundImageNormal( FSlateNoResource() )
-			.SetBackgroundImageHovered( FSlateNoResource() )
-			.SetBackgroundImageFocused( FSlateNoResource() )
-			.SetBackgroundImageReadOnly( FSlateNoResource() );
+			// .SetBackgroundImageNormal( FSlateNoResource() )
+			// .SetBackgroundImageHovered( FSlateNoResource() )
+			// .SetBackgroundImageFocused( FSlateNoResource() )
+			// .SetBackgroundImageReadOnly( FSlateNoResource() )
+			;
 		
 		StyleSet->Set("TextEditor.EditableTextBox", EditableTextBoxStyle);
 	}

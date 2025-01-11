@@ -31,7 +31,7 @@ struct FCppScriptCompiledResult
 /**
  * 
  */
-UCLASS()
+UCLASS(PrioritizeCategories=("Function","CodeEdit","Arguments","Preview","Code"))
 class CLINGKISMET_API UK2Node_ExecuteCppScript : public UK2Node_CallFunction
 {
 	GENERATED_BODY()
@@ -93,12 +93,14 @@ public:
 	FName FileName;
 	UPROPERTY(EditAnywhere, Category="Function")
 	FName FunctionName;
-	UPROPERTY(EditAnywhere, Category="Code", Transient)
+	UPROPERTY(EditAnywhere, Category="CodeEdit", Transient)
 	bool bEditInIDE{false};
-	UPROPERTY(EditAnywhere, Category="Code", meta=(MultiLine, EditCondition="!bFileOpenedInIDE"))
+	UPROPERTY(EditAnywhere, Category="CodeEdit", meta=(MultiLine, EditCondition="!bFileOpenedInIDE"))
 	FString Includes;
 	UPROPERTY(EditAnywhere, Category="Code", meta=(MultiLine, EditCondition="!bFileOpenedInIDE"))
-	FCodeString Snippet;
+	FString Snippet;
+	UPROPERTY(EditAnywhere, Category="CodeEdit", meta=(MultiLine, EditCondition="!bFileOpenedInIDE"))
+	FCodeString Code;
 	/** User-defined input pins */
 	UPROPERTY(EditAnywhere, Category="Arguments")
 	TArray<FName> Inputs;
