@@ -4,7 +4,7 @@ namespace cling
 {
 	class Interpreter;
 }
-
+DECLARE_DELEGATE_RetVal(cling::Interpreter*,FRestartInterpreter)
 /**
  * Executor for "Cling" commands
  */
@@ -26,6 +26,7 @@ public:
 	virtual FInputChord GetHotKey() const override;
 	virtual FInputChord GetIterateExecutorHotKey() const override;
 
+	FRestartInterpreter RestartInterpreter;
 private:
 	cling::Interpreter* Interpreter;
 };

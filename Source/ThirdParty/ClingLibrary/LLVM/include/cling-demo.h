@@ -11,8 +11,9 @@
 EXAMPLELIBRARY_IMPORT cling::Interpreter* CreateInterp(int argc,
 	const char* const* argv,const char* llvmdir);
 
-EXAMPLELIBRARY_IMPORT void CreateInterp2(int argc,
-    const char* const* argv,const char* llvmdir);
+EXAMPLELIBRARY_IMPORT cling::Interpreter* CreateChildInterp(
+  const cling::Interpreter& parentInterpreter,
+  int argc,  const char* const* argv,  const char* llvmdir);
 
 EXAMPLELIBRARY_IMPORT void LoadHeader(cling::Interpreter* interpreter, const std::string& filename,
 	cling::Transaction** T = nullptr);

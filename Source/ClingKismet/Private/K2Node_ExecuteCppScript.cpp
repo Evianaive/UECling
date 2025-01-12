@@ -126,14 +126,14 @@ public:
 			return;
 		}
 		auto& Module = FModuleManager::Get().GetModuleChecked<FClingRuntimeModule>(TEXT("ClingRuntime"));
-		::Decalre(Module.Interp,StringCast<ANSICHAR>(*FunctionDeclare).Get(),nullptr);
+		::Decalre(Module.GetInterp(),StringCast<ANSICHAR>(*FunctionDeclare).Get(),nullptr);
 		
 		FString StubLambda;
 		StubLambda += FString::Printf(TEXT("{\n\tsigned long long& FunctionPtr = *(signed long long*)%I64d;\n"),size_t(&FunctionPtr));
 		StubLambda += FString::Printf(TEXT("\tFunctionPtr = reinterpret_cast<int64>((void(*)(signed long long*))(%s));\n}"),*CurNode->GetLambdaName());
 		
 		auto* CompileResult = reinterpret_cast<FCppScriptCompiledResult*>(CurNode->ResultPtr);
-		::Process(Module.Interp,StringCast<ANSICHAR>(*StubLambda).Get(),nullptr);
+		::Process(Module.GetInterp(),StringCast<ANSICHAR>(*StubLambda).Get(),nullptr);
 		
 		if(CompileResult)
 		{

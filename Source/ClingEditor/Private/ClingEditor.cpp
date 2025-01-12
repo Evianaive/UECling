@@ -28,7 +28,9 @@ void FClingEditorModule::ShutdownModule()
 
 void FClingEditorModule::StartupCommandExecutor()
 {
-	Executor = new FClingCommandExecutor(FModuleManager::LoadModuleChecked<FClingRuntimeModule>(TEXT("ClingRuntime")).Interp);
+	FClingRuntimeModule& Module = FModuleManager::LoadModuleChecked<FClingRuntimeModule>(TEXT("ClingRuntime"));
+	Executor = new FClingCommandExecutor(Module.BaseInterp);
+	Executor->RestartInterpreter.BindLambda([&Module](){return Module.StartNewInterp();});
 	IModularFeatures::Get().RegisterModularFeature(IConsoleCommandExecutor::ModularFeatureName(), Executor);
 }
 

@@ -9,16 +9,23 @@ namespace cling
 	class Interpreter;
 }
 
-class FClingRuntimeModule : public IModuleInterface
+class CLINGRUNTIME_API FClingRuntimeModule : public IModuleInterface
 {
 public:
 
 	/** IModuleInterface implementation */
 	virtual void StartupModule() override;
 	virtual void ShutdownModule() override;
-	
-	cling::Interpreter* Interp{nullptr};
+// private:
+	cling::Interpreter* BaseInterp{nullptr};
+public:
+	// Todo use unique ptr
+	TArray<cling::Interpreter*> Interps;
+
+	cling::Interpreter* GetInterp(int Version=0);
+	cling::Interpreter* StartNewInterp();
 private:
+	cling::Interpreter* StartInterpreterInternal(bool bBaseInterp);
 	/** Handle to the test dll we will load */
 	TArray<void*> ExampleLibraryHandles;
 };

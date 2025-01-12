@@ -34,7 +34,7 @@ void AMyTestInterpreter::Process()
 	// TBaseStructure<FVector>::Get();
 	SCOPED_NAMED_EVENT(Cling_EXEC, FColor::Red);
 	auto& Module = FModuleManager::Get().GetModuleChecked<FClingRuntimeModule>(TEXT("ClingRuntime"));
-	::Execute(Module.Interp,StringCast<ANSICHAR>(*ProcessString).Get());
+	::Execute(Module.GetInterp(),StringCast<ANSICHAR>(*ProcessString).Get());
 }
 
 void AMyTestInterpreter::TestCallByUE()
