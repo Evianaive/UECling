@@ -51,10 +51,15 @@ bool FClingCommandExecutor::Exec(const TCHAR* Input)
 	SCOPED_NAMED_EVENT(Cling_EXEC, FColor::Red);
 	IConsoleManager::Get().AddConsoleHistoryEntry(TEXT("Cling"), Input);
 	UE_LOG(LogTemp, Log, TEXT("%s"), Input);
-	if(FString(Input).StartsWith(".r"))
+	FString InputString{Input};
+	if(InputString.StartsWith(".r"))
 	{
+		InputString.RemoveSpacesInline();
+		InputString.RemoveAt(0,2);
+		int32 Id = -1;
+		Id = FCString::Atoi(*InputString);
 		if(RestartInterpreter.IsBound())
-			Interpreter = RestartInterpreter.Execute();
+			Interpreter = RestartInterpreter.Execute(Id);
 	}
 	else
 	{

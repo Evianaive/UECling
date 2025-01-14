@@ -4,7 +4,7 @@ namespace cling
 {
 	class Interpreter;
 }
-DECLARE_DELEGATE_RetVal(cling::Interpreter*,FRestartInterpreter)
+DECLARE_DELEGATE_RetVal_OneParam(cling::Interpreter*,FRestartInterpreter,int32)
 /**
  * Executor for "Cling" commands
  */
