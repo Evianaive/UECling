@@ -1,9 +1,21 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
   <Import Project="UEClingIncludePathsPlugin.ubtplugin.csproj.props" Condition="Exists('UEClingIncludePathsPlugin.ubtplugin.csproj.props')" />
   <Import Project="$(EngineDir)\Source\Programs\Shared\UnrealEngine.csproj.props" />
-  
+  <Choose>
+    <When Condition=" $(DefineConstants.Contains('UE_5_5_OR_LATER'))">
+      <PropertyGroup>
+        <TargetFramework>net8.0</TargetFramework>
+      </PropertyGroup>
+    </When>
+    <Otherwise>
+      <PropertyGroup>
+        <TargetFramework>net6.0</TargetFramework>
+      </PropertyGroup>
+    </Otherwise>
+  </Choose>
   <PropertyGroup>
-    <TargetFramework>net6.0</TargetFramework>
+<!--    we use property above to support engines with different dotnet version-->
+<!--    <TargetFramework>net6.0</TargetFramework>-->
     <Configuration Condition=" '$(Configuration)' == '' ">Development</Configuration>
     <OutputType>Library</OutputType>
     <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>

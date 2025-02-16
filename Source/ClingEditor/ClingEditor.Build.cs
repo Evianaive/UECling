@@ -1,4 +1,5 @@
-﻿using UnrealBuildTool;
+﻿using System.Linq;
+using UnrealBuildTool;
 
 public class ClingEditor : ModuleRules
 {

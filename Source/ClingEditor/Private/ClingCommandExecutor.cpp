@@ -91,5 +91,9 @@ FInputChord FClingCommandExecutor::GetIterateExecutorHotKey() const
 	return FInputChord();
 #endif
 }
-
+#if ENGINE_MAJOR_VERSION==5 && ENGINE_MINOR_VERSION>=5
+void FClingCommandExecutor::GetSuggestedCompletions(const TCHAR* Input, TArray<FConsoleSuggestion>& Out)
+{
+}
+#endif
 #undef LOCTEXT_NAMESPACE

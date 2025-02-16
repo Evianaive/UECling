@@ -56,7 +56,7 @@ class GeneratedCodeModifier
 		// Create file of Generated Header Include Paths
 		string GeneratedHeaderPathsFile = Path.Combine(Factory.PluginModule!.IncludeBase,"..", "GeneratedHeaderPaths.txt");
 		List<string> GeneratedHeaderPaths = new List<string>();
-		foreach (UhtPackage package in Factory.Session.Packages)
+		foreach (UhtModule package in Factory.Session.Modules)
 		{
 			GeneratedHeaderPaths.Add(package.Module.OutputDirectory);
 		}
@@ -70,7 +70,7 @@ class GeneratedCodeModifier
 		Dictionary<string,int> lineIndices = new Dictionary<string,int>();
 	
 		string cppFilePath = Path.Combine(
-			headerFile.Package.Module.OutputDirectory, 
+			headerFile.Module.Module.OutputDirectory, 
 			headerFile.FileNameWithoutExtension) + ".gen.cpp";
 		Factory.Session.LogInfo(cppFilePath);
 		Func<string, string, string, string> PARAM_PASSED_BY_REF = (string ParamName, string PropertyType, string ParamType)

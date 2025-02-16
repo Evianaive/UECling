@@ -25,7 +25,9 @@ public:
 	virtual bool AllowMultiLine() const override;
 	virtual FInputChord GetHotKey() const override;
 	virtual FInputChord GetIterateExecutorHotKey() const override;
-
+#if ENGINE_MAJOR_VERSION==5 && ENGINE_MINOR_VERSION>=5
+	virtual void GetSuggestedCompletions(const TCHAR* Input, TArray<FConsoleSuggestion>& Out) override;
+#endif
 	FRestartInterpreter RestartInterpreter;
 private:
 	cling::Interpreter* Interpreter;
