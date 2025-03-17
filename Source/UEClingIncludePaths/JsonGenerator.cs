@@ -56,7 +56,11 @@ class GeneratedCodeModifier
 		// Create file of Generated Header Include Paths
 		string GeneratedHeaderPathsFile = Path.Combine(Factory.PluginModule!.IncludeBase,"..", "GeneratedHeaderPaths.txt");
 		List<string> GeneratedHeaderPaths = new List<string>();
+#if UE55
 		foreach (UhtModule package in Factory.Session.Modules)
+#else
+		foreach (UhtPackage package in Factory.Session.Packages)
+#endif
 		{
 			GeneratedHeaderPaths.Add(package.Module.OutputDirectory);
 		}
@@ -70,7 +74,11 @@ class GeneratedCodeModifier
 		Dictionary<string,int> lineIndices = new Dictionary<string,int>();
 	
 		string cppFilePath = Path.Combine(
+#if UE55
 			headerFile.Module.Module.OutputDirectory, 
+#else
+			headerFile.Package.Module.OutputDirectory,
+#endif
 			headerFile.FileNameWithoutExtension) + ".gen.cpp";
 		Factory.Session.LogInfo(cppFilePath);
 		Func<string, string, string, string> PARAM_PASSED_BY_REF = (string ParamName, string PropertyType, string ParamType)
