@@ -5,9 +5,10 @@
 #include "Kismet2/StructureEditorUtils.h"
 
 
+#if ENGINE_MAJOR_VERSION==5 && ENGINE_MINOR_VERSION>2
 template<typename T>
 concept AllowType =	std::is_same_v<std::_Remove_cvref_t<T>,FEdGraphPinType> || std::is_same_v<std::_Remove_cvref_t<T>,FEdGraphTerminalType>;
-
+#endif
 const FName& GetCategory(const FEdGraphPinType& Type){return Type.PinCategory;}
 const FName& GetCategory(const FEdGraphTerminalType& Type){return Type.TerminalCategory;}
 const FName& GetSubCategory(const FEdGraphPinType& Type){return Type.PinSubCategory;}
@@ -17,7 +18,11 @@ UObject* GetSubCategoryObject(const FEdGraphTerminalType& Type){return Type.Term
 bool GetIsWeakPointer(const FEdGraphPinType& Type){return Type.bIsWeakPointer;}
 bool GetIsWeakPointer(const FEdGraphTerminalType& Type){return Type.bTerminalIsWeakPointer;}
 
+#if ENGINE_MAJOR_VERSION==5 && ENGINE_MINOR_VERSION>2
 template<AllowType T>
+#else
+template<typename T>
+#endif
 void GetCppTypeFromPinType(FString& InOutString, const FName& ValidatedPropertyName, T& Type, UClass* SelfClass = UObject::StaticClass())
 {
 	const FName& PinCategory = GetCategory(Type);

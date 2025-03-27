@@ -23,7 +23,22 @@
 #include "ISourceCodeAccessor.h"
 #include "Editor/BlueprintGraph/Private/CallFunctionHandler.cpp"
 #include "Editor/BlueprintGraph/Private/PushModelHelpers.cpp"
-
+#if ENGINE_MAJOR_VERSION==5 && ENGINE_MINOR_VERSION>2
+#else
+#include "Misc/FileHelper.h"
+#endif
+#if ENGINE_MAJOR_VERSION==5 && ENGINE_MINOR_VERSION>2
+#else
+// #include "GraphEditAction.h"
+// FEdGraphEditAction MakeAction(UEdGraph* Graph, UEdGraphNode* Node)
+// {
+// 	FEdGraphEditAction Action;
+// 	Action.Graph = Graph;
+// 	Action.Action = EEdGraphActionType::GRAPHACTION_Default;
+// 	Action.Nodes.Add(Node);
+// 	return Action;
+// }
+#endif
 #include UE_INLINE_GENERATED_CPP_BY_NAME(K2Node_ExecuteCppScript)
 
 #define LOCTEXT_NAMESPACE "K2Node_ExecuteCppScript"
@@ -351,7 +366,11 @@ void UK2Node_ExecuteCppScript::OpenInIDE()
 				Self->bFileOpenedInIDE = true;
 				// Todo check if this is right
 				Self->Modify();
+#if ENGINE_MAJOR_VERSION==5 && ENGINE_MINOR_VERSION>2
 				Self->GetGraph()->NotifyNodeChanged(Self);
+#else
+				Self->GetGraph()->NotifyGraphChanged();
+#endif
 			}
 			else
 			{
@@ -469,7 +488,11 @@ void UK2Node_ExecuteCppScript::BackFromIDE()
     	Snippet = CodeBlocks[Id];
     }
 	bFileOpenedInIDE = false;
+#if ENGINE_MAJOR_VERSION==5 && ENGINE_MINOR_VERSION>2
 	GetGraph()->NotifyNodeChanged(this);
+#else
+	GetGraph()->NotifyGraphChanged();
+#endif
 }
 
 void UK2Node_ExecuteCppScript::SynchronizeArgumentPinType(UEdGraphPin* Pin)
@@ -506,9 +529,11 @@ void UK2Node_ExecuteCppScript::SynchronizeArgumentPinTypeImpl(UEdGraphPin* Pin)
 	if (Pin->PinType != NewPinType)
 	{
 		Pin->PinType = NewPinType;
-
+#if ENGINE_MAJOR_VERSION==5 && ENGINE_MINOR_VERSION>2
 		GetGraph()->NotifyNodeChanged(this);
-
+#else
+		GetGraph()->NotifyGraphChanged();
+#endif
 		UBlueprint* Blueprint = GetBlueprint();
 		if (!Blueprint->bBeingCompiled)
 		{
@@ -564,7 +589,11 @@ void UK2Node_ExecuteCppScript::PostEditChangeProperty(struct FPropertyChangedEve
 			BackFromIDE();
 	}
 	Super::PostEditChangeProperty(PropertyChangedEvent);
+#if ENGINE_MAJOR_VERSION==5 && ENGINE_MINOR_VERSION>2
 	GetGraph()->NotifyNodeChanged(this);
+#else
+	GetGraph()->NotifyGraphChanged();
+#endif
 }
 
 void UK2Node_ExecuteCppScript::PostLoad()
