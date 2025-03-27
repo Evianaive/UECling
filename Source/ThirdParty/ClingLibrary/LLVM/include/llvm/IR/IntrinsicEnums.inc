@@ -6,8 +6,13 @@
 |*                                                                            *|
 \*===----------------------------------------------------------------------===*/
 
+#ifdef GET_INTRINSIC_ENUM_VALUES
 // Enum values for intrinsics
-    abs = 1,                                       // llvm.abs
+    aarch64_sve_pmov_to_pred_lane = 1,             // llvm.aarch64.sve.pmov.to.pred.lane
+    aarch64_sve_pmov_to_pred_lane_zero,        // llvm.aarch64.sve.pmov.to.pred.lane.zero
+    aarch64_sve_pmov_to_vector_lane_merging,   // llvm.aarch64.sve.pmov.to.vector.lane.merging
+    aarch64_sve_pmov_to_vector_lane_zeroing,   // llvm.aarch64.sve.pmov.to.vector.lane.zeroing
+    abs,                                       // llvm.abs
     addressofreturnaddress,                    // llvm.addressofreturnaddress
     adjust_trampoline,                         // llvm.adjust.trampoline
     annotation,                                // llvm.annotation
@@ -19,6 +24,7 @@
     call_preallocated_arg,                     // llvm.call.preallocated.arg
     call_preallocated_setup,                   // llvm.call.preallocated.setup
     call_preallocated_teardown,                // llvm.call.preallocated.teardown
+    callbr_landingpad,                         // llvm.callbr.landingpad
     canonicalize,                              // llvm.canonicalize
     ceil,                                      // llvm.ceil
     clear_cache,                               // llvm.clear_cache
@@ -40,6 +46,7 @@
     coro_done,                                 // llvm.coro.done
     coro_end,                                  // llvm.coro.end
     coro_end_async,                            // llvm.coro.end.async
+    coro_end_results,                          // llvm.coro.end.results
     coro_frame,                                // llvm.coro.frame
     coro_free,                                 // llvm.coro.free
     coro_id,                                   // llvm.coro.id
@@ -61,7 +68,6 @@
     ctlz,                                      // llvm.ctlz
     ctpop,                                     // llvm.ctpop
     cttz,                                      // llvm.cttz
-    dbg_addr,                                  // llvm.dbg.addr
     dbg_assign,                                // llvm.dbg.assign
     dbg_declare,                               // llvm.dbg.declare
     dbg_label,                                 // llvm.dbg.label
@@ -83,6 +89,7 @@
     eh_typeid_for,                             // llvm.eh.typeid.for
     eh_unwind_init,                            // llvm.eh.unwind.init
     exp,                                       // llvm.exp
+    exp10,                                     // llvm.exp10
     exp2,                                      // llvm.exp2
     expect,                                    // llvm.expect
     expect_with_probability,                   // llvm.expect.with.probability
@@ -104,6 +111,7 @@
     experimental_constrained_fptrunc,          // llvm.experimental.constrained.fptrunc
     experimental_constrained_frem,             // llvm.experimental.constrained.frem
     experimental_constrained_fsub,             // llvm.experimental.constrained.fsub
+    experimental_constrained_ldexp,            // llvm.experimental.constrained.ldexp
     experimental_constrained_llrint,           // llvm.experimental.constrained.llrint
     experimental_constrained_llround,          // llvm.experimental.constrained.llround
     experimental_constrained_log,              // llvm.experimental.constrained.log
@@ -126,20 +134,28 @@
     experimental_constrained_sqrt,             // llvm.experimental.constrained.sqrt
     experimental_constrained_trunc,            // llvm.experimental.constrained.trunc
     experimental_constrained_uitofp,           // llvm.experimental.constrained.uitofp
+    experimental_convergence_anchor,           // llvm.experimental.convergence.anchor
+    experimental_convergence_entry,            // llvm.experimental.convergence.entry
+    experimental_convergence_loop,             // llvm.experimental.convergence.loop
+    experimental_cttz_elts,                    // llvm.experimental.cttz.elts
     experimental_deoptimize,                   // llvm.experimental.deoptimize
     experimental_gc_get_pointer_base,          // llvm.experimental.gc.get.pointer.base
     experimental_gc_get_pointer_offset,        // llvm.experimental.gc.get.pointer.offset
     experimental_gc_relocate,                  // llvm.experimental.gc.relocate
     experimental_gc_result,                    // llvm.experimental.gc.result
     experimental_gc_statepoint,                // llvm.experimental.gc.statepoint
+    experimental_get_vector_length,            // llvm.experimental.get.vector.length
     experimental_guard,                        // llvm.experimental.guard
     experimental_noalias_scope_decl,           // llvm.experimental.noalias.scope.decl
     experimental_patchpoint_i64,               // llvm.experimental.patchpoint.i64
     experimental_patchpoint_void,              // llvm.experimental.patchpoint.void
     experimental_stackmap,                     // llvm.experimental.stackmap
     experimental_stepvector,                   // llvm.experimental.stepvector
+    experimental_vector_deinterleave2,         // llvm.experimental.vector.deinterleave2
+    experimental_vector_interleave2,           // llvm.experimental.vector.interleave2
     experimental_vector_reverse,               // llvm.experimental.vector.reverse
     experimental_vector_splice,                // llvm.experimental.vector.splice
+    experimental_vp_reverse,                   // llvm.experimental.vp.reverse
     experimental_vp_splice,                    // llvm.experimental.vp.splice
     experimental_vp_strided_load,              // llvm.experimental.vp.strided.load
     experimental_vp_strided_store,             // llvm.experimental.vp.strided.store
@@ -152,6 +168,7 @@
     fptoui_sat,                                // llvm.fptoui.sat
     fptrunc_round,                             // llvm.fptrunc.round
     frameaddress,                              // llvm.frameaddress
+    frexp,                                     // llvm.frexp
     fshl,                                      // llvm.fshl
     fshr,                                      // llvm.fshr
     gcread,                                    // llvm.gcread
@@ -159,6 +176,8 @@
     gcwrite,                                   // llvm.gcwrite
     get_active_lane_mask,                      // llvm.get.active.lane.mask
     get_dynamic_area_offset,                   // llvm.get.dynamic.area.offset
+    get_fpenv,                                 // llvm.get.fpenv
+    get_fpmode,                                // llvm.get.fpmode
     get_rounding,                              // llvm.get.rounding
     hwasan_check_memaccess,                    // llvm.hwasan.check.memaccess
     hwasan_check_memaccess_shortgranules,      // llvm.hwasan.check.memaccess.shortgranules
@@ -167,12 +186,17 @@
     instrprof_cover,                           // llvm.instrprof.cover
     instrprof_increment,                       // llvm.instrprof.increment
     instrprof_increment_step,                  // llvm.instrprof.increment.step
+    instrprof_mcdc_condbitmap_update,          // llvm.instrprof.mcdc.condbitmap.update
+    instrprof_mcdc_parameters,                 // llvm.instrprof.mcdc.parameters
+    instrprof_mcdc_tvbitmap_update,            // llvm.instrprof.mcdc.tvbitmap.update
+    instrprof_timestamp,                       // llvm.instrprof.timestamp
     instrprof_value_profile,                   // llvm.instrprof.value.profile
     invariant_end,                             // llvm.invariant.end
     invariant_start,                           // llvm.invariant.start
     is_constant,                               // llvm.is.constant
     is_fpclass,                                // llvm.is.fpclass
     launder_invariant_group,                   // llvm.launder.invariant.group
+    ldexp,                                     // llvm.ldexp
     lifetime_end,                              // llvm.lifetime.end
     lifetime_start,                            // llvm.lifetime.start
     llrint,                                    // llvm.llrint
@@ -248,6 +272,7 @@
     powi,                                      // llvm.powi
     prefetch,                                  // llvm.prefetch
     preserve_array_access_index,               // llvm.preserve.array.access.index
+    preserve_static_offset,                    // llvm.preserve.static.offset
     preserve_struct_access_index,              // llvm.preserve.struct.access.index
     preserve_union_access_index,               // llvm.preserve.union.access.index
     pseudoprobe,                               // llvm.pseudoprobe
@@ -263,6 +288,8 @@
     read_register,                             // llvm.read_register
     read_volatile_register,                    // llvm.read_volatile_register
     readcyclecounter,                          // llvm.readcyclecounter
+    reset_fpenv,                               // llvm.reset.fpenv
+    reset_fpmode,                              // llvm.reset.fpmode
     returnaddress,                             // llvm.returnaddress
     rint,                                      // llvm.rint
     round,                                     // llvm.round
@@ -275,6 +302,8 @@
     seh_scope_end,                             // llvm.seh.scope.end
     seh_try_begin,                             // llvm.seh.try.begin
     seh_try_end,                               // llvm.seh.try.end
+    set_fpenv,                                 // llvm.set.fpenv
+    set_fpmode,                                // llvm.set.fpmode
     set_loop_iterations,                       // llvm.set.loop.iterations
     set_rounding,                              // llvm.set.rounding
     sideeffect,                                // llvm.sideeffect
@@ -304,6 +333,7 @@
     trap,                                      // llvm.trap
     trunc,                                     // llvm.trunc
     type_checked_load,                         // llvm.type.checked.load
+    type_checked_load_relative,                // llvm.type.checked.load.relative
     type_test,                                 // llvm.type.test
     uadd_sat,                                  // llvm.uadd.sat
     uadd_with_overflow,                        // llvm.uadd.with.overflow
@@ -328,7 +358,9 @@
     vector_reduce_and,                         // llvm.vector.reduce.and
     vector_reduce_fadd,                        // llvm.vector.reduce.fadd
     vector_reduce_fmax,                        // llvm.vector.reduce.fmax
+    vector_reduce_fmaximum,                    // llvm.vector.reduce.fmaximum
     vector_reduce_fmin,                        // llvm.vector.reduce.fmin
+    vector_reduce_fminimum,                    // llvm.vector.reduce.fminimum
     vector_reduce_fmul,                        // llvm.vector.reduce.fmul
     vector_reduce_mul,                         // llvm.vector.reduce.mul
     vector_reduce_or,                          // llvm.vector.reduce.or
@@ -368,10 +400,13 @@
     vp_gather,                                 // llvm.vp.gather
     vp_icmp,                                   // llvm.vp.icmp
     vp_inttoptr,                               // llvm.vp.inttoptr
+    vp_is_fpclass,                             // llvm.vp.is.fpclass
     vp_load,                                   // llvm.vp.load
     vp_lshr,                                   // llvm.vp.lshr
+    vp_maximum,                                // llvm.vp.maximum
     vp_maxnum,                                 // llvm.vp.maxnum
     vp_merge,                                  // llvm.vp.merge
+    vp_minimum,                                // llvm.vp.minimum
     vp_minnum,                                 // llvm.vp.minnum
     vp_mul,                                    // llvm.vp.mul
     vp_nearbyint,                              // llvm.vp.nearbyint
@@ -418,4 +453,16 @@
     write_register,                            // llvm.write_register
     xray_customevent,                          // llvm.xray.customevent
     xray_typedevent,                           // llvm.xray.typedevent
-    num_intrinsics = 11378
+    num_intrinsics = 13653
+#endif
+
+// llvm::Intrinsic::IITDescriptor::ArgKind
+#ifdef GET_INTRINSIC_ARGKIND
+    AK_Any = 0,
+    AK_AnyInteger = 1,
+    AK_AnyFloat = 2,
+    AK_AnyVector = 3,
+    AK_AnyPointer = 4,
+    AK_MatchType = 7,
+#endif
+

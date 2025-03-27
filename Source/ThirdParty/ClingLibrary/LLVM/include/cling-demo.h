@@ -12,25 +12,10 @@ EXAMPLELIBRARY_IMPORT cling::Interpreter* CreateInterp(int argc,
 	const char* const* argv,const char* llvmdir);
 
 EXAMPLELIBRARY_IMPORT cling::Interpreter* CreateChildInterp(
-	const cling::Interpreter& parentInterpreter,
-	int argc,  const char* const* argv,  const char* llvmdir);
+  const cling::Interpreter& parentInterpreter,
+  int argc,  const char* const* argv,  const char* llvmdir);
 
-class EXAMPLELIBRARY_IMPORT FCodeComplete
-{
-public:
-	FCodeComplete(const cling::Interpreter* interpreter,
-			const std::string& line, size_t& cursor
-			);
-	std::vector<std::string> completions;
-};
-// EXAMPLELIBRARY_IMPORT void CodeComplete(
-//   const cling::Interpreter* interpreter,
-//   const std::string& line, size_t& cursor,
-//   std::vector<std::string>& completions)
-
-EXAMPLELIBRARY_IMPORT void LoadHeader(
-	cling::Interpreter* interpreter,
-	const std::string& filename,
+EXAMPLELIBRARY_IMPORT void LoadHeader(cling::Interpreter* interpreter, const std::string& filename,
 	cling::Transaction** T = nullptr);
 
 EXAMPLELIBRARY_IMPORT void Execute(cling::Interpreter* interpreter, const std::string& String);
@@ -48,3 +33,5 @@ EXAMPLELIBRARY_IMPORT void AddIncludePath(cling::Interpreter* interpreter, const
 EXAMPLELIBRARY_IMPORT void ProcessCommand(cling::Interpreter* interpreter, const std::string& String,
 	cling::Value* V = nullptr,
 	bool disableValuePrinting = true);
+
+EXAMPLELIBRARY_IMPORT void GeneratePCH(cling::Interpreter* interpreter, const char* Path, const char* InputPath);

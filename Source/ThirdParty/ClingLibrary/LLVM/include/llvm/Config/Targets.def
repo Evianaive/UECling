@@ -23,7 +23,7 @@
 #  error Please define the macro LLVM_TARGET(TargetName)
 #endif
 
-//LLVM_TARGET(NVPTX)
+LLVM_TARGET(NVPTX)
 LLVM_TARGET(X86)
 
 
