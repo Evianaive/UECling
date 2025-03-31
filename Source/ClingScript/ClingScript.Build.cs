@@ -1,4 +1,5 @@
-﻿using System.IO;
+﻿using System;
+using System.IO;
 using UnrealBuildTool;
 
 public class ClingScript : ModuleRules
@@ -23,7 +24,16 @@ public class ClingScript : ModuleRules
                 "SlateCore"
             }
         );
-        PublicIncludePaths.Add(Path.Combine(ModuleDirectory, "Private/FunctionLibrary"));
-        PublicIncludePaths.Add(Path.Combine(ModuleDirectory, "Private/LambdaScript"));
+        Action<string> ensureDirectoryExists = path =>
+        {
+            if (!Directory.Exists(path))
+                if (path != null)
+                    Directory.CreateDirectory(path);
+                else
+                    return;
+            PublicIncludePaths.Add(path);
+        };
+        ensureDirectoryExists(Path.Combine(ModuleDirectory, "Private/FunctionLibrary"));
+        ensureDirectoryExists(Path.Combine(ModuleDirectory, "Private/LambdaScript"));
     }
 }
