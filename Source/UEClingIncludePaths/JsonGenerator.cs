@@ -56,7 +56,7 @@ class GeneratedCodeModifier
 		// Create file of Generated Header Include Paths
 		string GeneratedHeaderPathsFile = Path.Combine(Factory.PluginModule!.IncludeBase,"..", "GeneratedHeaderPaths.txt");
 		List<string> GeneratedHeaderPaths = new List<string>();
-#if UE55
+#if UE_5_5_OR_LATER
 		foreach (UhtModule package in Factory.Session.Modules)
 #else
 		foreach (UhtPackage package in Factory.Session.Packages)
@@ -74,7 +74,7 @@ class GeneratedCodeModifier
 		Dictionary<string,int> lineIndices = new Dictionary<string,int>();
 	
 		string cppFilePath = Path.Combine(
-#if UE55
+#if UE_5_5_OR_LATER
 			headerFile.Module.Module.OutputDirectory, 
 #else
 			headerFile.Package.Module.OutputDirectory,

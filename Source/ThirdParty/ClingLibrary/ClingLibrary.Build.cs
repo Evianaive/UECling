@@ -1,5 +1,6 @@
 // Fill out your copyright notice in the Description page of Project Settings.
 
+using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Runtime.InteropServices;
@@ -100,9 +101,17 @@ public class ClingLibrary : ModuleRules
 					Directory.CreateDirectory(BinariesDir);
 				}
 				Logger.LogInformation("Copying {dll}", dll);
-				File.Copy(Path.Combine(ModuleDirectory,"LLVM","bin",dll),
-					Path.Combine(BinariesDir,dll),
-					true);
+				try
+				{
+
+					File.Copy(Path.Combine(ModuleDirectory,"LLVM","bin",dll),
+						Path.Combine(BinariesDir,dll),
+						true);
+				}
+				catch (Exception e)
+				{
+					Console.WriteLine(e);
+				}
 				RuntimeDependencies.Add(Path.Combine(BinariesDir, dll));
 			}
 			

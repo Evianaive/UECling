@@ -1,64 +1,113 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
-  <Import Project="UEClingIncludePathsPlugin.ubtplugin.csproj.props" Condition="Exists('UEClingIncludePathsPlugin.ubtplugin.csproj.props')" />
-  <Import Project="$(EngineDir)\Source\Programs\Shared\UnrealEngine.csproj.props" />
-  <Choose>
-    <When Condition=" $(DefineConstants.Contains('UE_5_5_OR_LATER'))">
-      <PropertyGroup>
-        <TargetFramework>net8.0</TargetFramework>
-        <DefineConstants>$(DefineConstants);UE55</DefineConstants>
-      </PropertyGroup>
-    </When>
-    <Otherwise>
-      <PropertyGroup>
-        <TargetFramework>net6.0</TargetFramework>
-      </PropertyGroup>
-    </Otherwise>
-  </Choose>
-  <PropertyGroup>
+    <Import Project="UEClingIncludePathsPlugin.ubtplugin.csproj.props" Condition="Exists('UEClingIncludePathsPlugin.ubtplugin.csproj.props')" />
+    <Import Project="$(EngineDir)\Source\Programs\Shared\UnrealEngine.csproj.props" />
+
+<!--    <UsingTask TaskName="ParseEngineVersion" TaskFactory="RoslynCodeTaskFactory"-->
+<!--               AssemblyFile="$(MSBuildToolsPath)\Microsoft.Build.Tasks.Core.dll">-->
+<!--        <ParameterGroup>-->
+<!--            <VersionFilePath ParameterType="System.String" Required="true"/>-->
+<!--            <VersionMacro Output="true"/>-->
+<!--        </ParameterGroup>-->
+<!--        <Task>-->
+<!--            <Using Namespace="System.IO"/>-->
+<!--            <Code>-->
+<!--                <![CDATA[-->
+<!--try -->
+<!--{-->
+<!--    string jsonContent = File.ReadAllText(VersionFilePath)-->
+<!--        .Replace(" ", "").Replace("\n", "").Replace("\r", "");-->
+
+<!--    int majorStart = jsonContent.IndexOf("\"MajorVersion\":", StringComparison.Ordinal) + "\"MajorVersion\":".Length;-->
+<!--    int majorEnd = jsonContent.IndexOfAny(new[] { ',', '}' }, majorStart);-->
+<!--    string majorStr = jsonContent.Substring(majorStart, majorEnd - majorStart).Trim('"');-->
+<!--    int major = int.Parse(majorStr);-->
+
+<!--    int minorStart = jsonContent.IndexOf("\"MinorVersion\":", StringComparison.Ordinal) + "\"MinorVersion\":".Length;-->
+<!--    int minorEnd = jsonContent.IndexOfAny(new[] { ',', '}' }, minorStart);-->
+<!--    string minorStr = jsonContent.Substring(minorStart, minorEnd - minorStart).Trim('"');-->
+<!--    int minor = int.Parse(minorStr);-->
+<!--    major = major<5 ? major : 5;-->
+<!--    minor = minor<5 ? minor : 5;-->
+<!--    VersionMacro = $"UE{major}_{minor}";-->
+<!--}-->
+<!--catch -->
+<!--{-->
+<!--    VersionMacro = "UE_LATEST";-->
+<!--}-->
+<!--]]>-->
+<!--            </Code>-->
+<!--        </Task>-->
+<!--    </UsingTask>-->
+<!--    <Target Name="InjectEngineMacros" BeforeTargets="PrepareForBuild">-->
+<!--        <ParseEngineVersion VersionFilePath="$(BuildVersionPath)">-->
+<!--            <Output PropertyName="EngineVersionMacro" TaskParameter="VersionMacro"/>-->
+<!--        </ParseEngineVersion>-->
+
+<!--        <PropertyGroup>-->
+<!--            <DefineConstants>$(DefineConstants);$(EngineVersionMacro)</DefineConstants>-->
+<!--        </PropertyGroup>-->
+
+<!--        <Message Importance="High" Text="[Version Detection] Active macros: $(EngineVersionMacro)"/>-->
+<!--    </Target>-->
+    <Choose>
+        <When Condition=" $(DefineConstants.Contains('UE_5_5_OR_LATER'))">
+            <PropertyGroup>
+                <TargetFramework>net8.0</TargetFramework>
+            </PropertyGroup>
+        </When>
+        <Otherwise>
+            <PropertyGroup>
+                <TargetFramework>net6.0</TargetFramework>
+            </PropertyGroup>
+        </Otherwise>
+    </Choose>
+    <PropertyGroup>
 <!--    we use property above to support engines with different dotnet version-->
 <!--    <TargetFramework>net6.0</TargetFramework>-->
-    <Configuration Condition=" '$(Configuration)' == '' ">Development</Configuration>
-    <OutputType>Library</OutputType>
-    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
-    <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
-    <GenerateTargetFrameworkAttribute>false</GenerateTargetFrameworkAttribute>
-    <Configurations>Debug;Release;Development</Configurations>
-    <AssemblyName>UEClingIncludePathsPlugin</AssemblyName>
-    <RootNamespace>Plugins.ClingRuntime.UEClingIncludePathsPlugin</RootNamespace>
-    <OutputPath>..\..\..\..\Binaries\DotNET\UnrealBuildTool\Plugins\UEClingIncludePathsPlugin\</OutputPath>
-    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
-    <DebugType>pdbonly</DebugType>
-    <Nullable>enable</Nullable>
-    <PackageId>UEClingIncludePathsPlugin.ubtplugin</PackageId>
-  </PropertyGroup>
-  <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Development|AnyCPU' ">
-    <DefineConstants>$(DefineConstants);TRACE</DefineConstants>
-    <Optimize>true</Optimize>
-  </PropertyGroup>
-  <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Release|AnyCPU' ">
-    <DefineConstants>$(DefineConstants);TRACE</DefineConstants>
-    <Optimize>true</Optimize>
-  </PropertyGroup>
-  <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Debug|AnyCPU' ">
-    <DefineConstants>$(DefineConstants);DEBUG;TRACE</DefineConstants>
-    <DebugSymbols>true</DebugSymbols>
-    <DebugType>full</DebugType>
-  </PropertyGroup>
-  <ItemGroup>
-    <PackageReference Include="Microsoft.CSharp" Version="4.7.0" />
-  </ItemGroup>
-  <ItemGroup>
-    <Reference Include="EpicGames.Build">
-      <HintPath>$(EngineDir)\Binaries\DotNET\UnrealBuildTool\EpicGames.Build.dll</HintPath>
-    </Reference>
-    <Reference Include="EpicGames.Core">
-      <HintPath>$(EngineDir)\Binaries\DotNET\UnrealBuildTool\EpicGames.Core.dll</HintPath>
-    </Reference>
-    <Reference Include="EpicGames.UHT">
-      <HintPath>$(EngineDir)\Binaries\DotNET\UnrealBuildTool\EpicGames.UHT.dll</HintPath>
-    </Reference>
-    <Reference Include="UnrealBuildTool">
-      <HintPath>$(EngineDir)\Binaries\DotNET\UnrealBuildTool\UnrealBuildTool.dll</HintPath>
-    </Reference>
-  </ItemGroup>
+<!--        <TargetFramework>net8.0</TargetFramework>-->
+<!--        <BuildVersionPath>$(EngineDir)\Build\Build.version</BuildVersionPath>-->
+        <Configuration Condition=" '$(Configuration)' == '' ">Development</Configuration>
+        <OutputType>Library</OutputType>
+        <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+        <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
+        <GenerateTargetFrameworkAttribute>false</GenerateTargetFrameworkAttribute>
+        <Configurations>Debug;Release;Development</Configurations>
+        <AssemblyName>UEClingIncludePathsPlugin</AssemblyName>
+        <RootNamespace>Plugins.ClingRuntime.UEClingIncludePathsPlugin</RootNamespace>
+        <OutputPath>..\..\..\..\Binaries\DotNET\UnrealBuildTool\Plugins\UEClingIncludePathsPlugin\</OutputPath>
+        <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+        <DebugType>pdbonly</DebugType>
+        <Nullable>enable</Nullable>
+        <PackageId>UEClingIncludePathsPlugin.ubtplugin</PackageId>
+    </PropertyGroup>
+    <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Development|AnyCPU' ">
+        <DefineConstants>$(DefineConstants);TRACE</DefineConstants>
+        <Optimize>true</Optimize>
+    </PropertyGroup>
+    <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Release|AnyCPU' ">
+        <DefineConstants>$(DefineConstants);TRACE</DefineConstants>
+        <Optimize>true</Optimize>
+    </PropertyGroup>
+    <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Debug|AnyCPU' ">
+        <DefineConstants>$(DefineConstants);DEBUG;TRACE</DefineConstants>
+        <DebugSymbols>true</DebugSymbols>
+        <DebugType>full</DebugType>
+    </PropertyGroup>
+    <ItemGroup>
+        <PackageReference Include="Microsoft.CSharp" Version="4.7.0" />
+    </ItemGroup>
+    <ItemGroup>
+        <Reference Include="EpicGames.Build">
+            <HintPath>$(EngineDir)\Binaries\DotNET\UnrealBuildTool\EpicGames.Build.dll</HintPath>
+        </Reference>
+        <Reference Include="EpicGames.Core">
+            <HintPath>$(EngineDir)\Binaries\DotNET\UnrealBuildTool\EpicGames.Core.dll</HintPath>
+        </Reference>
+        <Reference Include="EpicGames.UHT">
+            <HintPath>$(EngineDir)\Binaries\DotNET\UnrealBuildTool\EpicGames.UHT.dll</HintPath>
+        </Reference>
+        <Reference Include="UnrealBuildTool">
+            <HintPath>$(EngineDir)\Binaries\DotNET\UnrealBuildTool\UnrealBuildTool.dll</HintPath>
+        </Reference>
+    </ItemGroup>
 </Project>
