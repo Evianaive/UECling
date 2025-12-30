@@ -17,15 +17,13 @@ public:
 	virtual void StartupModule() override;
 	virtual void ShutdownModule() override;
 // private:
-	cling::Interpreter* BaseInterp{nullptr};
+	void* BaseInterp{nullptr};
 public:
 	// Todo use unique ptr
-	TArray<cling::Interpreter*> Interps;
+	TArray<void*> Interps;
 
-	cling::Interpreter* GetInterp(int Version=0);
-	cling::Interpreter* StartNewInterp();
+	void* GetInterp(int Version=0);
+	void* StartNewInterp();
 private:
-	cling::Interpreter* StartInterpreterInternal(bool bBaseInterp);
-	/** Handle to the test dll we will load */
-	TArray<void*> ExampleLibraryHandles;
+	void* StartInterpreterInternal();
 };

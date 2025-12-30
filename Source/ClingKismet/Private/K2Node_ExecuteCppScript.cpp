@@ -6,7 +6,6 @@
 #include "BlueprintActionDatabaseRegistrar.h"
 #include "BlueprintNodeSpawner.h"
 #include "CallFunctionHandler.h"
-#include "cling-demo.h"
 #include "EdGraphSchema_K2.h"
 #include "K2Node_MakeArray.h"
 #include "KismetCompiler.h"
@@ -17,6 +16,8 @@
 #include "RecoverCodeGeneration.h"
 
 //We have to recompile these files because they are not exported!
+#include <CppInterOp/CppInterOp.h>
+
 #include "ClingScriptMarks.h"
 #include "ClingSetting.h"
 #include "ISourceCodeAccessModule.h"
@@ -141,14 +142,14 @@ public:
 			return;
 		}
 		auto& Module = FModuleManager::Get().GetModuleChecked<FClingRuntimeModule>(TEXT("ClingRuntime"));
-		::Decalre(Module.GetInterp(),StringCast<ANSICHAR>(*FunctionDeclare).Get(),nullptr);
+		Cpp::Declare(StringCast<ANSICHAR>(*FunctionDeclare).Get());
 		
 		FString StubLambda;
 		StubLambda += FString::Printf(TEXT("{\n\tsigned long long& FunctionPtr = *(signed long long*)%I64d;\n"),size_t(&FunctionPtr));
 		StubLambda += FString::Printf(TEXT("\tFunctionPtr = reinterpret_cast<int64>((void(*)(signed long long*))(%s));\n}"),*CurNode->GetLambdaName());
 		
 		auto* CompileResult = reinterpret_cast<FCppScriptCompiledResult*>(CurNode->ResultPtr);
-		::Process(Module.GetInterp(),StringCast<ANSICHAR>(*StubLambda).Get(),nullptr);
+		Cpp::Process(StringCast<ANSICHAR>(*StubLambda).Get());
 		
 		if(CompileResult)
 		{

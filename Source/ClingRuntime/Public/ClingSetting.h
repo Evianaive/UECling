@@ -111,10 +111,24 @@ public:
 	TMap<FName,FModuleCompileInfo> ModuleBuildInfos;
 	UPROPERTY(VisibleAnywhere)
 	TArray<FString> GeneratedHeaderIncludePaths;
-	
+	UPROPERTY(EditAnywhere)
+	TArray<FFilePath> GeneratedIncludePaths;
+
+	static FString GetPCHPath();
+	static FString GetRspSavePath();
 	void RefreshIncludePaths();
+	
+	void AppendCompileArgs(TArray<FString>& InOutCompileArgs);
+	void AppendCompileArgs(std::vector<const char*>& InOutCompileArgs);
+	
 	UFUNCTION(BlueprintCallable,CallInEditor)
 	void RefreshModuleIncludePaths();
 	UFUNCTION(BlueprintCallable,CallInEditor)
 	void RefreshGeneratedHeaderIncludePaths();
+	UFUNCTION(BlueprintCallable,CallInEditor)
+	void GenerateRspFile();
+	UFUNCTION(BlueprintCallable,CallInEditor)
+	void GeneratePCHHeaderFile();
+	UFUNCTION(BlueprintCallable,CallInEditor)
+	void GeneratePCH();
 };

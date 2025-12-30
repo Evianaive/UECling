@@ -1,12 +1,11 @@
 ﻿
 #include "ClingCommandExecutor.h"
-
-#include "cling-demo.h"
+#include "CppInterOp/CppInterOp.h"
 #include "Toolkits/GlobalEditorCommonCommands.h"
 
 #define LOCTEXT_NAMESPACE "ClingCommandExecutor"
 
-FClingCommandExecutor::FClingCommandExecutor(cling::Interpreter* InInterpreter)
+FClingCommandExecutor::FClingCommandExecutor(Cpp::TInterp_t InInterpreter)
 	:Interpreter(InInterpreter)
 {	
 }
@@ -51,16 +50,29 @@ bool FClingCommandExecutor::Exec(const TCHAR* Input)
 	SCOPED_NAMED_EVENT(Cling_EXEC, FColor::Red);
 	IConsoleManager::Get().AddConsoleHistoryEntry(TEXT("Cling"), Input);
 	UE_LOG(LogTemp, Log, TEXT("%s"), Input);
-	if(FString(Input).StartsWith(".r"))
+	FString InputString = Input;
+	if(InputString.StartsWith(".r"))
 	{
 		if(RestartInterpreter.IsBound())
 			Interpreter = RestartInterpreter.Execute();
 	}
-	else
-	{
-		::ProcessCommand(Interpreter,TCHAR_TO_ANSI(Input),nullptr);	
-	}
-	//::Process(Interpreter,TCHAR_TO_ANSI(Input),nullptr);
+	// else if(InputString.StartsWith(".pch"))
+	// {
+	// 	FString Left,Right;
+	// 	InputString.Split(" ",&Left,&Right);
+	// 	while(Right.StartsWith(" "))
+	// 		Right.RemoveAt(0);
+	// 	Right.Split(" ",&Left,&Right);
+	// 	::GeneratePCH(Interpreter,
+	// 		StringCast<ANSICHAR>(*Left).Get(),
+	// 		StringCast<ANSICHAR>(*Right).Get());
+	// }
+	// else
+	// {
+	// 	::ProcessCommand(Interpreter,TCHAR_TO_ANSI(Input),nullptr);	
+	// }
+	
+	Cpp::Process(TCHAR_TO_ANSI(Input));
 	return true;
 }
 

@@ -3,10 +3,9 @@
 
 #include "MyTestInterpreter.h"
 
-#include "cling-demo.h"
+#include "CppInterOp/CppInterOp.h"
 #include "TestStatic.h"
 #include "ClingRuntime.h"
-#include "cling/Interpreter/Interpreter.h"
 
 
 // Sets default values
@@ -34,7 +33,7 @@ void AMyTestInterpreter::Process()
 	// TBaseStructure<FVector>::Get();
 	SCOPED_NAMED_EVENT(Cling_EXEC, FColor::Red);
 	auto& Module = FModuleManager::Get().GetModuleChecked<FClingRuntimeModule>(TEXT("ClingRuntime"));
-	::Execute(Module.GetInterp(),StringCast<ANSICHAR>(*ProcessString).Get());
+	Cpp::Process(StringCast<ANSICHAR>(*ProcessString).Get());
 }
 
 void AMyTestInterpreter::TestCallByUE()

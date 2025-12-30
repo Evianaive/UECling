@@ -73,7 +73,7 @@ public class ClingLibrary : ModuleRules
 			// "LLVMXRay",
 			
 			// "cling"
-			"RelWithDebInfo/cling-demo"
+			"RelWithDebInfo/clangCppInterOp"
 		});
 
 		if (Target.Platform == UnrealTargetPlatform.Win64)
@@ -86,7 +86,7 @@ public class ClingLibrary : ModuleRules
 			
 			foreach (var dll in new string[]
 			         {
-				         "cling-demo.dll",
+				         "clangCppInterOp.dll",
 				         // "libclang.dll",
 				         // "libcling.dll",
 				         // "libclingJupyter.dll",
