@@ -114,8 +114,9 @@ public:
 	UPROPERTY(EditAnywhere)
 	TArray<FFilePath> GeneratedIncludePaths;
 
-	static FString GetPCHPath();
+	static FString GetPCHSourceFilePath();
 	static FString GetRspSavePath();
+	static FString GetGlobalBuildDefinsPath();
 	void RefreshIncludePaths();
 	
 	void AppendCompileArgs(TArray<FString>& InOutCompileArgs);
@@ -128,7 +129,11 @@ public:
 	UFUNCTION(BlueprintCallable,CallInEditor)
 	void GenerateRspFile();
 	UFUNCTION(BlueprintCallable,CallInEditor)
-	void GeneratePCHHeaderFile();
+	void GeneratePCHHeaderFile(bool bForce = false);
+	/** Updates the generated BuildGlobalDefines.h file from engine binaries to plugin source directory
+	 * if not exist or bForce = true*/
 	UFUNCTION(BlueprintCallable,CallInEditor)
-	void GeneratePCH();
+	void UpdateBuildGlobalDefinesFile(bool bForce = false);
+	UFUNCTION(BlueprintCallable,CallInEditor)
+	void GeneratePCH(bool bForce = false);
 };

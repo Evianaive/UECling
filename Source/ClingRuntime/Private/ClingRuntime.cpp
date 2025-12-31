@@ -81,9 +81,10 @@ Cpp::TInterp_t FClingRuntimeModule::StartNewInterp()
 
 Cpp::TInterp_t FClingRuntimeModule::StartInterpreterInternal()
 {
-	FString LLVMDir = GetLLVMDir();
-	FString LLVMInclude = GetLLVMInclude();
-	FString UE_Exec = FPlatformProcess::ExecutablePath();
+	SCOPED_NAMED_EVENT(StartInterpreterInternal, FColor::Red)
+	// FString LLVMDir = GetLLVMDir();
+	// FString LLVMInclude = GetLLVMInclude();
+	// FString UE_Exec = FPlatformProcess::ExecutablePath();
 	UClingSetting* Setting = GetMutableDefault<UClingSetting>();
 	// Start ClingInterpreter
 #if 1
@@ -99,7 +100,7 @@ Cpp::TInterp_t FClingRuntimeModule::StartInterpreterInternal()
 	Setting->AppendCompileArgs(Argv);
 	
 	Argv.PRIVATE_ADD("-include");	
-	Argv.PRIVATE_ADD(StringCast<ANSICHAR>(*UClingSetting::GetPCHPath()).Get());
+	Argv.PRIVATE_ADD(StringCast<ANSICHAR>(*UClingSetting::GetPCHSourceFilePath()).Get());
 
 	return Cpp::CreateInterpreter(Argv, {});
 }

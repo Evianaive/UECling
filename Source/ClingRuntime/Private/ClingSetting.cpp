@@ -6,7 +6,8 @@
 #include <CppInterOp/CppInterOp.h>
 
 #include "JsonObjectConverter.h"
-#include "ClingRuntime.h"
+#include "ClingLog/ClingLog.h"
+#include "HAL/FileManagerGeneric.h"
 #include "Interfaces/IPluginManager.h"
 
 FString GetPluginDir()
@@ -40,7 +41,7 @@ FName UClingSetting::GetSectionName() const
 	return Super::GetSectionName();
 }
 
-FString UClingSetting::GetPCHPath()
+FString UClingSetting::GetPCHSourceFilePath()
 {
 	return GetPluginDir()/TEXT("ClingPCH.h");
 }
@@ -50,8 +51,14 @@ FString UClingSetting::GetRspSavePath()
 	return GetPluginDir()/TEXT("ClingIncludePaths.rsp");
 }
 
+FString UClingSetting::GetGlobalBuildDefinsPath()
+{
+	return GetPluginDir()/TEXT("Source")/TEXT("BuildGlobalDefines.h");
+}
+
 void UClingSetting::RefreshIncludePaths()
 {
+	SCOPED_NAMED_EVENT(RefreshIncludePaths, FColor::Red)
 	UE_LOG(LogTemp,Log,TEXT("Begin Refresh IncludePaths"))
 	RefreshModuleIncludePaths();
 	RefreshGeneratedHeaderIncludePaths();
@@ -197,13 +204,13 @@ void UClingSetting::GenerateRspFile()
 	RspLines.Add(TEXT("-Xclang"));
 	RspLines.Add(TEXT("-fincremental-extensions"));
 	RspLines.Add(TEXT("-v"));	
-	RspLines.Add(TEXT("-o ") + GetPCHPath() + TEXT(".pch"));
-	RspLines.Add(GetPCHPath());	
+	RspLines.Add(TEXT("-o ") + GetPCHSourceFilePath() + TEXT(".pch"));
+	RspLines.Add(GetPCHSourceFilePath());	
 	
 	FFileHelper::SaveStringArrayToFile(RspLines, *GetRspSavePath());
 }
 
-void UClingSetting::GeneratePCHHeaderFile()
+void UClingSetting::GeneratePCHHeaderFile(bool bForce)
 {
 	TArray<FString> PCHLines={"#pragma once"};
 	for (auto& ModuleBuildInfo : ModuleBuildInfos)
@@ -260,14 +267,96 @@ void UClingSetting::GeneratePCHHeaderFile()
 		PCHLines.Add(TEXT("#include \""+GeneratedIncludePath.FilePath+TEXT("\"")));
 	}
 	// UE_PLUGIN_NAME
-	FFileHelper::SaveStringArrayToFile(PCHLines, *GetPCHPath());
+		
+	using FHashBuffer = TTuple<uint32,uint32,uint32,uint32>;
+	auto HashFString = [](const FString& InString) -> FHashBuffer
+	{
+		FMD5 NewFileHash;
+		FHashBuffer HashBuffer = {0,0,0,0};
+		NewFileHash.Update(reinterpret_cast<const uint8*>(GetData(InString)), InString.Len() * sizeof(TCHAR));
+		NewFileHash.Final(reinterpret_cast<uint8*>(&HashBuffer));
+		return HashBuffer;
+	};
+	FString NewPCHContent = FString::Join(PCHLines, TEXT("\n")) + TEXT("\n");
+	// Check current file status
+	FString ExistingContent;
+	FString PCHPath = GetPCHSourceFilePath();
+	if (FFileHelper::LoadFileToString(ExistingContent, *PCHPath))
+	{
+		auto NewMD5 = HashFString(NewPCHContent);
+		auto ExistingMD5 = HashFString(ExistingContent);
+		
+		// compare md5
+		if (NewMD5 != ExistingMD5)
+		{
+			FFileHelper::SaveStringToFile(NewPCHContent, *PCHPath);
+			UE_LOG(LogCling, Log, TEXT("PCH header file content needs to be updated (MD5 changed form: %i-%i-%i-%i to %i-%i-%i-%i )"),
+				ExistingMD5.Get<0>(),ExistingMD5.Get<1>(),ExistingMD5.Get<2>(),ExistingMD5.Get<3>(),
+				NewMD5.Get<0>(),NewMD5.Get<1>(),NewMD5.Get<2>(),NewMD5.Get<3>())
+			;
+		}
+		else
+		{
+			UE_LOG(LogCling, Log, TEXT("PCH header file unchanged, skipping save (MD5: %i-%i-%i-%i)"),
+				ExistingMD5.Get<0>(),ExistingMD5.Get<1>(),ExistingMD5.Get<2>(),ExistingMD5.Get<3>());
+			// Todo should we ask user whether force to generate pch header file?
+		}
+	}
+	else
+	{
+		FFileHelper::SaveStringToFile(NewPCHContent, *PCHPath);
+		UE_LOG(LogCling, Log, TEXT("PCH header file created"));
+	}
 }
 
-void UClingSetting::GeneratePCH()
+void UClingSetting::UpdateBuildGlobalDefinesFile(bool Force)
 {
-	SCOPED_NAMED_EVENT(GenPCH, FColor::Red)
+#if 0
+	// Include file of all global definitions of build context export by UnrealBuildTool
+	FString UE_Exec = FPlatformProcess::ExecutablePath();
+	UE_Exec.ReplaceCharInline('\\','/');
+	FString GlobalDefinesFilePath = UE_Exec/TEXT("../UECling/BuildGlobalDefines.h");
+	PCHLines.Add(TEXT("#include \"")+GlobalDefinesFilePath+TEXT("\""));
+#else
+	// global defines
+	FString EngineDir = FPaths::ConvertRelativePathToFull(FPaths::EngineDir());
+	FString FileSource = EngineDir/TEXT("Binaries/Win64/UECling/BuildGlobalDefines.h");
+#endif
+	FString CopyDest = GetGlobalBuildDefinsPath();
+	auto& FM = FFileManagerGeneric::Get();
+	if (!FM.FileExists(*FileSource))
+	{
+		UE_LOG(LogCling, Warning, TEXT("BuildGlobalDefines.h source file does not exist at: %s"), *FileSource);
+		return;
+	}
+	if (FM.FileExists(*CopyDest) && !Force)
+	{
+		UE_LOG(LogCling, Verbose, TEXT("BuildGlobalDefines.h already exists at destination: %s, skipping copy"), *CopyDest);
+		return;
+	}
+	FM.Copy(*CopyDest,*FileSource,true,true);
+	UE_LOG(LogCling, Log, TEXT("BuildGlobalDefines.h copy to destination: %s"), *CopyDest);
+}
+
+void UClingSetting::GeneratePCH(bool bForce)
+{
+	SCOPED_NAMED_EVENT(GeneratePCH, FColor::Red)
+	UpdateBuildGlobalDefinesFile(false);
+	GeneratePCHHeaderFile(false);
 	GenerateRspFile();
-	GeneratePCHHeaderFile();
-	// Call the test function in the third party library that opens a message box
-	Cpp::CreatePCH(StringCast<ANSICHAR>(*(TEXT("@")+GetRspSavePath())).Get());
+	auto& FM = FFileManagerGeneric::Get();
+	auto PCHSourceFileTime = FM.GetTimeStamp(*GetPCHSourceFilePath());
+	auto BuildGlobalDefinesTime = FM.GetTimeStamp(*GetGlobalBuildDefinsPath());
+	auto PCHTime = FM.GetTimeStamp(*(GetPCHSourceFilePath()+TEXT(".pch")));
+	if (bForce)
+	{
+		UE_LOG(LogCling, Log, TEXT("Force generate ClingPCH.h.pch file, regenerating PCH"));
+		Cpp::CreatePCH(StringCast<ANSICHAR>(*(TEXT("@")+GetRspSavePath())).Get());
+	}
+	else if (BuildGlobalDefinesTime > PCHTime || PCHSourceFileTime > PCHTime)
+	{
+		UE_LOG(LogCling, Log, TEXT("BuildGlobalDefines.h or ClingPCH.h is newer than ClingPCH.h.pch, regenerating PCH"));
+		Cpp::CreatePCH(StringCast<ANSICHAR>(*(TEXT("@")+GetRspSavePath())).Get());
+	}
+	UE_LOG(LogCling, Log, TEXT("BuildGlobalDefines.h or ClingPCH.h is older than ClingPCH.h.pch, skip generate PCH"));
 }
