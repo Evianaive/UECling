@@ -55,6 +55,7 @@ bool FClingCommandExecutor::Exec(const TCHAR* Input)
 	{
 		if(RestartInterpreter.IsBound())
 			Interpreter = RestartInterpreter.Execute();
+		return true;
 	}
 	// else if(InputString.StartsWith(".pch"))
 	// {

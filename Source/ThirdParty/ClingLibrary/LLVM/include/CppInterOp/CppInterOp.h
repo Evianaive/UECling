@@ -702,6 +702,9 @@ CPPINTEROP_API TInterp_t
 CreateInterpreter(const std::vector<const char*>& Args = {},
                   const std::vector<const char*>& GpuArgs = {});
 
+CPPINTEROP_API TInterp_t
+CreateInterpreter(const char** Args, int Argc);
+
 /// Deletes an instance of an interpreter.
 ///\param[in] I - the interpreter to be deleted, if nullptr, deletes the last.
 ///\returns false on failure or if \c I is not tracked in the stack.
@@ -940,8 +943,9 @@ CPPINTEROP_API void CodeComplete(std::vector<std::string>& Results,
 ///\returns 0 on success, non-zero on failure.
 CPPINTEROP_API int Undo(unsigned N = 1);
 
+CPPINTEROP_API int CreatePCH(const char* rsp_file);
 
-CPPINTEROP_API int CreatePCH(const std::string& rsp_file);
+CPPINTEROP_API void EnableDebug(bool Enable);
 
 #ifndef _WIN32
 /// Returns the process ID of the executor process.

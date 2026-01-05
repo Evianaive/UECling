@@ -16,7 +16,8 @@ public class ClingLoadModule : ModuleRules
         PrivateDependencyModuleNames.AddRange(
             new string[]
             {
-                "Projects"
+                "Projects",
+                "ClingLibrary"
             }
         );
     }

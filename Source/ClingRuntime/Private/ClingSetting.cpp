@@ -65,7 +65,7 @@ void UClingSetting::RefreshIncludePaths()
 }
 
 template<typename T>
-void AppendCompileArgs(T& InOUtCompileArgs)
+void AppendCompileArgs(T& InOutCompileArgs)
 {
 	// Common compile arguments that should be applied to both TArray<FString> and std::vector<const char*>
 	static const char* CommonArgs[] = {
@@ -78,23 +78,37 @@ void AppendCompileArgs(T& InOUtCompileArgs)
 		"-Wno-switch",
 		"-Wno-tautological-undefined-compare",
 		"-Wno-gnu-string-literal-operator-template",
+		// "-O1",				
+		// "-Xclang",
+		// "-detailed-preprocessing-record",
+		// "-fno-delayed-template-parsing",
+		// "-fno-inline",
 		"-gcodeview",
-		"-g2"
+		"-g2",
+		"-resource-dir"
 	};
-	
-	for (const char* Arg : CommonArgs)
+	static FString ResourceDir = GetPluginDir()/TEXT("Source/ThirdParty/ClingLibrary/LLVM/lib/clang/20");
+	if constexpr (TIsTArray<typename TDecay<T>::Type>::Value)
 	{
-		if constexpr (TIsTArray<typename TDecay<T>::Type>::Value)
+		// For TArray<FString>
+		for (const char* Arg : CommonArgs)
 		{
-			// For TArray<FString>
-			InOUtCompileArgs.Add(Arg);
+			InOutCompileArgs.Add(Arg);
 		}
-		else
+		InOutCompileArgs.Add(ResourceDir);
+	}
+	else
+	{
+		for (const char* Arg : CommonArgs)
 		{
 			// For std::vector<const char*> or similar container
-			InOUtCompileArgs.emplace_back(Arg);
+			InOutCompileArgs.emplace_back(Arg);
 		}
-	}
+		auto CastString = StringCast<ANSICHAR>(*ResourceDir);
+		static char StaticStored[256]{};
+		FMemory::Memcpy(StaticStored,CastString.Get(),CastString.Length());
+		InOutCompileArgs.emplace_back(StaticStored);
+	}	
 }
 
 void UClingSetting::AppendCompileArgs(TArray<FString>& InOutCompileArgs)
@@ -105,6 +119,21 @@ void UClingSetting::AppendCompileArgs(TArray<FString>& InOutCompileArgs)
 void UClingSetting::AppendCompileArgs(std::vector<const char*>& InOutCompileArgs)
 {
 	::AppendCompileArgs(InOutCompileArgs);
+}
+
+void UClingSetting::AppendRuntimeArgs(TArray<FString>& InOutRuntimeArgs)
+{
+	InOutRuntimeArgs.Append(RuntimeArgs);
+}
+
+void UClingSetting::AppendRuntimeArgs(std::vector<const char*>& Argv)
+{
+	RuntimeArgsForConvert.SetNum(RuntimeArgs.Num());
+	for (int32 i = 0; i < RuntimeArgs.Num(); i++)
+	{
+		RuntimeArgsForConvert[i] = std::string(StringCast<ANSICHAR>(*RuntimeArgs[i]).Get());
+		Argv.emplace_back(RuntimeArgsForConvert[i].c_str());
+	}	
 }
 
 template<typename T>
@@ -171,39 +200,24 @@ void UClingSetting::GenerateRspFile()
 	{
 		RspLines.Add(TEXT("-I \"") + Include.Replace(TEXT("\\"),TEXT("/")) + TEXT("\""));
 	};
-	AddInclude(FPaths::ConvertRelativePathToFull(FPaths::EngineSourceDir()));
-	for (auto& ModuleBuildInfo : ModuleBuildInfos)
-	{
-		// Begin IncludePaths
-		for (const auto& PublicIncludePath : ModuleBuildInfo.Value.PublicIncludePaths)
-		{
-			AddInclude(PublicIncludePath);
-		}
-		// We don't need to add Private Include Path! A module should not add path to headers
-		// that can be included by other module in PrivateIncludePaths		
-		// for (const auto& PrivateIncludePath : ModuleBuildInfo.Value.PrivateIncludePaths)
-		// {
-		// 	AddInclude(PrivateIncludePath);
-		// }
-		// Begin Public lSystem Include Paths
-		for (const auto& PublicSystemIncludePath : ModuleBuildInfo.Value.PublicSystemIncludePaths)
-		{
-			AddInclude(PublicSystemIncludePath);
-		}
-		if(!ModuleBuildInfo.Value.Directory.Contains(TEXT("Engine/Source")))
-			AddInclude(ModuleBuildInfo.Value.Directory);
-	}
-	for (const auto& GeneratedHeaderIncludePath : GeneratedHeaderIncludePaths)
-	{
-		AddInclude(GeneratedHeaderIncludePath);
-	}
+	IterThroughIncludePaths(AddInclude);
 	
-	const auto& PluginDir = GetPluginDir();
-	RspLines.Add(TEXT("-resource-dir ")+PluginDir/TEXT("Source/ThirdParty/ClingLibrary/LLVM/lib/clang/20"));
 	AppendCompileArgs(RspLines);
+	// align with clang-repl, this settings are add automatically by clang-repl
 	RspLines.Add(TEXT("-Xclang"));
 	RspLines.Add(TEXT("-fincremental-extensions"));
-	RspLines.Add(TEXT("-v"));	
+	
+	// other debug settings
+	// RspLines.Add(TEXT("-Xclang"));
+	// RspLines.Add(TEXT("-femit-all-decls"));
+	// RspLines.Add(TEXT("-Xclang"));
+	// RspLines.Add(TEXT("-fkeep-static-consts"));
+	// RspLines.Add(TEXT("-Xclang"));
+	// RspLines.Add(TEXT("-detailed-preprocessing-record"));
+	// RspLines.Add(TEXT("-H"));
+	RspLines.Add(TEXT("-v"));
+
+	// output pch
 	RspLines.Add(TEXT("-o ") + GetPCHSourceFilePath() + TEXT(".pch"));
 	RspLines.Add(GetPCHSourceFilePath());	
 	
@@ -227,7 +241,8 @@ void UClingSetting::GeneratePCHHeaderFile(bool bForce)
 		FString MacroDefine = TEXT("#define ") + ModuleBuildInfo.Value.Name.ToString().ToUpper() + TEXT("_API ");
 		if (UNLIKELY(MacroDefine == "#define LAUNCH_API"))
 			continue;
-		PCHLines.Add(MacroDefine);
+		PCHLines.Add(MacroDefine + TEXT(" __declspec(dllimport)"));
+		// PCHLines.Add(MacroDefine);
 	}
 // #ifdef _MSC_VER
 // #define EVA_MACRO(_M) #_M
@@ -262,11 +277,11 @@ void UClingSetting::GeneratePCHHeaderFile(bool bForce)
 	PCHLines.Add(TEXT("#include \"UObject/Object.h\""));
 	PCHLines.Add(TEXT("#include \"Logging/LogMacros.h\""));
 	// user defined pch includes
-	for (auto& GeneratedIncludePath : GeneratedIncludePaths)
+	for (auto& GeneratedIncludePath : PCHAdditionalIncludeFiles)
 	{
-		PCHLines.Add(TEXT("#include \""+GeneratedIncludePath.FilePath+TEXT("\"")));
+		PCHLines.Add(TEXT("#include \""+GeneratedIncludePath+TEXT("\"")));
 	}
-	// UE_PLUGIN_NAME
+
 		
 	using FHashBuffer = TTuple<uint32,uint32,uint32,uint32>;
 	auto HashFString = [](const FString& InString) -> FHashBuffer
@@ -309,7 +324,7 @@ void UClingSetting::GeneratePCHHeaderFile(bool bForce)
 	}
 }
 
-void UClingSetting::UpdateBuildGlobalDefinesFile(bool Force)
+void UClingSetting::UpdateBuildGlobalDefinesFile(bool bForce)
 {
 #if 0
 	// Include file of all global definitions of build context export by UnrealBuildTool
@@ -329,7 +344,7 @@ void UClingSetting::UpdateBuildGlobalDefinesFile(bool Force)
 		UE_LOG(LogCling, Warning, TEXT("BuildGlobalDefines.h source file does not exist at: %s"), *FileSource);
 		return;
 	}
-	if (FM.FileExists(*CopyDest) && !Force)
+	if (FM.FileExists(*CopyDest) && !bForce)
 	{
 		UE_LOG(LogCling, Verbose, TEXT("BuildGlobalDefines.h already exists at destination: %s, skipping copy"), *CopyDest);
 		return;
@@ -358,5 +373,38 @@ void UClingSetting::GeneratePCH(bool bForce)
 		UE_LOG(LogCling, Log, TEXT("BuildGlobalDefines.h or ClingPCH.h is newer than ClingPCH.h.pch, regenerating PCH"));
 		Cpp::CreatePCH(StringCast<ANSICHAR>(*(TEXT("@")+GetRspSavePath())).Get());
 	}
-	UE_LOG(LogCling, Log, TEXT("BuildGlobalDefines.h or ClingPCH.h is older than ClingPCH.h.pch, skip generate PCH"));
+	else
+	{
+		UE_LOG(LogCling, Log, TEXT("BuildGlobalDefines.h or ClingPCH.h is older than ClingPCH.h.pch, skip generate PCH"));
+	}
+}
+
+void UClingSetting::IterThroughIncludePaths(TFunction<void(const FString&)> InFunc)
+{	
+	InFunc(FPaths::ConvertRelativePathToFull(FPaths::EngineSourceDir()));
+	for (auto& ModuleBuildInfo : ModuleBuildInfos)
+	{
+		// Begin IncludePaths
+		for (const auto& PublicIncludePath : ModuleBuildInfo.Value.PublicIncludePaths)
+		{
+			InFunc(PublicIncludePath);
+		}
+		// We don't need to add Private Include Path! A module should not add path to headers
+		// that can be included by other module in PrivateIncludePaths		
+		// for (const auto& PrivateIncludePath : ModuleBuildInfo.Value.PrivateIncludePaths)
+		// {
+		// 	AddInclude(PrivateIncludePath);
+		// }
+		// Begin Public lSystem Include Paths
+		for (const auto& PublicSystemIncludePath : ModuleBuildInfo.Value.PublicSystemIncludePaths)
+		{
+			InFunc(PublicSystemIncludePath);
+		}
+		if(!ModuleBuildInfo.Value.Directory.Contains(TEXT("Engine/Source")))
+			InFunc(ModuleBuildInfo.Value.Directory);
+	}
+	for (const auto& GeneratedHeaderIncludePath : GeneratedHeaderIncludePaths)
+	{
+		InFunc(GeneratedHeaderIncludePath);
+	}
 }

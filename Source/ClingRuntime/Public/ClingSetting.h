@@ -111,8 +111,12 @@ public:
 	TMap<FName,FModuleCompileInfo> ModuleBuildInfos;
 	UPROPERTY(VisibleAnywhere)
 	TArray<FString> GeneratedHeaderIncludePaths;
+	UPROPERTY(EditAnywhere,Config)
+	TArray<FString> PCHAdditionalIncludeFiles;
 	UPROPERTY(EditAnywhere)
-	TArray<FFilePath> GeneratedIncludePaths;
+	TArray<FString> RuntimeArgs;
+	// temporary for holding char* for args
+	TArray<std::string> RuntimeArgsForConvert; 
 
 	static FString GetPCHSourceFilePath();
 	static FString GetRspSavePath();
@@ -121,6 +125,8 @@ public:
 	
 	void AppendCompileArgs(TArray<FString>& InOutCompileArgs);
 	void AppendCompileArgs(std::vector<const char*>& InOutCompileArgs);
+	void AppendRuntimeArgs(TArray<FString>& InOutRuntimeArgs);
+	void AppendRuntimeArgs(std::vector<const char*>& Argv);
 	
 	UFUNCTION(BlueprintCallable,CallInEditor)
 	void RefreshModuleIncludePaths();
@@ -136,4 +142,6 @@ public:
 	void UpdateBuildGlobalDefinesFile(bool bForce = false);
 	UFUNCTION(BlueprintCallable,CallInEditor)
 	void GeneratePCH(bool bForce = false);
+	
+	void IterThroughIncludePaths(TFunction<void(const FString&)> InFunc);
 };

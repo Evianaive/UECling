@@ -13,31 +13,38 @@ public class ClingLibrary : ModuleRules
 	{
 		Type = ModuleType.External;
 		PublicSystemIncludePaths.Add("$(ModuleDir)/LLVM/include");
-		List<string> Libs = new List<string>(); 
+		
+		List<string> Libs = new List<string>();
 		Libs.AddRange(new string[]
 		{
-			"RelWithDebInfo/clangCppInterOp"
+			"clangCppInterOp"
 		});
+		string ConfigurationType = "RelWithDebInfo";
+		if (Target.Configuration == UnrealTargetConfiguration.Debug)
+		{
+			ConfigurationType = "Debug";
+			PublicDefinitions.Add("USING_CPPINTEROP_DEBUG = 1");
+		}
+		else
+		{
+			ConfigurationType = "RelWithDebInfo";
+			PublicDefinitions.Add("USING_CPPINTEROP_DEBUG = 0");
+		}
 
 		if (Target.Platform == UnrealTargetPlatform.Win64)
 		{
 			foreach (var Lib in Libs)
 			{
-				string filePath = Path.Combine(ModuleDirectory, "LLVM", "lib", Lib + ".lib");
+				string filePath = Path.Combine(ModuleDirectory, "LLVM", "lib", ConfigurationType, Lib + ".lib");
 				PublicAdditionalLibraries.Add(filePath);
 			}
-			string LLVMBinDir = Path.Combine(ModuleDirectory, "LLVM", "bin");
-			foreach (var dll in new string[]
-			         {
-				         "clangCppInterOp.dll",
-				         "zlib.dll",
-				         "zstd.dll"
-			         })
+			string LLVMBinDir = Path.Combine(ModuleDirectory, "LLVM", "bin", ConfigurationType);
+			PrivateRuntimeLibraryPaths.Add(LLVMBinDir);
+			foreach (var dll in Libs)
 			{
-				string dllPath = Path.Combine(LLVMBinDir, dll);
+				string dllPath = Path.Combine(LLVMBinDir, dll + ".dll");
 				RuntimeDependencies.Add(dllPath, StagedFileType.NonUFS);
 			}
-			PrivateRuntimeLibraryPaths.Add(LLVMBinDir);
 			
 			// PublicDefinitions.AddRange(new string[]
 			// {

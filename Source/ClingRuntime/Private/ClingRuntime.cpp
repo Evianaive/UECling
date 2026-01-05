@@ -50,6 +50,7 @@ void FClingRuntimeModule::StartupModule()
 	// Load file contains all module build infos
 	Setting->RefreshIncludePaths();
 	Setting->GeneratePCH();	
+	// Cpp::EnableDebugOutput();
 	BaseInterp = StartInterpreterInternal();
 	
 	// Decalre(BaseInterp,"#define WITH_CLING 1");
@@ -98,11 +99,29 @@ Cpp::TInterp_t FClingRuntimeModule::StartInterpreterInternal()
 	// Argv.PRIVATE_ADD(StringCast<ANSICHAR>(*LLVMInclude).Get());
 
 	Setting->AppendCompileArgs(Argv);
+	// add all include path even if we use PCH
+	std::vector<std::string> Paths;
+	auto AddIncludePath = [&Paths,&Argv](const FString& Path)
+	{
+		Paths.emplace_back(StringCast<ANSICHAR>(*Path.Replace(TEXT("\\"),TEXT("/"))).Get());
+		// Cpp::AddIncludePath(StringCast<ANSICHAR>(*Path.Replace(TEXT("\\"),TEXT("/"))).Get());
+		Argv.emplace_back("-I");
+		Argv.emplace_back(Paths.back().c_str());
+	}; 
+	Setting->IterThroughIncludePaths(AddIncludePath);
 	
+	// include PCH source file to use PCH automatically
 	Argv.PRIVATE_ADD("-include");	
 	Argv.PRIVATE_ADD(StringCast<ANSICHAR>(*UClingSetting::GetPCHSourceFilePath()).Get());
 
-	return Cpp::CreateInterpreter(Argv, {});
+	// Todo use if is debug build
+#if USING_CPPINTEROP_DEBUG
+	// the abi of debug build of std::vector is different between unreal and clang! use raw input
+	auto Interp = Cpp::CreateInterpreter(&Argv[0], Argv.size());
+#else
+	auto Interp = Cpp::CreateInterpreter(Argv, {});
+#endif
+	return Interp;
 }
 
 #undef LOCTEXT_NAMESPACE

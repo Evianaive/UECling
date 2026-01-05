@@ -14,7 +14,12 @@ FString GetClingBinariesPath()
 #else
 	const TCHAR* BinariesArch = TEXT("x64");
 #endif
-	return FPaths::Combine(BaseDir, TEXT("Source"), TEXT("ThirdParty"), TEXT("ClingLibrary"),TEXT("LLVM"), TEXT("bin"));
+	return FPaths::Combine(BaseDir, TEXT("Source"), TEXT("ThirdParty"), TEXT("ClingLibrary"),TEXT("LLVM"), TEXT("bin"),
+#if USING_CPPINTEROP_DEBUG
+		TEXT("Debug"));
+#else
+		TEXT("RelWithDebInfo"));
+#endif 
 #elif PLATFORM_MAC
 	return FPaths::Combine(FPaths::EngineDir(), TEXT("Binaries"), TEXT("Mac"), TEXT("UnrealBuildAccelerator"));
 #elif PLATFORM_LINUX
