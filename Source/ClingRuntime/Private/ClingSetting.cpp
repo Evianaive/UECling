@@ -241,7 +241,9 @@ void UClingSetting::GeneratePCHHeaderFile(bool bForce)
 		FString MacroDefine = TEXT("#define ") + ModuleBuildInfo.Value.Name.ToString().ToUpper() + TEXT("_API ");
 		if (UNLIKELY(MacroDefine == "#define LAUNCH_API"))
 			continue;
-		PCHLines.Add(MacroDefine + TEXT(" __declspec(dllimport)"));
+		PCHLines.Add(MacroDefine
+			// + TEXT(" __declspec(dllimport)")
+			);
 		// PCHLines.Add(MacroDefine);
 	}
 // #ifdef _MSC_VER
@@ -266,12 +268,12 @@ void UClingSetting::GeneratePCHHeaderFile(bool bForce)
 #endif
 	
 	// fix msvc
-	PCHLines.Add(TEXT("#ifdef __clang__"));
-	PCHLines.Add(TEXT("#else"));
+#ifdef __clang__
+#else
 	PCHLines.Add(TEXT("#include \"Microsoft/MinimalWindowsApi.h\""));
 	PCHLines.Add(TEXT("#include \"Runtime/Core/Private/Microsoft/MinimalWindowsApi.cpp\""));
-	PCHLines.Add(TEXT("#endif"));
-
+#endif
+	
 	// default pch includes
 	PCHLines.Add(TEXT("#include \"CoreMinimal.h\""));
 	PCHLines.Add(TEXT("#include \"UObject/Object.h\""));
