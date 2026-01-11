@@ -25,6 +25,8 @@ void FCodeStringCustomization::CustomizeHeader(TSharedRef<IPropertyHandle> Struc
 	check(CodeStringProperty);
 
 	// StructCustomizationUtils.GetPropertyUtilities()
+	
+	TSharedPtr<SMultiLineEditableTextBox> EditableTextBox;
 	HeaderRow
 	.NameContent()
 	[
@@ -34,7 +36,7 @@ void FCodeStringCustomization::CustomizeHeader(TSharedRef<IPropertyHandle> Struc
 	.MaxDesiredWidth(0.0f)
 	.MinDesiredWidth(125.0f)
 	[
-		SNew(SMultiLineEditableTextBox)
+		SAssignNew(EditableTextBox,SMultiLineEditableTextBox)
 		.Style(&FClingCodeEditorStyle::Get().GetWidgetStyle<FEditableTextBoxStyle>("TextEditor.EditableTextBox"))
 		.Text(this, &FCodeStringCustomization::GetText)
 		.OnTextChanged(this, &FCodeStringCustomization::SetText)
@@ -42,7 +44,28 @@ void FCodeStringCustomization::CustomizeHeader(TSharedRef<IPropertyHandle> Struc
 		.AllowMultiLine(true)
 		.OverflowPolicy(ETextOverflowPolicy::Ellipsis)
 		.Margin(0.0f)
+		.OnKeyDownHandler_Lambda([](const FGeometry&, const FKeyEvent& KeyEvent) -> FReply
+		{
+			// avoid changing focus to the next property widget
+			if (KeyEvent.GetKey() == EKeys::Tab)
+				return FReply::Handled();
+			return FReply::Unhandled();
+		})
 	];
+	EditableTextBox->SetOnKeyCharHandler(
+	FOnKeyChar::CreateLambda([EditableTextBox](const FGeometry&, const FCharacterEvent& CharEvent) -> FReply
+	{
+		// insert Tab manually
+		if (CharEvent.GetCharacter() == TEXT('\t'))
+		{
+			if (EditableTextBox.IsValid())
+			{
+				EditableTextBox->InsertTextAtCursor(FText::FromString(TEXT("\t")));
+			}
+			return FReply::Handled();
+		}
+		return FReply::Unhandled();
+	}));
 }
 
 FText FCodeStringCustomization::GetText() const
