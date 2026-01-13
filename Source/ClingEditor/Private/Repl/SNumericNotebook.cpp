@@ -1,4 +1,5 @@
 #include "SNumericNotebook.h"
+#include "CppHighLight/CppRichTextSyntaxHighlightMarshaller.h"
 #include "Styling/CoreStyle.h"
 #include "Framework/Application/SlateApplication.h"
 #include "Widgets/Input/SButton.h"
@@ -136,9 +137,22 @@ void SClingNotebookCell::UpdateCellUI()
 				SAssignNew(CodeTextBox, SMultiLineEditableTextBox)
 				.Text(FText::FromString(CellData.Content))
 				.OnTextChanged(this, &SClingNotebookCell::OnCodeTextChanged)
-				.Font(FAppStyle::Get().GetFontStyle("SourceCodeFont"))
-				.AutoWrapText(true)
+				// .Font(FAppStyle::Get().GetFontStyle("SourceCodeFont"))
+				// .AutoWrapText(true)
 				.Margin(2.0f)
+				
+				// .Style(&FClingCodeEditorStyle::Get().GetWidgetStyle<FEditableTextBoxStyle>("TextEditor.EditableTextBox"))
+				.Marshaller(FCppRichTextSyntaxHighlightMarshaller::Create(FSyntaxTextStyle::GetSyntaxTextStyle()))
+				.AllowMultiLine(true)
+				.OverflowPolicy(ETextOverflowPolicy::Ellipsis)
+				// .Margin(0.0f)
+				.OnKeyDownHandler_Lambda([](const FGeometry&, const FKeyEvent& KeyEvent) -> FReply
+				{
+					// avoid changing focus to the next property widget
+					if (KeyEvent.GetKey() == EKeys::Tab)
+						return FReply::Handled();
+					return FReply::Unhandled();
+				})
 			]
 			
 			// 输出显示区域 (仅对代码单元格)

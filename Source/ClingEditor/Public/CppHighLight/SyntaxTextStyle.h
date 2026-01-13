@@ -19,6 +19,15 @@ struct CLINGEDITOR_API FSyntaxTextStyle
 	FTextBlockStyle CommentTextStyle;
 	UPROPERTY(EditAnywhere)
 	FTextBlockStyle PreProcessorKeywordTextStyle;
+	
+	UPROPERTY(EditAnywhere)
+	FTextBlockStyle TypeTextStyle;
+	UPROPERTY(EditAnywhere)
+	FTextBlockStyle VarTextStyle;
+	UPROPERTY(EditAnywhere)
+	FTextBlockStyle EnumTextStyle;
+	UPROPERTY(EditAnywhere)
+	FTextBlockStyle NamespaceTextStyle;
 
 	static const FSyntaxTextStyle& GetSyntaxTextStyle();
 };

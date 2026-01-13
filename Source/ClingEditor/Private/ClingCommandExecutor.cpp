@@ -73,7 +73,15 @@ bool FClingCommandExecutor::Exec(const TCHAR* Input)
 	// 	::ProcessCommand(Interpreter,TCHAR_TO_ANSI(Input),nullptr);	
 	// }
 	
-	Cpp::Process(TCHAR_TO_ANSI(Input));
+	Cpp::BeginStdStreamCapture(Cpp::kStdErr);
+	int32 CompilationResult = Cpp::Process(TCHAR_TO_ANSI(Input));
+	auto CompileResultCallBack = CompilationResult==0
+	?[](const char* Result){}
+	:[](const char* Result)
+	{
+		UE_LOG(LogTemp,Error,TEXT("%hs"),Result)
+	};
+	Cpp::EndStdStreamCapture(CompileResultCallBack);
 	return true;
 }
 

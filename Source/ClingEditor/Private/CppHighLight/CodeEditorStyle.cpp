@@ -87,6 +87,10 @@ void FClingCodeEditorStyle::Initialize()
 		(StyleSet.Get()->*PRIVATE_ACCESS(FSlateStyleSet,WidgetStyleValues)).Add("SyntaxHighlight.CPP.Number", MakeShareable(&SyntaxTextStyle.NumberTextStyle));
 		(StyleSet.Get()->*PRIVATE_ACCESS(FSlateStyleSet,WidgetStyleValues)).Add("SyntaxHighlight.CPP.Comment", MakeShareable(&SyntaxTextStyle.CommentTextStyle));
 		(StyleSet.Get()->*PRIVATE_ACCESS(FSlateStyleSet,WidgetStyleValues)).Add("SyntaxHighlight.CPP.PreProcessorKeyword", MakeShareable(&SyntaxTextStyle.PreProcessorKeywordTextStyle));
+		(StyleSet.Get()->*PRIVATE_ACCESS(FSlateStyleSet,WidgetStyleValues)).Add("SyntaxHighlight.CPP.Type", MakeShareable(&SyntaxTextStyle.TypeTextStyle));
+		(StyleSet.Get()->*PRIVATE_ACCESS(FSlateStyleSet,WidgetStyleValues)).Add("SyntaxHighlight.CPP.Var", MakeShareable(&SyntaxTextStyle.VarTextStyle));
+		(StyleSet.Get()->*PRIVATE_ACCESS(FSlateStyleSet,WidgetStyleValues)).Add("SyntaxHighlight.CPP.Enum", MakeShareable(&SyntaxTextStyle.EnumTextStyle));
+		(StyleSet.Get()->*PRIVATE_ACCESS(FSlateStyleSet,WidgetStyleValues)).Add("SyntaxHighlight.CPP.Namespace", MakeShareable(&SyntaxTextStyle.NamespaceTextStyle));
 		
 		StyleSet->Set("TextEditor.Border", new BOX_BRUSH("UI/TextEditorBorder", FMargin(4.0f/16.0f), FLinearColor(0.02f,0.02f,0.02f,1)));
 

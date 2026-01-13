@@ -142,7 +142,16 @@ public:
 			return;
 		}
 		auto& Module = FModuleManager::Get().GetModuleChecked<FClingRuntimeModule>(TEXT("ClingRuntime"));
-		Cpp::Declare(StringCast<ANSICHAR>(*FunctionDeclare).Get());
+		
+		Cpp::BeginStdStreamCapture(Cpp::kStdErr);
+		int32 CompilationResult = Cpp::Declare(StringCast<ANSICHAR>(*FunctionDeclare).Get());
+		auto CompileResultCallBack = CompilationResult==0
+		?[](const char* Result){}
+		:[](const char* Result)
+		{
+			UE_LOG(LogTemp,Error,TEXT("%hs"),Result)
+		};
+		Cpp::EndStdStreamCapture(CompileResultCallBack);
 		
 		FString StubLambda;
 		StubLambda += FString::Printf(TEXT("{\n\tsigned long long& FunctionPtr = *(signed long long*)%I64d;\n"),size_t(&FunctionPtr));

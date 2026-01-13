@@ -5,6 +5,10 @@
 #include "SyntaxTextStyle.h"
 #include "Framework/Text/SyntaxHighlighterTextLayoutMarshaller.h"
 
+namespace Cpp {
+	typedef void* TInterp_t;
+}
+
 class FTextLayout;
 
 /**
@@ -18,6 +22,11 @@ public:
 
 	virtual ~FCppRichTextSyntaxHighlightMarshaller();
 
+	void RefreshSemanticNames();
+
+	/** 尝试分析并修复缺失的 include */
+	FString TryFixIncludes(const FString& InCode);
+
 protected:
 
 	virtual void ParseTokens(const FString& SourceString, FTextLayout& TargetTextLayout, TArray<ISyntaxTokenizer::FTokenizedLine> TokenizedLines) override;
@@ -29,4 +38,8 @@ protected:
 
 	/** String representing tabs */
 	FString TabString;
+
+	TSet<FString> KnownTypes;
+	TSet<FString> KnownEnums;
+	TSet<FString> KnownNamespaces;
 };

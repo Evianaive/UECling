@@ -20,12 +20,12 @@ public class ClingLibrary : ModuleRules
 			"clangCppInterOp"
 		});
 		string ConfigurationType = "RelWithDebInfo";
-		if (Target.Configuration == UnrealTargetConfiguration.Debug)
-		{
-			ConfigurationType = "Debug";
-			PublicDefinitions.Add("USING_CPPINTEROP_DEBUG = 1");
-		}
-		else
+		// if (Target.Configuration == UnrealTargetConfiguration.Debug)
+		// {
+		// 	ConfigurationType = "Debug";
+		// 	PublicDefinitions.Add("USING_CPPINTEROP_DEBUG = 1");
+		// }
+		// else
 		{
 			ConfigurationType = "RelWithDebInfo";
 			PublicDefinitions.Add("USING_CPPINTEROP_DEBUG = 0");

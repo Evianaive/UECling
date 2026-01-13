@@ -115,12 +115,12 @@ Cpp::TInterp_t FClingRuntimeModule::StartInterpreterInternal()
 	Argv.PRIVATE_ADD(StringCast<ANSICHAR>(*UClingSetting::GetPCHSourceFilePath()).Get());
 
 	// Todo use if is debug build
-#if USING_CPPINTEROP_DEBUG
+// #if USING_CPPINTEROP_DEBUG
 	// the abi of debug build of std::vector is different between unreal and clang! use raw input
-	auto Interp = Cpp::CreateInterpreter(&Argv[0], Argv.size());
-#else
-	auto Interp = Cpp::CreateInterpreter(Argv, {});
-#endif
+	auto Interp = Cpp::CreateInterpreter(&Argv[0], Argv.size(),nullptr,0);
+// #else
+	// auto Interp = Cpp::CreateInterpreter(Argv, {});
+// #endif
 	return Interp;
 }
 

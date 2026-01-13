@@ -25,7 +25,8 @@ public class ClingEditor : ModuleRules
                 "UnrealEd",
                 "ClingLibrary",
                 "DeveloperSettings", 
-                "ClingKismet"
+                "ClingKismet",
+                "InputCore"
             }
         );
     }

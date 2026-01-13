@@ -5,6 +5,12 @@
 
 #include "Framework/Text/SlateTextRun.h"
 #include "Fonts/FontMeasure.h"
+#include "ClingRuntime.h"
+#include "CppInterOp/CppInterOp.h"
+#include "UObject/UObjectIterator.h"
+#include "Internationalization/Regex.h"
+#include "Misc/Paths.h"
+
 struct FRunInfo;
 
 class FWhiteSpaceTextRun : public FSlateTextRun
@@ -396,6 +402,41 @@ void FCppRichTextSyntaxHighlightMarshaller::ParseTokens(const FString& SourceStr
 						RunInfo.Name = TEXT("SyntaxHighlight.CPP.Comment");
 						TextBlockStyle = SyntaxTextStyle.CommentTextStyle;
 					}
+					else if(ParseState == EParseState::None)
+					{
+						if (KnownEnums.Contains(TokenText))
+						{
+							// 使用语义着色
+							RunInfo.Name = TEXT("SyntaxHighlight.CPP.Enum");
+							TextBlockStyle = SyntaxTextStyle.EnumTextStyle;
+							// UE_LOG(LogTemp, Warning, TEXT("Enum token: %s"), *TokenText);
+						}
+						else if (KnownTypes.Contains(TokenText))
+						{
+							// 使用语义着色
+							RunInfo.Name = TEXT("SyntaxHighlight.CPP.Type");
+							TextBlockStyle = SyntaxTextStyle.TypeTextStyle;
+							// UE_LOG(LogTemp, Warning, TEXT("Type token: %s"), *TokenText);
+						}
+						else if (KnownNamespaces.Contains(TokenText))
+						{
+							// 使用语义着色
+							RunInfo.Name = TEXT("SyntaxHighlight.CPP.Namespace");
+							TextBlockStyle = SyntaxTextStyle.NamespaceTextStyle;
+							// UE_LOG(LogTemp, Warning, TEXT("Namespace token: %s"), *TokenText);
+						}
+						// else
+						// {
+						// 	RunInfo.Name = TEXT("SyntaxHighlight.CPP.Var");
+						// 	TextBlockStyle = SyntaxTextStyle.VarTextStyle;
+						// 	UE_LOG(LogTemp, Warning, TEXT("Var token: %s"), *TokenText);
+						// }
+						// else if (TChar<WIDECHAR>::IsDigit(TokenText[0]))
+						// {
+						// 	RunInfo.Name = TEXT("SyntaxHighlight.CPP.Number");
+						// 	TextBlockStyle = SyntaxTextStyle.NumberTextStyle;
+						// }
+					}
 				}
 
 				TSharedRef< ISlateRun > Run = FSlateTextRun::Create(RunInfo, ModelString, TextBlockStyle, ModelRange);
@@ -419,4 +460,151 @@ FCppRichTextSyntaxHighlightMarshaller::FCppRichTextSyntaxHighlightMarshaller(TSh
 	: FSyntaxHighlighterTextLayoutMarshaller(MoveTemp(InTokenizer))
 	, SyntaxTextStyle(InSyntaxTextStyle)
 {
+	RefreshSemanticNames();
+}
+
+void FCppRichTextSyntaxHighlightMarshaller::RefreshSemanticNames()
+{
+	FClingRuntimeModule* Module = FModuleManager::GetModulePtr<FClingRuntimeModule>(TEXT("ClingRuntime"));
+	if (Module && Module->BaseInterp)
+	{
+		// Cpp::BeginStdStreamCapture(Cpp::kStdErr);
+		// Cpp::DumpScope(Cpp::GetGlobalScope());
+		// Cpp::EndStdStreamCapture([](const char* In){UE_LOG(LogTemp,Log,TEXT("%hs"),In)});
+		
+		// Cpp::ActivateInterpreter(Module->BaseInterp);
+		thread_local TSet<FString>* LocalKnownNames = nullptr;
+		
+		TGuardValue Guard{LocalKnownNames,&KnownTypes};
+		Cpp::GetAllCppNames(Cpp::GetGlobalScope(),[](const char* const* Names, size_t Size)
+		{
+			for (size_t i = 0; i < Size; ++i)
+			{
+				LocalKnownNames->Add(UTF8_TO_TCHAR(Names[i]));
+			}
+		});		
+		
+		LocalKnownNames = &KnownEnums;
+		Cpp::GetEnums(Cpp::GetGlobalScope(),[](const char* const* Names, size_t Size)
+		{
+			for (size_t i = 0; i < Size; ++i)
+			{
+				LocalKnownNames->Add(UTF8_TO_TCHAR(Names[i]));
+			}
+		});
+		
+		LocalKnownNames = &KnownNamespaces;
+		Cpp::GetUsingNamespaces(Cpp::GetGlobalScope(),[](const Cpp::TCppScope_t* Scopes, size_t Size)
+		{
+			for (size_t i = 0; i < Size; ++i)
+			{
+				Cpp::GetName(Scopes[i],[](const char* Name)
+				{
+					LocalKnownNames->Add(UTF8_TO_TCHAR(Name));
+				});
+			}
+		});
+	}
+
+	// 补充 UE UObject 符号，这在处理 UE 专属代码时非常有用
+	// for (TObjectIterator<UStruct> It; It; ++It)
+	// {
+	// 	KnownNames.Add(It->GetName());
+	// }
+}
+
+FString FCppRichTextSyntaxHighlightMarshaller::TryFixIncludes(const FString& InCode)
+{
+	FClingRuntimeModule* Module = FModuleManager::GetModulePtr<FClingRuntimeModule>(TEXT("ClingRuntime"));
+	if (!Module || !Module->BaseInterp) return InCode;
+
+	Cpp::ActivateInterpreter(Module->BaseInterp);
+
+	// 1. 捕获 CppInterOp 的编译错误 (Clang 错误通常输出到 stderr)
+	Cpp::BeginStdStreamCapture(Cpp::kStdErr);
+	Cpp::Declare(TCHAR_TO_UTF8(*InCode), true);
+	thread_local FString FErrors;
+	FErrors.Reset();
+	Cpp::EndStdStreamCapture([](const char* Result)
+	{
+		FErrors = UTF8_TO_TCHAR(Result);
+	});	
+
+	// 2. 使用正则表达式提取未定义的符号
+	TArray<FString> MissingSymbols;
+	{
+		FRegexPattern Pattern(TEXT("use of undeclared identifier '([^']*)'"));
+		FRegexMatcher Matcher(Pattern, FErrors);
+		while (Matcher.FindNext()) { MissingSymbols.AddUnique(Matcher.GetCaptureGroup(1)); }
+	}
+	{
+		FRegexPattern Pattern(TEXT("unknown type name '([^']*)'"));
+		FRegexMatcher Matcher(Pattern, FErrors);
+		while (Matcher.FindNext()) { MissingSymbols.AddUnique(Matcher.GetCaptureGroup(1)); }
+	}
+
+	if (MissingSymbols.Num() == 0) return InCode;
+
+	// 3. 寻找符号对应的头文件
+	TSet<FString> NewIncludes;
+	for (const FString& Symbol : MissingSymbols)
+	{
+		// 策略 A: 利用 Unreal Engine 的反射系统寻找 U 类型
+		UStruct* FoundStruct = FindObject<UStruct>(nullptr, *Symbol, true);
+		if (!FoundStruct) FoundStruct = FindObject<UStruct>(nullptr, *(TEXT("U") + Symbol), true);
+		if (!FoundStruct) FoundStruct = FindObject<UStruct>(nullptr, *(TEXT("A") + Symbol), true);
+		if (!FoundStruct) FoundStruct = FindObject<UStruct>(nullptr, *(TEXT("F") + Symbol), true);
+
+		if (FoundStruct)
+		{
+			FString HeaderPath = FoundStruct->GetMetaData(TEXT("ModuleRelativePath"));
+			if (!HeaderPath.IsEmpty())
+			{
+				NewIncludes.Add(FString::Printf(TEXT("#include \"%s\""), *FPaths::GetCleanFilename(HeaderPath)));
+			}
+		}
+		
+		// 策略 B: 利用 RiderLink 插件及其对项目的索引能力
+		// if (FModuleManager::Get().IsModuleLoaded("RiderLink"))
+		// {
+		// 	// 获取 RiderLink 模块以确保连接
+		// 	IRiderLinkModule& RiderLinkModule = IRiderLinkModule::Get();
+		//
+		// 	// 尝试在项目 Source 目录下直接搜索匹配符号名称的头文件
+		// 	// 这是基于 Rider 用户通常拥有完整的项目源码索引这一假设
+		// 	TArray<FString> FoundFiles;
+		// 	FString SearchDir = FPaths::ProjectDir() / TEXT("Source");
+		// 	IFileManager::Get().FindFilesRecursive(FoundFiles, *SearchDir, *(Symbol + TEXT(".h")), true, false);
+		// 	
+		// 	// 处理带有前缀的情况 (U/A/F/S/T)
+		// 	if (FoundFiles.Num() == 0 && Symbol.Len() > 1)
+		// 	{
+		// 		IFileManager::Get().FindFilesRecursive(FoundFiles, *SearchDir, *(Symbol.Mid(1) + TEXT(".h")), true, false);
+		// 	}
+		//
+		// 	if (FoundFiles.Num() > 0)
+		// 	{
+		// 		NewIncludes.Add(FString::Printf(TEXT("#include \"%s\""), *FPaths::GetCleanFilename(FoundFiles[0])));
+		// 	}
+		// }
+	}
+
+	if (NewIncludes.Num() == 0) return InCode;
+
+	// 4. 将缺失的 include 插入代码顶部
+	TArray<FString> Lines;
+	InCode.ParseIntoArrayLines(Lines, false);
+	int32 InsertIdx = 0;
+	for (int32 i = 0; i < Lines.Num(); ++i)
+	{
+		if (Lines[i].StartsWith(TEXT("#include")) || Lines[i].StartsWith(TEXT("#pragma"))) { InsertIdx = i + 1; }
+		else if (!Lines[i].TrimStartAndEnd().IsEmpty()) { break; }
+	}
+
+	for (const FString& Inc : NewIncludes)
+	{
+		if (!InCode.Contains(Inc)) { Lines.Insert(Inc, InsertIdx++); }
+	}
+
+	return FString::Join(Lines, TEXT("\n"));
 }

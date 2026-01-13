@@ -258,10 +258,11 @@ public:
 };
 
 ///\returns the version string information of the library.
-CPPINTEROP_API std::string GetVersion();
+CPPINTEROP_API void GetVersion(void (*Callback)(const char*));
 
 ///\returns the demangled representation of the given mangled_name
-CPPINTEROP_API std::string Demangle(const std::string& mangled_name);
+CPPINTEROP_API void Demangle(const char* mangled_name,
+                              void (*Callback)(const char*));
 
 /// Enables or disables the debugging printouts on stderr.
 /// Debugging output can be enabled also by the environment variable
@@ -341,7 +342,7 @@ CPPINTEROP_API TCppType_t AddTypeQualifier(TCppType_t type, QualKind qual);
 /// Extracts enum declarations from a specified scope and stores them in
 /// vector
 CPPINTEROP_API void GetEnums(TCppScope_t scope,
-                             std::vector<std::string>& Result);
+                              void (*Callback)(const char* const*, size_t));
 
 /// We assume that smart pointer types define both operator* and
 /// operator->.
@@ -358,7 +359,9 @@ CPPINTEROP_API TCppType_t GetIntegerTypeFromEnumScope(TCppScope_t handle);
 CPPINTEROP_API TCppType_t GetIntegerTypeFromEnumType(TCppType_t handle);
 
 /// Gets a list of all the enum constants for an enum.
-CPPINTEROP_API std::vector<TCppScope_t> GetEnumConstants(TCppScope_t scope);
+CPPINTEROP_API void GetEnumConstants(TCppScope_t scope,
+                                      void (*Callback)(const TCppScope_t*,
+                                                       size_t));
 
 /// Gets the enum name when an enum constant is passed.
 CPPINTEROP_API TCppType_t GetEnumConstantType(TCppScope_t scope);
@@ -375,23 +378,28 @@ CPPINTEROP_API bool IsVariable(TCppScope_t scope);
 
 /// Gets the name of any named decl (a class,
 /// namespace, variable, or a function).
-CPPINTEROP_API std::string GetName(TCppScope_t klass);
+CPPINTEROP_API void GetName(TCppScope_t klass, void (*Callback)(const char*));
 
 /// This is similar to GetName() function, but besides
 /// the name, it also gets the template arguments.
-CPPINTEROP_API std::string GetCompleteName(TCppScope_t klass);
+CPPINTEROP_API void GetCompleteName(TCppScope_t klass,
+                                     void (*Callback)(const char*));
 
 /// Gets the "qualified" name (including the namespace) of any
 /// named decl (a class, namespace, variable, or a function).
-CPPINTEROP_API std::string GetQualifiedName(TCppScope_t klass);
+CPPINTEROP_API void GetQualifiedName(TCppScope_t klass,
+                                      void (*Callback)(const char*));
 
 /// This is similar to GetQualifiedName() function, but besides
 /// the "qualified" name (including the namespace), it also
 /// gets the template arguments.
-CPPINTEROP_API std::string GetQualifiedCompleteName(TCppScope_t klass);
+CPPINTEROP_API void GetQualifiedCompleteName(TCppScope_t klass,
+                                              void (*Callback)(const char*));
 
 /// Gets the list of namespaces utilized in the supplied scope.
-CPPINTEROP_API std::vector<TCppScope_t> GetUsingNamespaces(TCppScope_t scope);
+CPPINTEROP_API void GetUsingNamespaces(TCppScope_t scope,
+                                        void (*Callback)(const TCppScope_t*,
+                                                         size_t));
 
 /// Gets the global scope of the whole C++  instance.
 CPPINTEROP_API TCppScope_t GetGlobalScope();
@@ -403,18 +411,18 @@ CPPINTEROP_API TCppScope_t GetUnderlyingScope(TCppScope_t scope);
 /// Gets the namespace or class (by stripping typedefs) for the name
 /// passed as a parameter, and if the parent is not passed,
 /// then global scope will be assumed.
-CPPINTEROP_API TCppScope_t GetScope(const std::string& name,
-                                    TCppScope_t parent = nullptr);
+CPPINTEROP_API TCppScope_t GetScope(const char* name,
+                                     TCppScope_t parent = nullptr);
 
 /// When the namespace is known, then the parent doesn't need
 /// to be specified. This will probably be phased-out in
 /// future versions of the interop library.
-CPPINTEROP_API TCppScope_t GetScopeFromCompleteName(const std::string& name);
+CPPINTEROP_API TCppScope_t GetScopeFromCompleteName(const char* name);
 
 /// This function performs a lookup within the specified parent,
 /// a specific named entity (functions, enums, etcetera).
-CPPINTEROP_API TCppScope_t GetNamed(const std::string& name,
-                                    TCppScope_t parent = nullptr);
+CPPINTEROP_API TCppScope_t GetNamed(const char* name,
+                                     TCppScope_t parent = nullptr);
 
 /// Gets the parent of the scope that is passed as a parameter.
 CPPINTEROP_API TCppScope_t GetParentScope(TCppScope_t scope);
@@ -447,7 +455,8 @@ CPPINTEROP_API int64_t GetBaseClassOffset(TCppScope_t derived,
 ///           to be retrieved
 ///\param[out] methods - Vector of methods in the class
 CPPINTEROP_API void GetClassMethods(TCppScope_t klass,
-                                    std::vector<TCppFunction_t>& methods);
+                                     void (*Callback)(const TCppFunction_t*,
+                                                      size_t));
 
 /// Template function pointer list to add proxies for un-instantiated/
 /// non-overloaded templated methods
@@ -456,7 +465,7 @@ CPPINTEROP_API void GetClassMethods(TCppScope_t klass,
 ///\param[out] methods - Vector of methods in the class
 CPPINTEROP_API void
 GetFunctionTemplatedDecls(TCppScope_t klass,
-                          std::vector<TCppFunction_t>& methods);
+                           void (*Callback)(const TCppFunction_t*, size_t));
 
 ///\returns if a class has a default constructor.
 CPPINTEROP_API bool HasDefaultConstructor(TCppScope_t scope);
@@ -469,8 +478,9 @@ CPPINTEROP_API TCppFunction_t GetDestructor(TCppScope_t scope);
 
 /// Looks up all the functions that have the name that is
 /// passed as a parameter in this function.
-CPPINTEROP_API std::vector<TCppFunction_t>
-GetFunctionsUsingName(TCppScope_t scope, const std::string& name);
+CPPINTEROP_API void GetFunctionsUsingName(TCppScope_t scope, const char* name,
+                                           void (*Callback)(const TCppFunction_t*,
+                                                            size_t));
 
 /// Gets the return type of the provided function.
 CPPINTEROP_API TCppType_t GetFunctionReturnType(TCppFunction_t func);
@@ -489,7 +499,8 @@ CPPINTEROP_API TCppType_t GetFunctionArgType(TCppFunction_t func,
 
 ///\returns a stringified version of a given function signature in the form:
 /// void N::f(int i, double d, long l = 0, char ch = 'a').
-CPPINTEROP_API std::string GetFunctionSignature(TCppFunction_t func);
+CPPINTEROP_API void GetFunctionSignature(TCppFunction_t func,
+                                          void (*Callback)(const char*));
 
 ///\returns if a function was marked as \c =delete.
 CPPINTEROP_API bool IsFunctionDeleted(TCppConstFunction_t function);
@@ -498,8 +509,8 @@ CPPINTEROP_API bool IsTemplatedFunction(TCppFunction_t func);
 
 /// This function performs a lookup to check if there is a
 /// templated function of that type.
-CPPINTEROP_API bool ExistsFunctionTemplate(const std::string& name,
-                                           TCppScope_t parent = nullptr);
+CPPINTEROP_API bool ExistsFunctionTemplate(const char* name,
+                                            TCppScope_t parent = nullptr);
 
 /// Sets a list of all the constructor for a scope/class that is
 /// supplied as a parameter.
@@ -510,9 +521,9 @@ CPPINTEROP_API bool ExistsFunctionTemplate(const std::string& name,
 ///           to be retrieved
 ///\param[out] funcs - vector of handles to all constructors found under the
 ///            given scope
-CPPINTEROP_API void LookupConstructors(const std::string& name,
-                                       TCppScope_t parent,
-                                       std::vector<TCppFunction_t>& funcs);
+CPPINTEROP_API void LookupConstructors(
+    const char* name, TCppScope_t parent,
+    void (*Callback)(const TCppFunction_t*, size_t));
 
 /// Sets a list of all the Templated Methods that are in the Class that is
 /// supplied as a parameter.
@@ -522,8 +533,8 @@ CPPINTEROP_API void LookupConstructors(const std::string& name,
 ///           to be retrieved
 ///\param[out] funcs - vector of function pointers matching the name
 CPPINTEROP_API bool
-GetClassTemplatedMethods(const std::string& name, TCppScope_t parent,
-                         std::vector<TCppFunction_t>& funcs);
+GetClassTemplatedMethods(const char* name, TCppScope_t parent,
+                          void (*Callback)(const TCppFunction_t*, size_t));
 
 /// Checks if the provided parameter is a method.
 CPPINTEROP_API bool IsMethod(TCppConstFunction_t method);
@@ -557,13 +568,15 @@ CPPINTEROP_API bool IsVirtualMethod(TCppFunction_t method);
 
 /// Gets all the Fields/Data Members of a Class
 CPPINTEROP_API void GetDatamembers(TCppScope_t scope,
-                                   std::vector<TCppScope_t>& datamembers);
+                                    void (*Callback)(const TCppScope_t*,
+                                                     size_t));
 
 /// Gets all the Static Fields/Data Members of a Class
 ///\param[in] scope - class
 ///\param[out] funcs - vector of static data members
 CPPINTEROP_API void GetStaticDatamembers(TCppScope_t scope,
-                                         std::vector<TCppScope_t>& datamembers);
+                                         void (*Callback)(const TCppScope_t*,
+                                                          size_t));
 
 /// Gets all the Enum Constants declared in a Class
 ///\param[in] scope - class
@@ -571,12 +584,12 @@ CPPINTEROP_API void GetStaticDatamembers(TCppScope_t scope,
 ///\param[in] include_enum_class - include enum constants from enum class
 CPPINTEROP_API
 void GetEnumConstantDatamembers(TCppScope_t scope,
-                                std::vector<TCppScope_t>& datamembers,
+                                void (*Callback)(const TCppScope_t*, size_t),
                                 bool include_enum_class = true);
 
 /// This is a Lookup function to be used specifically for data members.
-CPPINTEROP_API TCppScope_t LookupDatamember(const std::string& name,
-                                            TCppScope_t parent);
+CPPINTEROP_API TCppScope_t LookupDatamember(const char* name,
+                                             TCppScope_t parent);
 
 /// Check if the given type is a lamda class
 CPPINTEROP_API bool IsLambdaClass(TCppType_t type);
@@ -639,7 +652,8 @@ CPPINTEROP_API TCppType_t GetPointerType(TCppType_t type);
 CPPINTEROP_API TCppType_t GetUnderlyingType(TCppType_t type);
 
 /// Gets the Type (passed as a parameter) as a String value.
-CPPINTEROP_API std::string GetTypeAsString(TCppType_t type);
+CPPINTEROP_API void GetTypeAsString(TCppType_t type,
+                                     void (*Callback)(const char*));
 
 /// Gets the Canonical Type string from the std string. A canonical type
 /// is the type with any typedef names, syntactic sugars or modifiers stripped
@@ -648,7 +662,7 @@ CPPINTEROP_API TCppType_t GetCanonicalType(TCppType_t type);
 
 /// Used to either get the built-in type of the provided string, or
 /// use the name to lookup the actual type.
-CPPINTEROP_API TCppType_t GetType(const std::string& type);
+CPPINTEROP_API TCppType_t GetType(const char* type);
 
 ///\returns the complex of the provided type.
 CPPINTEROP_API TCppType_t GetComplexType(TCppType_t element_type);
@@ -671,26 +685,30 @@ CPPINTEROP_API JitCall MakeFunctionCallable(TInterp_t I,
 CPPINTEROP_API bool IsConstMethod(TCppFunction_t method);
 
 ///\returns the default argument value as string.
-CPPINTEROP_API std::string GetFunctionArgDefault(TCppFunction_t func,
-                                                 TCppIndex_t param_index);
+CPPINTEROP_API void GetFunctionArgDefault(TCppFunction_t func,
+                                           TCppIndex_t param_index,
+                                           void (*Callback)(const char*));
 
 ///\returns the argument name of function as string.
-CPPINTEROP_API std::string GetFunctionArgName(TCppFunction_t func,
-                                              TCppIndex_t param_index);
+CPPINTEROP_API void GetFunctionArgName(TCppFunction_t func,
+                                        TCppIndex_t param_index,
+                                        void (*Callback)(const char*));
 
 ///\returns string representation of the operator
-CPPINTEROP_API std::string GetSpellingFromOperator(Operator Operator);
+CPPINTEROP_API void GetSpellingFromOperator(Operator Operator,
+                                             void (*Callback)(const char*));
 
 ///\returns operator of representing the string
-CPPINTEROP_API Operator GetOperatorFromSpelling(const std::string& op);
+CPPINTEROP_API Operator GetOperatorFromSpelling(const char* op);
 
 ///\returns arity of the operator or kNone
 CPPINTEROP_API OperatorArity GetOperatorArity(TCppFunction_t op);
 
 ///\returns list of operator overloads
 CPPINTEROP_API void GetOperator(TCppScope_t scope, Operator op,
-                                std::vector<TCppFunction_t>& operators,
-                                OperatorArity kind = kBoth);
+                                 void (*Callback)(const TCppFunction_t*,
+                                                  size_t),
+                                 OperatorArity kind = kBoth);
 
 /// Creates an owned instance of the interpreter we need for the various interop
 /// services and pushes it onto a stack.
@@ -698,12 +716,10 @@ CPPINTEROP_API void GetOperator(TCppScope_t scope, Operator op,
 ///\param[in] CPPINTEROP_EXTRA_INTERPRETER_ARGS - an env variable, if defined,
 ///           adds additional arguments to the interpreter.
 ///\returns nullptr on failure.
-CPPINTEROP_API TInterp_t
-CreateInterpreter(const std::vector<const char*>& Args = {},
-                  const std::vector<const char*>& GpuArgs = {});
-
-CPPINTEROP_API TInterp_t
-CreateInterpreter(const char** Args, int Argc);
+CPPINTEROP_API TInterp_t CreateInterpreter(const char** Args = nullptr,
+                                            int Argc = 0,
+                                            const char** GpuArgs = nullptr,
+                                            int GpuArgc = 0);
 
 /// Deletes an instance of an interpreter.
 ///\param[in] I - the interpreter to be deleted, if nullptr, deletes the last.
@@ -740,8 +756,8 @@ CPPINTEROP_API const char* GetResourceDir();
 /// a compatible to CppInterOp version.
 ///\param[in] ClangBinaryName - the name (or the full path) of the compiler
 ///                             to ask.
-CPPINTEROP_API std::string
-DetectResourceDir(const char* ClangBinaryName = "clang");
+CPPINTEROP_API void DetectResourceDir(void (*Callback)(const char*),
+                                       const char* ClangBinaryName = "clang");
 
 /// Asks the system compiler for its default include paths.
 ///\param[out] Paths - the list of include paths returned by eg.
@@ -749,17 +765,17 @@ DetectResourceDir(const char* ClangBinaryName = "clang");
 ///\param[in] CompilerName - the name (or the full path) of the compiler
 ///                          binary file.
 CPPINTEROP_API void
-DetectSystemCompilerIncludePaths(std::vector<std::string>& Paths,
+DetectSystemCompilerIncludePaths(void (*Callback)(const char* const*, size_t),
                                  const char* CompilerName = "c++");
 
 /// Secondary search path for headers, if not found using the
 /// GetResourceDir() function.
 CPPINTEROP_API void AddIncludePath(const char* dir);
 
-// Gets the currently used include paths
+/// Gets the currently used include paths
 ///\param[out] IncludePaths - the list of include paths
 ///
-CPPINTEROP_API void GetIncludePaths(std::vector<std::string>& IncludePaths,
+CPPINTEROP_API void GetIncludePaths(void (*Callback)(const char* const*, size_t),
                                     bool withSystem = false,
                                     bool withFlags = false);
 
@@ -777,7 +793,8 @@ CPPINTEROP_API intptr_t Evaluate(const char* code, bool* HadError = nullptr);
 
 /// Looks up the library if access is enabled.
 ///\returns the path to the library.
-CPPINTEROP_API std::string LookupLibrary(const char* lib_name);
+CPPINTEROP_API void LookupLibrary(const char* lib_name,
+                                   void (*Callback)(const char*));
 
 /// Finds \c lib_stem considering the list of search paths and loads it by
 /// calling dlopen.
@@ -792,8 +809,9 @@ CPPINTEROP_API void UnloadLibrary(const char* lib_stem);
 /// Scans all libraries on the library search path for a given potentially
 /// mangled symbol name.
 ///\returns the path to the first library that contains the symbol definition.
-CPPINTEROP_API std::string
-SearchLibrariesForSymbol(const char* mangled_name, bool search_system /*true*/);
+CPPINTEROP_API void SearchLibrariesForSymbol(const char* mangled_name,
+                                              bool search_system,
+                                              void (*Callback)(const char*));
 
 /// Inserts or replaces a symbol in the JIT with the one provided. This is
 /// useful for providing our own implementations of facilities such as printf.
@@ -807,7 +825,8 @@ CPPINTEROP_API bool InsertOrReplaceJitSymbol(const char* linker_mangled_name,
                                              uint64_t address);
 
 /// Tries to load provided objects in a string format (prettyprint).
-CPPINTEROP_API std::string ObjToString(const char* type, void* obj);
+CPPINTEROP_API void ObjToString(const char* type, void* obj,
+                                 void (*Callback)(const char*));
 
 struct TemplateArgInfo {
   TCppType_t m_Type;
@@ -815,6 +834,7 @@ struct TemplateArgInfo {
   TemplateArgInfo(TCppScope_t type, const char* integral_value = nullptr)
       : m_Type(type), m_IntegralValue(integral_value) {}
 };
+
 /// Builds a template instantiation for a given templated declaration.
 /// Offers a single interface for instantiation of class, function and
 /// variable templates
@@ -837,7 +857,8 @@ InstantiateTemplate(TCppScope_t tmpl, const TemplateArgInfo* template_args,
 ///\param[out] args - Vector of instantiation arguments
 CPPINTEROP_API void
 GetClassTemplateInstantiationArgs(TCppScope_t templ_instance,
-                                  std::vector<TemplateArgInfo>& args);
+                                  void (*Callback)(const TemplateArgInfo*,
+                                                   size_t));
 
 /// Instantiates a function template from a given string representation. This
 /// function also does overload resolution.
@@ -854,12 +875,15 @@ InstantiateTemplateFunctionFromString(const char* function_template);
 ///\param[in] arg_types - set of argument types
 ///\returns Instantiated function pointer
 CPPINTEROP_API TCppFunction_t
-BestOverloadFunctionMatch(const std::vector<TCppFunction_t>& candidates,
-                          const std::vector<TemplateArgInfo>& explicit_types,
-                          const std::vector<TemplateArgInfo>& arg_types);
+BestOverloadFunctionMatch(const TCppFunction_t* candidates,
+                          size_t candidates_size,
+                          const TemplateArgInfo* explicit_types,
+                          size_t explicit_types_size,
+                          const TemplateArgInfo* arg_types,
+                          size_t arg_types_size);
 
 CPPINTEROP_API void GetAllCppNames(TCppScope_t scope,
-                                   std::set<std::string>& names);
+                                    void (*Callback)(const char* const*, size_t));
 
 CPPINTEROP_API void DumpScope(TCppScope_t scope);
 
@@ -871,7 +895,8 @@ enum : long int {
 }
 
 /// Gets the size/dimensions of a multi-dimension array.
-CPPINTEROP_API std::vector<long int> GetDimensions(TCppType_t type);
+CPPINTEROP_API void GetDimensions(TCppType_t type,
+                                   void (*Callback)(const long int*, size_t));
 
 /// Allocates memory required by an object of a given class
 /// \param[in] scope Given class for which to allocate memory for
@@ -924,7 +949,7 @@ enum CaptureStreamKind : char {
 CPPINTEROP_API void BeginStdStreamCapture(CaptureStreamKind fd_kind);
 
 /// Ends recording the standard stream and returns the result as a string.
-CPPINTEROP_API std::string EndStdStreamCapture();
+CPPINTEROP_API void EndStdStreamCapture(void (*Callback)(const char*));
 
 ///@}
 
@@ -934,8 +959,9 @@ CPPINTEROP_API std::string EndStdStreamCapture();
 ///\param[in] code - code fragment to complete
 ///\param[in] complete_line - position (line) in code for suggestion
 ///\param[in] complete_column - position (column) in code for suggestion
-CPPINTEROP_API void CodeComplete(std::vector<std::string>& Results,
-                                 const char* code, unsigned complete_line = 1U,
+CPPINTEROP_API void CodeComplete(void (*Callback)(const char* const*, size_t),
+                                 const char* code,
+                                 unsigned complete_line = 1U,
                                  unsigned complete_column = 1U);
 
 /// Reverts the last N operations performed by the interpreter.
