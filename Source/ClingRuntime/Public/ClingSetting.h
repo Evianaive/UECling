@@ -136,7 +136,7 @@ public:
 	void GenerateRspFile();
 	UFUNCTION(BlueprintCallable,CallInEditor)
 	void GeneratePCHHeaderFile(bool bForce = false);
-	/** Updates the generated BuildGlobalDefines.h file from engine binaries to plugin source directory
+	/** Updates the generated BuildGlobalDefines.h file from engine binaries to the plugin source directory
 	 * if not exist or bForce = true*/
 	UFUNCTION(BlueprintCallable,CallInEditor)
 	void UpdateBuildGlobalDefinesFile(bool bForce = false);

@@ -28,6 +28,16 @@ extern "C" void my_nop_impl() {
 }
 #if defined(_MSC_VER)
 #pragma comment(linker, "/EXPORT:__nop=my_nop_impl")
+//
+// #pragma comment(lib, "vcruntime.lib")
+// #pragma comment(lib, "msvcrt.lib")
+//
+#pragma comment(linker, "/EXPORT:_Init_thread_abort")
+#pragma comment(linker, "/EXPORT:_Init_thread_epoch")
+#pragma comment(linker, "/EXPORT:_Init_thread_footer")
+#pragma comment(linker, "/EXPORT:_Init_thread_header")
+#pragma comment(linker, "/EXPORT:_tls_index")
+
 #endif
 
 FString GetLLVMDir()
