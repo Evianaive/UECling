@@ -9,6 +9,7 @@
 #include "ClingLog/ClingLog.h"
 #include "HAL/FileManagerGeneric.h"
 #include "Interfaces/IPluginManager.h"
+#include "ClingCompileSetting.h"
 
 FString GetPluginDir()
 {
@@ -67,7 +68,6 @@ void UClingSetting::RefreshIncludePaths()
 template<typename T>
 void AppendCompileArgs(T& InOutCompileArgs)
 {
-#define USE_RESOURCE_DIR 0
 	// Common compile arguments that should be applied to both TArray<FString> and std::vector<const char*>
 	static const char* CommonArgs[] = {
 		"-std=c++20",
@@ -80,7 +80,9 @@ void AppendCompileArgs(T& InOutCompileArgs)
 		"-Wno-tautological-undefined-compare",
 		"-Wno-gnu-string-literal-operator-template",
 		"-fms-compatibility", "-fms-extensions",
-		// "-fno-threadsafe-statics",
+#if !USE_THREADSAFE_STATICS
+		"-fno-threadsafe-statics",
+#endif
 		// "-O1",				
 		// "-Xclang",
 		// "-detailed-preprocessing-record",

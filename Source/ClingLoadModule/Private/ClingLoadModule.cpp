@@ -1,9 +1,32 @@
 ﻿#include "ClingLoadModule.h"
 
 #include "Interfaces/IPluginManager.h"
+#include "ClingCompileSetting.h"
 
 #define LOCTEXT_NAMESPACE "FClingLoadModuleModule"
 
+// nop function export
+extern "C" void my_nop_impl() {
+#if defined(_MSC_VER)
+	__nop();
+#elif defined(__GNUC__)
+	__asm__ __volatile__("nop");
+#endif
+}
+#pragma comment(linker, "/EXPORT:__nop=my_nop_impl")
+#if defined(_MSC_VER)
+#if USE_THREADSAFE_STATICS
+//
+// #pragma comment(lib, "vcruntime.lib")
+// #pragma comment(lib, "msvcrt.lib")
+//
+#pragma comment(linker, "/EXPORT:_Init_thread_abort")
+#pragma comment(linker, "/EXPORT:_Init_thread_epoch")
+#pragma comment(linker, "/EXPORT:_Init_thread_footer")
+#pragma comment(linker, "/EXPORT:_Init_thread_header")
+#pragma comment(linker, "/EXPORT:_tls_index")
+#endif
+#endif
 
 FString GetClingBinariesPath()
 {
