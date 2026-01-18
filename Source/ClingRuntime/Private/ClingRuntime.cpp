@@ -69,6 +69,12 @@ Cpp::TInterp_t FClingRuntimeModule::StartNewInterp()
 	return Interps.Add_GetRef(StartInterpreterInternal());
 }
 
+void FClingRuntimeModule::DeleteInterp(void* CurrentInterp)
+{
+	Cpp::DeleteInterpreter(CurrentInterp);
+	Interps.Remove(CurrentInterp);
+}
+
 Cpp::TInterp_t FClingRuntimeModule::StartInterpreterInternal()
 {
 	SCOPED_NAMED_EVENT(StartInterpreterInternal, FColor::Red)

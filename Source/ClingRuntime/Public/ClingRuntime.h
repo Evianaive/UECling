@@ -24,6 +24,7 @@ public:
 
 	void* GetInterp(int Version=0);
 	void* StartNewInterp();
+	void DeleteInterp(void* CurrentInterp);
 private:
 	void* StartInterpreterInternal();
 };

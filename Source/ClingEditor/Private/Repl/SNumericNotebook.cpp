@@ -1,5 +1,8 @@
 #include "SNumericNotebook.h"
+#include "ClingRuntime.h"
 #include "CppHighLight/CppRichTextSyntaxHighlightMarshaller.h"
+#include "CppInterOp/CppInterOp.h"
+
 #include "Styling/CoreStyle.h"
 #include "Framework/Application/SlateApplication.h"
 #include "Widgets/Input/SButton.h"
@@ -17,6 +20,7 @@ void SClingNotebookCell::Construct(const FArguments& InArgs)
 {
 	CellData = InArgs._CellData;
 	OnRunCodeDelegate = InArgs._OnRunCode;
+	OnRunToHereDelegate = InArgs._OnRunToHere;
 	OnDeleteCellDelegate = InArgs._OnDeleteCell;
 	OnAddCellAboveDelegate = InArgs._OnAddCellAbove;
 	OnAddCellBelowDelegate = InArgs._OnAddCellBelow;
@@ -27,17 +31,6 @@ void SClingNotebookCell::Construct(const FArguments& InArgs)
 
 void SClingNotebookCell::UpdateCellUI()
 {
-	// 定义单元格背景色根据类型变化
-	FSlateColor CellBackgroundColor = FLinearColor(0.2f, 0.2f, 0.2f, 1.0f); // 默认深灰色
-	if (CellData.CellType == ECellType::Markdown)
-	{
-		CellBackgroundColor = FLinearColor(0.15f, 0.15f, 0.2f, 1.0f); // Markdown为蓝灰色
-	}
-	else if (CellData.CellType == ECellType::Raw)
-	{
-		CellBackgroundColor = FLinearColor(0.18f, 0.15f, 0.15f, 1.0f); // Raw为红灰色
-	}
-
 	ChildSlot
 	[
 		SNew(SBorder)
@@ -46,31 +39,46 @@ void SClingNotebookCell::UpdateCellUI()
 		[
 			SNew(SVerticalBox)
 			
-			// 单元格类型标签和控制按钮行
+			// 单元格控制行
 			+SVerticalBox::Slot()
 			.AutoHeight()
 			[
 				SNew(SHorizontalBox)
 				
-				// 类型标签
+				// 展开/收起按钮
 				+SHorizontalBox::Slot()
 				.AutoWidth()
 				.VAlign(VAlign_Center)
 				[
+					SNew(SButton)
+					.Text_Lambda([this]() { return CellData->bIsExpanded ? INVTEXT("▼") : INVTEXT("▶"); })
+					.OnClicked(this, &SClingNotebookCell::OnToggleExpandClicked)
+					.ButtonStyle(FAppStyle::Get(), "SimpleButton")
+				]
+
+				// 状态标签
+				+SHorizontalBox::Slot()
+				.AutoWidth()
+				.VAlign(VAlign_Center)
+				.Padding(5, 0)
+				[
 					SNew(STextBlock)
-					.Text_Lambda([this]()
-					{
-						switch (CellData.CellType)
-						{
-						case ECellType::Code: return FText::FromString(TEXT("Code"));
-						case ECellType::Markdown: return FText::FromString(TEXT("Markdown"));
-						case ECellType::Raw: return FText::FromString(TEXT("Raw"));
-						default: return FText::FromString(TEXT("Code"));
-						}
-					})
+					.Text(INVTEXT("Code"))
 					.ColorAndOpacity(FSlateColor(FLinearColor(0.7f, 0.7f, 1.0f, 1.0f)))
 				]
 				
+				// 完成标记
+				+SHorizontalBox::Slot()
+				.AutoWidth()
+				.VAlign(VAlign_Center)
+				.Padding(5, 0)
+				[
+					SNew(STextBlock)
+					.Text(INVTEXT("[Completed]"))
+					.ColorAndOpacity(FLinearColor::Green)
+					.Visibility_Lambda([this]() { return CellData->bIsCompleted ? EVisibility::Visible : EVisibility::Collapsed; })
+				]
+
 				// 空间填充
 				+SHorizontalBox::Slot()
 				.FillWidth(1.0f)
@@ -81,8 +89,7 @@ void SClingNotebookCell::UpdateCellUI()
 				.Padding(2.0f)
 				[
 					SNew(SButton)
-					.Text(FText::FromString(TEXT("+ Above")))
-					.ToolTipText(FText::FromString(TEXT("Add cell above this one")))
+					.Text(INVTEXT("+ Above"))
 					.OnClicked(this, &SClingNotebookCell::OnAddAboveButtonClicked)
 					.ButtonStyle(FAppStyle::Get(), "SimpleButton")
 				]
@@ -92,8 +99,7 @@ void SClingNotebookCell::UpdateCellUI()
 				.Padding(2.0f)
 				[
 					SNew(SButton)
-					.Text(FText::FromString(TEXT("+ Below")))
-					.ToolTipText(FText::FromString(TEXT("Add cell below this one")))
+					.Text(INVTEXT("+ Below"))
 					.OnClicked(this, &SClingNotebookCell::OnAddBelowButtonClicked)
 					.ButtonStyle(FAppStyle::Get(), "SimpleButton")
 				]
@@ -103,11 +109,20 @@ void SClingNotebookCell::UpdateCellUI()
 				.Padding(2.0f)
 				[
 					SNew(SButton)
-					.Text(FText::FromString(TEXT("Run")))
-					.ToolTipText(FText::FromString(TEXT("Execute this cell")))
+					.Text(INVTEXT("Run To Here"))
+					.ToolTipText(INVTEXT("Execute from start to this cell"))
+					.OnClicked(this, &SClingNotebookCell::OnRunToHereButtonClicked)
+					.ButtonStyle(FAppStyle::Get(), "SimpleButton")
+				]
+
+				+SHorizontalBox::Slot()
+				.AutoWidth()
+				.Padding(2.0f)
+				[
+					SNew(SButton)
+					.Text(INVTEXT("Run"))
 					.OnClicked(this, &SClingNotebookCell::OnRunButtonClicked)
 					.ButtonStyle(FAppStyle::Get(), "SimpleButton")
-					.Visibility_Lambda([this]() { return CellData.CellType == ECellType::Code ? EVisibility::Visible : EVisibility::Collapsed; })
 				]
 				
 				+SHorizontalBox::Slot()
@@ -115,56 +130,41 @@ void SClingNotebookCell::UpdateCellUI()
 				.Padding(2.0f)
 				[
 					SNew(SButton)
-					.Text(FText::FromString(TEXT("X")))
-					.ToolTipText(FText::FromString(TEXT("Delete this cell")))
+					.Text(INVTEXT("X"))
 					.OnClicked(this, &SClingNotebookCell::OnDeleteButtonClicked)
 					.ButtonStyle(FAppStyle::Get(), "SimpleButton")
 				]
 			]
 			
-			// 分隔线
+			// 代码输入区域
 			+SVerticalBox::Slot()
 			.AutoHeight()
 			.Padding(0, 2)
 			[
-				SNew(SSeparator)
-			]
-			
-			// 代码/文本输入区域
-			+SVerticalBox::Slot()
-			.FillHeight(1.0f)
-			[
 				SAssignNew(CodeTextBox, SMultiLineEditableTextBox)
-				.Text(FText::FromString(CellData.Content))
+				.Text(FText::FromString(CellData->Content))
 				.OnTextChanged(this, &SClingNotebookCell::OnCodeTextChanged)
-				// .Font(FAppStyle::Get().GetFontStyle("SourceCodeFont"))
-				// .AutoWrapText(true)
-				.Margin(2.0f)
-				
-				// .Style(&FClingCodeEditorStyle::Get().GetWidgetStyle<FEditableTextBoxStyle>("TextEditor.EditableTextBox"))
+				.Visibility_Lambda([this]() { return CellData->bIsExpanded ? EVisibility::Visible : EVisibility::Collapsed; })
 				.Marshaller(FCppRichTextSyntaxHighlightMarshaller::Create(FSyntaxTextStyle::GetSyntaxTextStyle()))
 				.AllowMultiLine(true)
-				.OverflowPolicy(ETextOverflowPolicy::Ellipsis)
-				// .Margin(0.0f)
 				.OnKeyDownHandler_Lambda([](const FGeometry&, const FKeyEvent& KeyEvent) -> FReply
 				{
-					// avoid changing focus to the next property widget
 					if (KeyEvent.GetKey() == EKeys::Tab)
 						return FReply::Handled();
 					return FReply::Unhandled();
 				})
 			]
 			
-			// 输出显示区域 (仅对代码单元格)
+			// 输出显示区域
 			+SVerticalBox::Slot()
 			.AutoHeight()
 			[
 				SNew(SBorder)
 				.BorderImage(FAppStyle::Get().GetBrush("ToolPanel.DarkGroupBorder"))
-				.Visibility_Lambda([this]() { return CellData.bHasOutput ? EVisibility::Visible : EVisibility::Collapsed; })
+				.Visibility_Lambda([this]() { return (CellData->bIsExpanded && CellData->bHasOutput) ? EVisibility::Visible : EVisibility::Collapsed; })
 				[
 					SNew(STextBlock)
-					.Text(FText::FromString(CellData.Output))
+					.Text_Lambda([this]() { return FText::FromString(CellData->Output); })
 					.WrapTextAt(800.0f)
 					.Margin(5.0f)
 				]
@@ -175,59 +175,50 @@ void SClingNotebookCell::UpdateCellUI()
 
 FReply SClingNotebookCell::OnRunButtonClicked()
 {
-	// TODO: 执行单元格中的代码
-	// 这里应该调用Cling或其他代码执行环境来运行代码
-	
-	// 临时：模拟执行结果
-	if (OnRunCodeDelegate.IsBound())
-	{
-		OnRunCodeDelegate.ExecuteIfBound();
-	}
-	
+	OnRunCodeDelegate.ExecuteIfBound();
+	return FReply::Handled();
+}
+
+FReply SClingNotebookCell::OnRunToHereButtonClicked()
+{
+	OnRunToHereDelegate.ExecuteIfBound();
 	return FReply::Handled();
 }
 
 FReply SClingNotebookCell::OnDeleteButtonClicked()
 {
-	if (OnDeleteCellDelegate.IsBound())
-	{
-		OnDeleteCellDelegate.ExecuteIfBound();
-	}
+	OnDeleteCellDelegate.ExecuteIfBound();
 	return FReply::Handled();
 }
 
 FReply SClingNotebookCell::OnAddAboveButtonClicked()
 {
-	if (OnAddCellAboveDelegate.IsBound())
-	{
-		OnAddCellAboveDelegate.ExecuteIfBound();
-	}
+	OnAddCellAboveDelegate.ExecuteIfBound();
 	return FReply::Handled();
 }
 
 FReply SClingNotebookCell::OnAddBelowButtonClicked()
 {
-	if (OnAddCellBelowDelegate.IsBound())
-	{
-		OnAddCellBelowDelegate.ExecuteIfBound();
-	}
+	OnAddCellBelowDelegate.ExecuteIfBound();
+	return FReply::Handled();
+}
+
+FReply SClingNotebookCell::OnToggleExpandClicked()
+{
+	CellData->bIsExpanded = !CellData->bIsExpanded;
 	return FReply::Handled();
 }
 
 void SClingNotebookCell::OnCodeTextChanged(const FText& InText)
 {
-	CellData.Content = InText.ToString();
-	if (OnContentChangedDelegate.IsBound())
-	{
-		OnContentChangedDelegate.ExecuteIfBound(InText);
-	}
+	CellData->Content = InText.ToString();
+	OnContentChangedDelegate.ExecuteIfBound(InText);
 }
 
 void SNumericNotebook::Construct(const FArguments& InArgs)
 {
-	// 初始化一些默认单元格
-	AddInitialCells();
-	
+	NotebookAsset = InArgs._NotebookAsset;
+
 	ChildSlot
 	[
 		SNew(SBorder)
@@ -243,7 +234,7 @@ void SNumericNotebook::Construct(const FArguments& InArgs)
 				.BorderImage(FAppStyle::Get().GetBrush("ToolPanel.DarkGroupBorder"))
 				[
 					SNew(STextBlock)
-					.Text(FText::FromString(TEXT("Numeric Notebook - Interactive Coding Environment")))
+					.Text(INVTEXT("Numeric Notebook - Interactive Coding Environment"))
 					.Font(FAppStyle::Get().GetFontStyle("HeadingFont"))
 					.Justification(ETextJustify::Center)
 					.Margin(10.0f)
@@ -264,7 +255,7 @@ void SNumericNotebook::Construct(const FArguments& InArgs)
 					.AutoWidth()
 					[
 						SNew(SButton)
-						.Text(FText::FromString(TEXT("Add New Code Cell")))
+						.Text(INVTEXT("Add New Code Cell"))
 						.OnClicked(this, &SNumericNotebook::OnAddNewCellButtonClicked)
 						.ButtonStyle(FAppStyle::Get(), "FlatButton.Success")
 					]
@@ -274,9 +265,9 @@ void SNumericNotebook::Construct(const FArguments& InArgs)
 					.Padding(5.0f, 0.0f)
 					[
 						SNew(SButton)
-						.Text(FText::FromString(TEXT("Clear All Outputs")))
-						// TODO: 实现清除输出功能
-						.ButtonStyle(FAppStyle::Get(), "FlatButton.Default")
+						.Text(INVTEXT("Restart Interpreter"))
+						.OnClicked(this, &SNumericNotebook::OnRestartInterpButtonClicked)
+						.ButtonStyle(FAppStyle::Get(), "FlatButton.Danger")
 					]
 					
 					+SHorizontalBox::Slot()
@@ -294,173 +285,181 @@ void SNumericNotebook::Construct(const FArguments& InArgs)
 		]
 	];
 	
-	// 刷新UI显示
 	UpdateDocumentUI();
 }
 
-TSharedRef<SClingNotebookCell> SNumericNotebook::CreateNewCell(ECellType CellType)
+void* SNumericNotebook::GetOrStartInterp()
 {
-	FNotebookCellData NewCellData;
-	NewCellData.CellType = CellType;
-	NewCellData.Content = TEXT("");
-	NewCellData.Output = TEXT("");
-	NewCellData.bHasOutput = false;
-
-	return SNew(SClingNotebookCell)
-		.CellData(NewCellData)
-		.OnRunCode(FSimpleDelegate::CreateSP(this, &SNumericNotebook::RunCell, Cells.Num())) // 使用当前cells数量作为索引
-		.OnDeleteCell(FSimpleDelegate::CreateSP(this, &SNumericNotebook::DeleteCell, Cells.Num()))
-		.OnAddCellAbove(FSimpleDelegate::CreateSP(this, &SNumericNotebook::AddNewCell, CellType, Cells.Num()))
-		.OnAddCellBelow(FSimpleDelegate::CreateSP(this, &SNumericNotebook::AddNewCell, CellType, Cells.Num() + 1));
+	if (CurrentInterp == nullptr)
+	{
+		FClingRuntimeModule& RuntimeModule = FModuleManager::LoadModuleChecked<FClingRuntimeModule>(TEXT("ClingRuntime"));
+		CurrentInterp = RuntimeModule.StartNewInterp();
+	}
+	return CurrentInterp;
 }
 
-void SNumericNotebook::AddNewCell(ECellType CellType, int32 Index)
+void SNumericNotebook::RestartInterp()
 {
-	FNotebookCellData NewCellData;
-	NewCellData.CellType = CellType;
-	NewCellData.Content = TEXT("");
-	NewCellData.Output = TEXT("");
-	NewCellData.bHasOutput = false;
-
-	if (Index == -1 || Index >= Cells.Num())
+	FClingRuntimeModule& RuntimeModule = FModuleManager::LoadModuleChecked<FClingRuntimeModule>(TEXT("ClingRuntime"));
+	// Note: We don't have a DeleteInterpreter in ClingRuntimeModule for individual interps yet,
+	// but we can start a new one and the old one will be cleaned up on shutdown.
+	// Actually, StartNewInterp adds to Interps array.
+	if (CurrentInterp)
 	{
-		// 添加到末尾
-		Cells.Add(NewCellData);
+		RuntimeModule.DeleteInterp(CurrentInterp);
+	}
+	CurrentInterp = RuntimeModule.StartNewInterp();
+	
+	// Reset completed status for all cells
+	if (NotebookAsset)
+	{
+		for (auto& Cell : NotebookAsset->Cells)
+		{
+			Cell.bIsCompleted = false;
+		}
+	}
+	UpdateDocumentUI();
+}
+
+void SNumericNotebook::AddNewCell(int32 InIndex)
+{
+	if (!NotebookAsset) return;
+
+	FClingNotebookCellData NewCellData;
+	NewCellData.bIsExpanded = true;
+	NewCellData.bIsCompleted = false;
+
+	if (InIndex == -1 || InIndex >= NotebookAsset->Cells.Num())
+	{
+		NotebookAsset->Cells.Add(NewCellData);
 	}
 	else
 	{
-		// 插入到指定位置
-		Cells.Insert(NewCellData, Index);
+		NotebookAsset->Cells.Insert(NewCellData, InIndex);
 	}
 
-	// 更新UI
+	NotebookAsset->MarkPackageDirty();
 	UpdateDocumentUI();
 }
 
-void SNumericNotebook::DeleteCell(int32 Index)
+void SNumericNotebook::DeleteCell(int32 InIndex)
 {
-	if (Index >= 0 && Index < Cells.Num())
+	if (NotebookAsset && NotebookAsset->Cells.IsValidIndex(InIndex))
 	{
-		Cells.RemoveAt(Index);
+		NotebookAsset->Cells.RemoveAt(InIndex);
+		NotebookAsset->MarkPackageDirty();
 		UpdateDocumentUI();
 	}
 }
 
-void SNumericNotebook::RunCell(int32 Index)
+bool SNumericNotebook::RunCell(int32 InIndex)
 {
-	if (Index >= 0 && Index < Cells.Num())
+	if (!NotebookAsset || !NotebookAsset->Cells.IsValidIndex(InIndex)) return false;
+
+	void* Interp = GetOrStartInterp();
+	if (!Interp) return false;
+
+	struct FLocal
 	{
-		FNotebookCellData& Cell = Cells[Index];
-		
-		// TODO: 实际执行代码的逻辑 - 使用Cling或其他执行环境
-		// 这里只是模拟执行过程
-		
-		// 示例：对于特定内容执行模拟操作
-		if (Cell.Content.Contains(TEXT("UE_LOG")) || Cell.Content.Contains(TEXT("Print")))
+		FLocal(void* InInterp)
 		{
-			Cell.Output = TEXT("Executed successfully! Check Output Log for details.");
-			Cell.bHasOutput = true;
+			StoreInterp = Cpp::GetInterpreter();
+			Cpp::ActivateInterpreter(InInterp);
 		}
-		else if (Cell.Content.TrimStartAndEnd().IsEmpty())
+		~FLocal()
 		{
-			Cell.Output = TEXT("Empty cell - nothing to execute");
+			Cpp::ActivateInterpreter(StoreInterp);
+		}
+		void* StoreInterp;
+	};
+	FLocal Guard{Interp};
+	FClingNotebookCellData& Cell = NotebookAsset->Cells[InIndex];
+	Cell.Output = ""; // 清空之前的输出
+	
+	thread_local FString FErrors;
+	FErrors.Reset();
+	Cpp::BeginStdStreamCapture(Cpp::kStdErr);
+	
+	int32 CompilationResult = Cpp::Process(TCHAR_TO_ANSI(*Cell.Content));
+	
+	Cpp::EndStdStreamCapture([](const char* Result)
+	{
+		FErrors = UTF8_TO_TCHAR(Result);
+	});
+
+	if (CompilationResult == 0)
+	{
+		Cell.bIsCompleted = true;
+		if (FErrors.IsEmpty())
+		{
+			Cell.Output = FString::Printf(TEXT("Success (Executed at %s)"), *FDateTime::Now().ToString());
 			Cell.bHasOutput = true;
 		}
 		else
 		{
-			Cell.Output = FString::Printf(TEXT("Executed: %s\nResult: Success"), *Cell.Content.Left(50));
+			Cell.Output = FErrors;
 			Cell.bHasOutput = true;
 		}
-		
-		// 更新UI显示
-		UpdateDocumentUI();
-		
-		// 如果有可执行代码，这里应该实际调用Cling执行
-		/* 注释掉的Cling执行代码 - 需要在后续实现
-		if (Cell.CellType == ECellType::Code)
-		{
-			// 获取Cling实例并执行代码
-			// UEClingManager::ExecuteCode(Cell.Content);
-		}
-		*/
 	}
+	else
+	{
+		Cell.bIsCompleted = false;
+		Cell.Output = FErrors;
+		Cell.bHasOutput = true;
+	}
+	
+	NotebookAsset->MarkPackageDirty();
+	UpdateDocumentUI();
+
+	return CompilationResult == 0;
 }
 
-void SNumericNotebook::AddInitialCells()
+void SNumericNotebook::RunToHere(int32 InIndex)
 {
-	// 添加一个示例代码单元格
-	FNotebookCellData ExampleCodeCell;
-	ExampleCodeCell.CellType = ECellType::Code;
-	ExampleCodeCell.Content = TEXT("// Example C++ code cell\n// Type your C++ code here and click Run\nint x = 42;\nUE_LOG(LogTemp, Warning, TEXT(\"Hello from notebook! x = %d\"), x);\n");
-	ExampleCodeCell.Output = TEXT("");
-	ExampleCodeCell.bHasOutput = false;
-	Cells.Add(ExampleCodeCell);
+	if (!NotebookAsset || !NotebookAsset->Cells.IsValidIndex(InIndex)) return;
 
-	// 添加一个示例Markdown单元格
-	FNotebookCellData ExampleMarkdownCell;
-	ExampleMarkdownCell.CellType = ECellType::Markdown;
-	ExampleMarkdownCell.Content = TEXT("# Welcome to Numeric Notebook\n\nThis is an interactive coding environment similar to Jupyter Notebook.\nYou can write and execute C++ code directly in this editor.");
-	ExampleMarkdownCell.Output = TEXT("");
-	ExampleMarkdownCell.bHasOutput = false;
-	Cells.Add(ExampleMarkdownCell);
+	for (int32 i = 0; i <= InIndex; ++i)
+	{
+		if (!RunCell(i))
+		{
+			break; // 如果出现报错，需要停止后面的节执行
+		}
+	}
 }
 
 void SNumericNotebook::UpdateDocumentUI()
 {
-	// 清空滚动框内容
+	if (!ScrollBox.IsValid() || !NotebookAsset) return;
+
 	ScrollBox->ClearChildren();
 
-	// 重新添加所有单元格
-	for (int32 i = 0; i < Cells.Num(); i++)
+	for (int32 i = 0; i < NotebookAsset->Cells.Num(); i++)
 	{
-		const FNotebookCellData& CellData = Cells[i];
-		
-		// 使用lambda捕获正确的索引
 		int32 CurrentIndex = i;
 		
 		ScrollBox->AddSlot()
+		.Padding(5.0f)
 		[
-			SNew(SBorder)
-			.BorderImage(FAppStyle::Get().GetBrush("ToolPanel.DarkGroupBorder"))
-			.Padding(5.0f)
-			[
-				SNew(SClingNotebookCell)
-				.CellData(CellData)
-				.OnRunCode(FSimpleDelegate::CreateSP(this, &SNumericNotebook::RunCell, CurrentIndex))
-				.OnDeleteCell(FSimpleDelegate::CreateSP(this, &SNumericNotebook::DeleteCell, CurrentIndex))
-				.OnAddCellAbove_Lambda([this, CurrentIndex]() 
-				{
-					AddNewCell(ECellType::Code, CurrentIndex);
-				})
-				.OnAddCellBelow_Lambda([this, CurrentIndex]() 
-				{
-					AddNewCell(ECellType::Code, CurrentIndex + 1);
-				})
-			]
+			SNew(SClingNotebookCell)
+			.CellData(&NotebookAsset->Cells[i])
+			.OnRunCode_Lambda([this, CurrentIndex]() { RunCell(CurrentIndex); })
+			.OnRunToHere_Lambda([this, CurrentIndex]() { RunToHere(CurrentIndex); })
+			.OnDeleteCell_Lambda([this, CurrentIndex]() { DeleteCell(CurrentIndex); })
+			.OnAddCellAbove_Lambda([this, CurrentIndex]() { AddNewCell(CurrentIndex); })
+			.OnAddCellBelow_Lambda([this, CurrentIndex]() { AddNewCell(CurrentIndex + 1); })
+			.OnContentChanged_Lambda([this](const FText&) { if (NotebookAsset) NotebookAsset->MarkPackageDirty(); })
 		];
 	}
 }
 
 FReply SNumericNotebook::OnAddNewCellButtonClicked()
 {
-	AddNewCell(ECellType::Code);
+	AddNewCell();
 	return FReply::Handled();
 }
 
-TSharedPtr<SNumericNotebook> SNumericNotebook::CreateTestWidget()
+FReply SNumericNotebook::OnRestartInterpButtonClicked()
 {
-	TSharedRef<SNumericNotebook> NotebookWidget = SNew(SNumericNotebook);
-    
-	// 创建一个窗口来承载Notebook控件
-	TSharedRef<SWindow> Window = SNew(SWindow)
-		.Title(FText::FromString(TEXT("Numeric Notebook - Interactive C++ Environment")))
-		.ClientSize(FVector2D(1000, 700))
-		.Content()
-		[
-			NotebookWidget
-		];
-    
-	// 将窗口添加到应用程序中并显示
-	FSlateApplication::Get().AddWindow(Window);
-	return NotebookWidget.ToSharedPtr();
-};
+	RestartInterp();
+	return FReply::Handled();
+}
