@@ -4,7 +4,7 @@
 #include "DetailWidgetRow.h"
 #include "K2Node_ExecuteCppScript.h"
 #include "CppHighLight/CodeEditorStyle.h"
-#include "CppHighLight/CppRichTextSyntaxHighlightMarshaller.h"
+#include "SlateWidgets/CppMultiLineEditableTextBox.h"
 #include "Widgets/Input/SMultiLineEditableTextBox.h"
 
 
@@ -36,36 +36,13 @@ void FCodeStringCustomization::CustomizeHeader(TSharedRef<IPropertyHandle> Struc
 	.MaxDesiredWidth(0.0f)
 	.MinDesiredWidth(125.0f)
 	[
-		SAssignNew(EditableTextBox,SMultiLineEditableTextBox)
+		SAssignNew(EditableTextBox,SCppMultiLineEditableTextBox)
 		.Style(&FClingCodeEditorStyle::Get().GetWidgetStyle<FEditableTextBoxStyle>("TextEditor.EditableTextBox"))
 		.Text(this, &FCodeStringCustomization::GetText)
 		.OnTextChanged(this, &FCodeStringCustomization::SetText)
-		.Marshaller(FCppRichTextSyntaxHighlightMarshaller::Create(FSyntaxTextStyle::GetSyntaxTextStyle()))
-		.AllowMultiLine(true)
 		.OverflowPolicy(ETextOverflowPolicy::Ellipsis)
 		.Margin(0.0f)
-		.OnKeyDownHandler_Lambda([](const FGeometry&, const FKeyEvent& KeyEvent) -> FReply
-		{
-			// avoid changing focus to the next property widget
-			if (KeyEvent.GetKey() == EKeys::Tab)
-				return FReply::Handled();
-			return FReply::Unhandled();
-		})
 	];
-	EditableTextBox->SetOnKeyCharHandler(
-	FOnKeyChar::CreateLambda([EditableTextBox](const FGeometry&, const FCharacterEvent& CharEvent) -> FReply
-	{
-		// insert Tab manually
-		if (CharEvent.GetCharacter() == TEXT('\t'))
-		{
-			if (EditableTextBox.IsValid())
-			{
-				EditableTextBox->InsertTextAtCursor(FText::FromString(TEXT("\t")));
-			}
-			return FReply::Handled();
-		}
-		return FReply::Unhandled();
-	}));
 }
 
 FText FCodeStringCustomization::GetText() const

@@ -1,6 +1,5 @@
 #include "SNumericNotebook.h"
 #include "ClingRuntime.h"
-#include "CppHighLight/CppRichTextSyntaxHighlightMarshaller.h"
 #include "CppInterOp/CppInterOp.h"
 
 #include "Styling/CoreStyle.h"
@@ -15,6 +14,7 @@
 #include "Styling/AppStyle.h"
 #include "HAL/PlatformApplicationMisc.h"
 #include "Engine/Engine.h"
+#include "SlateWidgets/CppMultiLineEditableTextBox.h"
 
 void SClingNotebookCell::Construct(const FArguments& InArgs)
 {
@@ -141,18 +141,10 @@ void SClingNotebookCell::UpdateCellUI()
 			.AutoHeight()
 			.Padding(0, 2)
 			[
-				SAssignNew(CodeTextBox, SMultiLineEditableTextBox)
+				SAssignNew(CodeTextBox, SCppMultiLineEditableTextBox)
 				.Text(FText::FromString(CellData->Content))
 				.OnTextChanged(this, &SClingNotebookCell::OnCodeTextChanged)
 				.Visibility_Lambda([this]() { return CellData->bIsExpanded ? EVisibility::Visible : EVisibility::Collapsed; })
-				.Marshaller(FCppRichTextSyntaxHighlightMarshaller::Create(FSyntaxTextStyle::GetSyntaxTextStyle()))
-				.AllowMultiLine(true)
-				.OnKeyDownHandler_Lambda([](const FGeometry&, const FKeyEvent& KeyEvent) -> FReply
-				{
-					if (KeyEvent.GetKey() == EKeys::Tab)
-						return FReply::Handled();
-					return FReply::Unhandled();
-				})
 			]
 			
 			// 输出显示区域
