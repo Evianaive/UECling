@@ -68,7 +68,7 @@ void UClingSetting::RefreshIncludePaths()
 template<typename T>
 void AppendCompileArgs(T& InOutCompileArgs)
 {
-	// Common compile arguments that should be applied to both TArray<FString> and std::vector<const char*>
+	// Common compile arguments that should be applied to both TArray<FString> and TArray<const char*>
 	static const char* CommonArgs[] = {
 		"-std=c++20",
 		"-march=native", 
@@ -95,33 +95,29 @@ void AppendCompileArgs(T& InOutCompileArgs)
 #endif
 	};
 #if USE_RESOURCE_DIR
+	constexpr bool IsFString = std::is_same_v<typename TDecay<T>::Type::ElementType, FString>;
+	constexpr bool IsCharStar = std::is_same_v<typename TDecay<T>::Type::ElementType, const char*>;
+	
 	static FString ResourceDir = GetPluginDir()/TEXT("Source/ThirdParty/ClingLibrary/LLVM/lib/clang/20");
+	static FAnsiString ResourceDirAnsi = StringCast<ANSICHAR>(*ResourceDir).Get();
 #endif
 	if constexpr (TIsTArray<typename TDecay<T>::Type>::Value)
 	{
-		// For TArray<FString>
 		for (const char* Arg : CommonArgs)
 		{
-			InOutCompileArgs.Add(Arg);
+			if constexpr (IsFString)
+				InOutCompileArgs.Add(Arg);
+			else if constexpr (IsCharStar)
+				InOutCompileArgs.Add(Arg);
 		}
 #if USE_RESOURCE_DIR
-		InOutCompileArgs.Add(ResourceDir);
-#endif
-	}
-	else
-	{
-		for (const char* Arg : CommonArgs)
-		{
-			// For std::vector<const char*> or similar container
-			InOutCompileArgs.emplace_back(Arg);
-		}
-#if USE_RESOURCE_DIR
-		auto CastString = StringCast<ANSICHAR>(*ResourceDir);
-		static char StaticStored[256]{};
-		FMemory::Memcpy(StaticStored,CastString.Get(),CastString.Length());
-		InOutCompileArgs.emplace_back(StaticStored);
+		if constexpr (IsFString)
+			InOutCompileArgs.Add(ResourceDir);
+		else if constexpr (IsCharStar)
+			InOutCompileArgs.Add(*ResourceDirAnsi);
 #endif
 	}	
+	static_assert(TIsTArray<typename TDecay<T>::Type>::Value, "T must be TArray<FString> or TArray<const char*>");
 }
 
 void UClingSetting::AppendCompileArgs(TArray<FString>& InOutCompileArgs)
@@ -129,7 +125,7 @@ void UClingSetting::AppendCompileArgs(TArray<FString>& InOutCompileArgs)
 	::AppendCompileArgs(InOutCompileArgs);
 }
 
-void UClingSetting::AppendCompileArgs(std::vector<const char*>& InOutCompileArgs)
+void UClingSetting::AppendCompileArgs(TArray<const char*>& InOutCompileArgs)
 {
 	::AppendCompileArgs(InOutCompileArgs);
 }
@@ -139,13 +135,13 @@ void UClingSetting::AppendRuntimeArgs(TArray<FString>& InOutRuntimeArgs)
 	InOutRuntimeArgs.Append(RuntimeArgs);
 }
 
-void UClingSetting::AppendRuntimeArgs(std::vector<const char*>& Argv)
+void UClingSetting::AppendRuntimeArgs(TArray<const char*>& Argv)
 {
 	RuntimeArgsForConvert.SetNum(RuntimeArgs.Num());
 	for (int32 i = 0; i < RuntimeArgs.Num(); i++)
 	{
-		RuntimeArgsForConvert[i] = std::string(StringCast<ANSICHAR>(*RuntimeArgs[i]).Get());
-		Argv.emplace_back(RuntimeArgsForConvert[i].c_str());
+		RuntimeArgsForConvert[i] = StringCast<ANSICHAR>(*RuntimeArgs[i]).Get();
+		Argv.Add(*RuntimeArgsForConvert[i]);
 	}	
 }
 

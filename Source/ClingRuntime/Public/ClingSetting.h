@@ -116,7 +116,7 @@ public:
 	UPROPERTY(EditAnywhere)
 	TArray<FString> RuntimeArgs;
 	// temporary for holding char* for args
-	TArray<std::string> RuntimeArgsForConvert; 
+	TArray<FAnsiString> RuntimeArgsForConvert; 
 
 	static FString GetPCHSourceFilePath();
 	static FString GetRspSavePath();
@@ -124,9 +124,9 @@ public:
 	void RefreshIncludePaths();
 	
 	void AppendCompileArgs(TArray<FString>& InOutCompileArgs);
-	void AppendCompileArgs(std::vector<const char*>& InOutCompileArgs);
+	void AppendCompileArgs(TArray<const char*>& InOutCompileArgs);
 	void AppendRuntimeArgs(TArray<FString>& InOutRuntimeArgs);
-	void AppendRuntimeArgs(std::vector<const char*>& Argv);
+	void AppendRuntimeArgs(TArray<const char*>& Argv);
 	
 	UFUNCTION(BlueprintCallable,CallInEditor)
 	void RefreshModuleIncludePaths();

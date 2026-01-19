@@ -83,36 +83,32 @@ Cpp::TInterp_t FClingRuntimeModule::StartInterpreterInternal()
 	// FString UE_Exec = FPlatformProcess::ExecutablePath();
 	UClingSetting* Setting = GetMutableDefault<UClingSetting>();
 	// Start ClingInterpreter
-#if 1
-	std::vector<const char*> Argv;
-#define PRIVATE_ADD emplace_back
-#else
+
 	TArray<const char*> Argv;
-#define PRIVATE_ADD Add
-#endif
+
 	// Argv.PRIVATE_ADD("-I");
 	// Argv.PRIVATE_ADD(StringCast<ANSICHAR>(*LLVMInclude).Get());
-
 	Setting->AppendCompileArgs(Argv);
-	// add all include path even if we use PCH
-	std::vector<std::string> Paths;
+	// add all include paths even if we use PCH
+	TArray<FAnsiString> Paths;
 	auto AddIncludePath = [&Paths,&Argv](const FString& Path)
 	{
-		Paths.emplace_back(StringCast<ANSICHAR>(*Path.Replace(TEXT("\\"),TEXT("/"))).Get());
+		Paths.Add(StringCast<ANSICHAR>(*Path.Replace(TEXT("\\"),TEXT("/"))).Get());
 		// Cpp::AddIncludePath(StringCast<ANSICHAR>(*Path.Replace(TEXT("\\"),TEXT("/"))).Get());
-		Argv.emplace_back("-I");
-		Argv.emplace_back(Paths.back().c_str());
+		Argv.Add("-I");
+		Argv.Add(*Paths.Last());
 	}; 
 	Setting->IterThroughIncludePaths(AddIncludePath);
 	
 	// include PCH source file to use PCH automatically
-	Argv.PRIVATE_ADD("-include");	
-	Argv.PRIVATE_ADD(StringCast<ANSICHAR>(*UClingSetting::GetPCHSourceFilePath()).Get());
+	FAnsiString PCHHeaderFilePath{StringCast<ANSICHAR>(*UClingSetting::GetPCHSourceFilePath()).Get()};
+	Argv.Add("-include");
+	Argv.Add(*PCHHeaderFilePath);
 
 	// Todo use if is debug build
 // #if USING_CPPINTEROP_DEBUG
 	// the abi of debug build of std::vector is different between unreal and clang! use raw input
-	auto Interp = Cpp::CreateInterpreter(&Argv[0], Argv.size(),nullptr,0);
+	auto Interp = Cpp::CreateInterpreter(&Argv[0], Argv.Num(),nullptr,0);
 // #else
 	// auto Interp = Cpp::CreateInterpreter(Argv, {});
 // #endif
