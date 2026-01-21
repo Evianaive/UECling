@@ -1,4 +1,5 @@
-#include "ClingScriptBlueprint.h"
+﻿#include "ClingScriptBlueprint.h"
+#include "ClingScriptBlueprintGeneratedClass.h"
 
 #if WITH_EDITOR
 UClass* UClingScriptBlueprint::GetBlueprintClass() const

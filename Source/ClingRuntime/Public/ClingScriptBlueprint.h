@@ -1,4 +1,4 @@
-#pragma once
+﻿#pragma once
 
 #include "CoreMinimal.h"
 #include "Engine/Blueprint.h"
@@ -6,7 +6,7 @@
 #include "ClingScriptBlueprint.generated.h"
 
 UCLASS(BlueprintType)
-class CLINGSCRIPT_API UClingScriptBlueprint : public UBlueprint
+class CLINGRUNTIME_API UClingScriptBlueprint : public UBlueprint
 {
 	GENERATED_BODY()
 
