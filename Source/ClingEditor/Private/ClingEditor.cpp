@@ -1,4 +1,4 @@
-﻿#include "ClingEditor.h"
+#include "ClingEditor.h"
 
 #include "ClingRuntime.h"
 #include "CppHighLight/CodeEditorStyle.h"
@@ -6,8 +6,11 @@
 #include "Customization/CodeStringCustomization.h"
 
 #include "Asset/ClingNotebookAssetTypeActions.h"
+#include "Asset/ClingScriptBlueprintAssetTypeActions.h"
 #include "AssetToolsModule.h"
 #include "IAssetTools.h"
+
+#include "PropertyEditorModule.h"
 
 #define LOCTEXT_NAMESPACE "FClingEditorModule"
 
@@ -54,6 +57,10 @@ void FClingEditorModule::RegisterAssetActions()
 	TSharedPtr<IAssetTypeActions> Action = MakeShareable(new FClingNotebookAssetTypeActions);
 	AssetTools.RegisterAssetTypeActions(Action.ToSharedRef());
 	RegisteredAssetActions.Add(Action);
+
+	TSharedPtr<IAssetTypeActions> ScriptBlueprintAction = MakeShareable(new FClingScriptBlueprintAssetTypeActions);
+	AssetTools.RegisterAssetTypeActions(ScriptBlueprintAction.ToSharedRef());
+	RegisteredAssetActions.Add(ScriptBlueprintAction);
 }
 
 void FClingEditorModule::UnregisterAssetActions()

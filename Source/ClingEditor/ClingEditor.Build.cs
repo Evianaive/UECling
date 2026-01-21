@@ -1,4 +1,4 @@
-﻿using System.Linq;
+using System.Linq;
 using UnrealBuildTool;
 
 public class ClingEditor : ModuleRules
@@ -23,9 +23,12 @@ public class ClingEditor : ModuleRules
                 "SlateCore",
                 "ClingRuntime",
                 "UnrealEd",
+                "AssetTools",
+                "PropertyEditor",
                 "ClingLibrary",
                 "DeveloperSettings", 
                 "ClingKismet",
+                "ClingScript",
                 "InputCore"
             }
         );

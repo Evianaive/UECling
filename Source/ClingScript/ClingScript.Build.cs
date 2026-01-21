@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.IO;
 using UnrealBuildTool;
 
@@ -12,14 +12,14 @@ public class ClingScript : ModuleRules
             new string[]
             {
                 "Core",
+                "CoreUObject",
+                "Engine",
             }
         );
 
         PrivateDependencyModuleNames.AddRange(
             new string[]
             {
-                "CoreUObject",
-                "Engine",
                 "Slate",
                 "SlateCore"
             }
