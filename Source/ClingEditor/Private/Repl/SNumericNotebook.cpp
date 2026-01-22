@@ -1,6 +1,7 @@
 #include "SNumericNotebook.h"
 #include "ClingRuntime.h"
 #include "CppInterOp/CppInterOp.h"
+#include "Async/Async.h"
 
 #include "Styling/CoreStyle.h"
 #include "Framework/Application/SlateApplication.h"
@@ -15,6 +16,8 @@
 #include "HAL/PlatformApplicationMisc.h"
 #include "Engine/Engine.h"
 #include "SlateWidgets/CppMultiLineEditableTextBox.h"
+#include "Widgets/Images/SThrobber.h"
+#include "Widgets/Input/SCheckBox.h"
 
 void SClingNotebookCell::Construct(const FArguments& InArgs)
 {
@@ -31,6 +34,12 @@ void SClingNotebookCell::Construct(const FArguments& InArgs)
 
 void SClingNotebookCell::UpdateCellUI()
 {
+	if (!IsInGameThread())
+	{
+		AsyncTask(ENamedThreads::GameThread, [this]() { UpdateCellUI(); });
+		return;
+	}
+
 	ChildSlot
 	[
 		SNew(SBorder)
@@ -76,7 +85,47 @@ void SClingNotebookCell::UpdateCellUI()
 					SNew(STextBlock)
 					.Text(INVTEXT("[Completed]"))
 					.ColorAndOpacity(FLinearColor::Green)
-					.Visibility_Lambda([this]() { return CellData->bIsCompleted ? EVisibility::Visible : EVisibility::Collapsed; })
+					.Visibility_Lambda([this]() { return (CellData->bIsCompleted && !CellData->bIsCompiling) ? EVisibility::Visible : EVisibility::Collapsed; })
+				]
+
+				// 编译中标记
+				+SHorizontalBox::Slot()
+				.AutoWidth()
+				.VAlign(VAlign_Center)
+				.Padding(5, 0)
+				[
+					SNew(SHorizontalBox)
+					.Visibility_Lambda([this]() { return CellData->bIsCompiling ? EVisibility::Visible : EVisibility::Collapsed; })
+					+SHorizontalBox::Slot()
+					.AutoWidth()
+					[
+						SNew(SThrobber)
+						.NumPieces(3)
+					]
+					+SHorizontalBox::Slot()
+					.AutoWidth()
+					.Padding(5, 0)
+					[
+						SNew(STextBlock)
+						.Text(INVTEXT("Compiling..."))
+						.ColorAndOpacity(FLinearColor::Yellow)
+					]
+				]
+
+				// Run in GameThread Checkbox
+				+SHorizontalBox::Slot()
+				.AutoWidth()
+				.VAlign(VAlign_Center)
+				.Padding(10, 0)
+				[
+					SNew(SCheckBox)
+					.IsChecked_Lambda([this]() { return CellData->bExecuteInGameThread ? ECheckBoxState::Checked : ECheckBoxState::Unchecked; })
+					.OnCheckStateChanged_Lambda([this](ECheckBoxState NewState) { CellData->bExecuteInGameThread = (NewState == ECheckBoxState::Checked); })
+					[
+						SNew(STextBlock)
+						.Text(INVTEXT("Run in GameThread"))
+						.ToolTipText(INVTEXT("Execute this cell in GameThread. Necessary if code creates UI."))
+					]
 				]
 
 				// 空间填充
@@ -250,6 +299,7 @@ void SNumericNotebook::Construct(const FArguments& InArgs)
 						.Text(INVTEXT("Add New Code Cell"))
 						.OnClicked(this, &SNumericNotebook::OnAddNewCellButtonClicked)
 						.ButtonStyle(FAppStyle::Get(), "FlatButton.Success")
+						.IsEnabled_Lambda([this]() { return !bIsCompiling; })
 					]
 					
 					+SHorizontalBox::Slot()
@@ -260,6 +310,7 @@ void SNumericNotebook::Construct(const FArguments& InArgs)
 						.Text(INVTEXT("Restart Interpreter"))
 						.OnClicked(this, &SNumericNotebook::OnRestartInterpButtonClicked)
 						.ButtonStyle(FAppStyle::Get(), "FlatButton.Danger")
+						.IsEnabled_Lambda([this]() { return !bIsCompiling; })
 					]
 					
 					+SHorizontalBox::Slot()
@@ -282,34 +333,26 @@ void SNumericNotebook::Construct(const FArguments& InArgs)
 
 void* SNumericNotebook::GetOrStartInterp()
 {
-	if (CurrentInterp == nullptr)
+	if (NotebookAsset)
 	{
-		FClingRuntimeModule& RuntimeModule = FModuleManager::LoadModuleChecked<FClingRuntimeModule>(TEXT("ClingRuntime"));
-		CurrentInterp = RuntimeModule.StartNewInterp();
+		return NotebookAsset->GetInterpreter();
 	}
-	return CurrentInterp;
+	return nullptr;
 }
 
 void SNumericNotebook::RestartInterp()
 {
-	FClingRuntimeModule& RuntimeModule = FModuleManager::LoadModuleChecked<FClingRuntimeModule>(TEXT("ClingRuntime"));
-	// Note: We don't have a DeleteInterpreter in ClingRuntimeModule for individual interps yet,
-	// but we can start a new one and the old one will be cleaned up on shutdown.
-	// Actually, StartNewInterp adds to Interps array.
-	if (CurrentInterp)
-	{
-		RuntimeModule.DeleteInterp(CurrentInterp);
-	}
-	CurrentInterp = RuntimeModule.StartNewInterp();
-	
-	// Reset completed status for all cells
 	if (NotebookAsset)
 	{
+		NotebookAsset->RestartInterpreter();
+		
+		// Reset completed status for all cells
 		for (auto& Cell : NotebookAsset->Cells)
 		{
 			Cell.bIsCompleted = false;
 		}
 	}
+	
 	UpdateDocumentUI();
 }
 
@@ -336,74 +379,123 @@ void SNumericNotebook::AddNewCell(int32 InIndex)
 
 void SNumericNotebook::DeleteCell(int32 InIndex)
 {
-	if (NotebookAsset && NotebookAsset->Cells.IsValidIndex(InIndex))
+	if (NotebookAsset)
 	{
-		NotebookAsset->Cells.RemoveAt(InIndex);
-		NotebookAsset->MarkPackageDirty();
-		UpdateDocumentUI();
+		if (NotebookAsset->Cells.IsValidIndex(InIndex))
+		{
+			NotebookAsset->Cells.RemoveAt(InIndex);
+			NotebookAsset->MarkPackageDirty();
+			UpdateDocumentUI();
+		}
 	}
 }
 
-bool SNumericNotebook::RunCell(int32 InIndex)
+void SNumericNotebook::RunCell(int32 InIndex)
 {
-	if (!NotebookAsset || !NotebookAsset->Cells.IsValidIndex(InIndex)) return false;
+	if (!NotebookAsset || !NotebookAsset->Cells.IsValidIndex(InIndex)) return;
+	
+	if (ExecutionQueue.Contains(InIndex) || CompilingCells.Contains(InIndex)) return;
+
+	ExecutionQueue.Add(InIndex);
+	NotebookAsset->Cells[InIndex].bIsCompiling = true;
+	CompilingCells.Add(InIndex);
+	bIsCompiling = true;
+
+	ProcessNextInQueue();
+}
+
+void SNumericNotebook::ProcessNextInQueue()
+{
+	if (bIsProcessingQueue || ExecutionQueue.Num() == 0) return;
+
+	bIsProcessingQueue = true;
+	int32 InIndex = ExecutionQueue[0];
+	ExecutionQueue.RemoveAt(0);
 
 	void* Interp = GetOrStartInterp();
-	if (!Interp) return false;
-
-	struct FLocal
+	if (!Interp)
 	{
-		FLocal(void* InInterp)
-		{
-			StoreInterp = Cpp::GetInterpreter();
-			Cpp::ActivateInterpreter(InInterp);
-		}
-		~FLocal()
-		{
-			Cpp::ActivateInterpreter(StoreInterp);
-		}
-		void* StoreInterp;
-	};
-	FLocal Guard{Interp};
+		bIsProcessingQueue = false;
+		return;
+	}
+
 	FClingNotebookCellData& Cell = NotebookAsset->Cells[InIndex];
-	Cell.Output = ""; // 清空之前的输出
-	
-	thread_local FString FErrors;
-	FErrors.Reset();
-	Cpp::BeginStdStreamCapture(Cpp::kStdErr);
-	
-	int32 CompilationResult = Cpp::Process(TCHAR_TO_ANSI(*Cell.Content));
-	
-	Cpp::EndStdStreamCapture([](const char* Result)
-	{
-		FErrors = UTF8_TO_TCHAR(Result);
-	});
+	FString Code = Cell.Content;
+	bool bExecuteInGameThread = Cell.bExecuteInGameThread;
 
-	if (CompilationResult == 0)
+	auto ExecuteTask = [this, Interp, InIndex, Code]()
 	{
-		Cell.bIsCompleted = true;
-		if (FErrors.IsEmpty())
+		FScopeLock Lock(&FClingRuntimeModule::Get().GetCppInterOpLock());
+
+		struct FLocal
 		{
-			Cell.Output = FString::Printf(TEXT("Success (Executed at %s)"), *FDateTime::Now().ToString());
-			Cell.bHasOutput = true;
-		}
-		else
+			FLocal(void* InInterp)
+			{
+				StoreInterp = Cpp::GetInterpreter();
+				Cpp::ActivateInterpreter(InInterp);
+			}
+			~FLocal()
+			{
+				Cpp::ActivateInterpreter(StoreInterp);
+			}
+			void* StoreInterp;
+		};
+		FLocal Guard{Interp};
+		
+		static thread_local FString AsyncErrors;
+		AsyncErrors.Reset();
+		
+		Cpp::BeginStdStreamCapture(Cpp::kStdErr);
+		
+		int32 CompilationResult = Cpp::Process(TCHAR_TO_ANSI(*Code));
+		
+		Cpp::EndStdStreamCapture([](const char* Result)
 		{
-			Cell.Output = FErrors;
-			Cell.bHasOutput = true;
-		}
+			AsyncErrors = UTF8_TO_TCHAR(Result);
+		});
+
+		FString OutErrors = AsyncErrors;
+
+		AsyncTask(ENamedThreads::GameThread, [this, InIndex, CompilationResult, OutErrors]()
+		{
+			if (NotebookAsset && NotebookAsset->Cells.IsValidIndex(InIndex))
+			{
+				FClingNotebookCellData& CellData = NotebookAsset->Cells[InIndex];
+				CellData.Output = OutErrors;
+				CellData.bHasOutput = true;
+				CellData.bIsCompiling = false;
+				
+				if (CompilationResult == 0)
+				{
+					CellData.bIsCompleted = true;
+					if (CellData.Output.IsEmpty())
+					{
+						CellData.Output = FString::Printf(TEXT("Success (Executed at %s)"), *FDateTime::Now().ToString());
+					}
+				}
+				else
+				{
+					CellData.bIsCompleted = false;
+				}
+				
+				NotebookAsset->MarkPackageDirty();
+			}
+
+			CompilingCells.Remove(InIndex);
+			bIsCompiling = (CompilingCells.Num() > 0);
+			bIsProcessingQueue = false;
+			ProcessNextInQueue();
+		});
+	};
+
+	if (bExecuteInGameThread)
+	{
+		ExecuteTask();
 	}
 	else
 	{
-		Cell.bIsCompleted = false;
-		Cell.Output = FErrors;
-		Cell.bHasOutput = true;
+		AsyncTask(ENamedThreads::AnyBackgroundHiPriTask, ExecuteTask);
 	}
-	
-	NotebookAsset->MarkPackageDirty();
-	UpdateDocumentUI();
-
-	return CompilationResult == 0;
 }
 
 void SNumericNotebook::RunToHere(int32 InIndex)
@@ -412,15 +504,29 @@ void SNumericNotebook::RunToHere(int32 InIndex)
 
 	for (int32 i = 0; i <= InIndex; ++i)
 	{
-		if (!RunCell(i))
+		if (!ExecutionQueue.Contains(i) && !CompilingCells.Contains(i))
 		{
-			break; // 如果出现报错，需要停止后面的节执行
+			ExecutionQueue.Add(i);
+			NotebookAsset->Cells[i].bIsCompiling = true;
+			CompilingCells.Add(i);
 		}
+	}
+	
+	if (CompilingCells.Num() > 0)
+	{
+		bIsCompiling = true;
+		ProcessNextInQueue();
 	}
 }
 
 void SNumericNotebook::UpdateDocumentUI()
 {
+	if (!IsInGameThread())
+	{
+		AsyncTask(ENamedThreads::GameThread, [this]() { UpdateDocumentUI(); });
+		return;
+	}
+
 	if (!ScrollBox.IsValid() || !NotebookAsset) return;
 
 	ScrollBox->ClearChildren();
@@ -440,6 +546,7 @@ void SNumericNotebook::UpdateDocumentUI()
 			.OnAddCellAbove_Lambda([this, CurrentIndex]() { AddNewCell(CurrentIndex); })
 			.OnAddCellBelow_Lambda([this, CurrentIndex]() { AddNewCell(CurrentIndex + 1); })
 			.OnContentChanged_Lambda([this](const FText&) { if (NotebookAsset) NotebookAsset->MarkPackageDirty(); })
+			.IsEnabled_Lambda([this, CurrentIndex]() { return !CompilingCells.Contains(CurrentIndex); })
 		];
 	}
 }

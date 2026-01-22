@@ -79,9 +79,6 @@ private:
 	TSharedPtr<SScrollBox> ScrollBox;
 
 	// Interpreter used by this asset
-	void* CurrentInterp = nullptr;
-
-	// Get Interpreter
 	void* GetOrStartInterp();
 
 	// Restart Interpreter
@@ -89,8 +86,16 @@ private:
 	
 	void AddNewCell(int32 InIndex = -1);
 	void DeleteCell(int32 InIndex);
-	bool RunCell(int32 InIndex);
+	void RunCell(int32 InIndex);
 	void RunToHere(int32 InIndex);
+
+	// Compilation state
+	bool bIsCompiling = false;
+	TSet<int32> CompilingCells;
+	
+	TArray<int32> ExecutionQueue;
+	bool bIsProcessingQueue = false;
+	void ProcessNextInQueue();
 
 	// UI Update
 	void UpdateDocumentUI();

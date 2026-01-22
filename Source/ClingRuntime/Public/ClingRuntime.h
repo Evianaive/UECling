@@ -3,6 +3,7 @@
 #pragma once
 
 #include "Modules/ModuleManager.h"
+#include "HAL/CriticalSection.h"
 
 namespace cling
 {
@@ -25,6 +26,13 @@ public:
 	void* GetInterp(int Version=0);
 	void* StartNewInterp();
 	void DeleteInterp(void* CurrentInterp);
+	static FClingRuntimeModule& Get();
+
+	/** Get the global lock for CppInterOp calls */
+	FCriticalSection& GetCppInterOpLock() { return CppInterOpLock; }
+
 private:
 	void* StartInterpreterInternal();
+
+	FCriticalSection CppInterOpLock;
 };

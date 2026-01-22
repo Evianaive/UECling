@@ -52,6 +52,7 @@ void FClingRuntimeModule::ShutdownModule()
 	// This function may be called during shutdown to clean up your module.  For modules that support dynamic reloading,
 	// we call this function before unloading the module.
 
+	FScopeLock Lock(&CppInterOpLock);
 	Cpp::DeleteInterpreter(BaseInterp);
 }
 
@@ -71,8 +72,14 @@ Cpp::TInterp_t FClingRuntimeModule::StartNewInterp()
 
 void FClingRuntimeModule::DeleteInterp(void* CurrentInterp)
 {
+	FScopeLock Lock(&CppInterOpLock);
 	Cpp::DeleteInterpreter(CurrentInterp);
 	Interps.Remove(CurrentInterp);
+}
+
+FClingRuntimeModule& FClingRuntimeModule::Get()
+{
+	return FModuleManager::LoadModuleChecked<FClingRuntimeModule>(TEXT("ClingRuntime"));
 }
 
 Cpp::TInterp_t FClingRuntimeModule::StartInterpreterInternal()
@@ -108,7 +115,11 @@ Cpp::TInterp_t FClingRuntimeModule::StartInterpreterInternal()
 	// Todo use if is debug build
 // #if USING_CPPINTEROP_DEBUG
 	// the abi of debug build of std::vector is different between unreal and clang! use raw input
-	auto Interp = Cpp::CreateInterpreter(&Argv[0], Argv.Num(),nullptr,0);
+	Cpp::TInterp_t Interp;
+	{
+		FScopeLock Lock(&CppInterOpLock);
+		Interp = Cpp::CreateInterpreter(&Argv[0], Argv.Num(),nullptr,0);
+	}
 // #else
 	// auto Interp = Cpp::CreateInterpreter(Argv, {});
 // #endif

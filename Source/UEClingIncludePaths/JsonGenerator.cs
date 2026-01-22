@@ -50,6 +50,17 @@ class GeneratedCodeModifier
 				// }))
 				File.ReadAllText(BatFile)
 				);
+			// Factory.Session.LogInfo(Result);
+			// BatFile = Path.Combine(Factory.PluginModule!.IncludeBase,"..", "ExportCompileCommands.bat");
+			//
+			// Result = UnrealBuildTool.Utils.RunLocalProcessAndReturnStdOut(
+			// 	UBTPath,
+			// 	// Utils.FormatCommandLine(new List<string>(new string[]
+			// 	// {
+			// 	// 	Target,Platform,"Development","-Mode=JsonExport","-Project="+Project,"-NoMutex","-OutputFile="+JsonFile
+			// 	// }))
+			// 	File.ReadAllText(BatFile)
+			// );
 			Factory.Session.LogInfo(Result);
 		}
 		

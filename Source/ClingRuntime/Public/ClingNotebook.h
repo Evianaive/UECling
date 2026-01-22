@@ -24,8 +24,14 @@ struct FClingNotebookCellData
 	UPROPERTY(EditAnywhere, Category = "Cling")
 	bool bIsExpanded = true;
 
+	UPROPERTY(EditAnywhere, Category = "Cling")
+	bool bExecuteInGameThread = false;
+
 	UPROPERTY(Transient)
 	bool bIsCompleted = false;
+
+	UPROPERTY(Transient)
+	bool bIsCompiling = false;
 };
 
 /**
@@ -37,6 +43,14 @@ class CLINGRUNTIME_API UClingNotebook : public UObject
 	GENERATED_BODY()
 
 public:
+	virtual void FinishDestroy() override;
+
 	UPROPERTY(EditAnywhere, Category = "Cling")
 	TArray<FClingNotebookCellData> Cells;
+
+	void* GetInterpreter();
+	void RestartInterpreter();
+
+private:
+	void* Interpreter = nullptr;
 };
