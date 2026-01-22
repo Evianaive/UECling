@@ -3,11 +3,17 @@
 #pragma once
 
 #include "Modules/ModuleManager.h"
+#include "UObject/Object.h"
 
 namespace cling
 {
 	class Interpreter;
 }
+
+extern "C" CLINGRUNTIME_API void* ClingRuntime_GetClingInstance(UObject* Obj);
+extern "C" CLINGRUNTIME_API int32 ClingRuntime_GetStepInt(void* StackPtr);
+extern "C" CLINGRUNTIME_API float ClingRuntime_GetStepFloat(void* StackPtr);
+extern "C" CLINGRUNTIME_API void ClingRuntime_FinishStep(void* StackPtr);
 
 class CLINGRUNTIME_API FClingRuntimeModule : public IModuleInterface
 {

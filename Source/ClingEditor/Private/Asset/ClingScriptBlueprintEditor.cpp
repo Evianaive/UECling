@@ -1,6 +1,7 @@
 #include "Asset/ClingScriptBlueprintEditor.h"
 
 #include "ClingScriptBlueprint.h"
+#include "Kismet2/KismetEditorUtilities.h"
 #include "SlateWidgets/CppMultiLineEditableTextBox.h"
 #include "Widgets/Docking/SDockTab.h"
 
@@ -23,6 +24,44 @@ void FClingScriptBlueprintEditor::InitEditor(const EToolkitMode::Type Mode, cons
 	);
 
 	FAssetEditorToolkit::InitAssetEditor(Mode, EditWithinLevelEditor, TEXT("ClingScriptBlueprintEditor"), StandaloneLayout, true, true, InBlueprint);
+
+	ExtendToolbar();
+	RegenerateMenusAndToolbars();
+}
+
+void FClingScriptBlueprintEditor::ExtendToolbar()
+{
+	TSharedPtr<FExtender> ToolbarExtender = MakeShareable(new FExtender);
+	ToolbarExtender->AddToolBarExtension(
+		"Asset",
+		EExtensionHook::After,
+		GetToolkitCommands(),
+		FToolBarExtensionDelegate::CreateSP(this, &FClingScriptBlueprintEditor::FillToolbar)
+	);
+	AddToolbarExtender(ToolbarExtender);
+}
+
+void FClingScriptBlueprintEditor::FillToolbar(FToolBarBuilder& ToolbarBuilder)
+{
+	ToolbarBuilder.BeginSection("Compile");
+	{
+		ToolbarBuilder.AddToolBarButton(
+			FUIAction(FExecuteAction::CreateSP(this, &FClingScriptBlueprintEditor::CompileBlueprint)),
+			NAME_None,
+			INVTEXT("Compile"),
+			INVTEXT("Compile the Cling script"),
+			FSlateIcon(FAppStyle::GetAppStyleSetName(), "LevelEditor.Recompile")
+		);
+	}
+	ToolbarBuilder.EndSection();
+}
+
+void FClingScriptBlueprintEditor::CompileBlueprint()
+{
+	if (BlueprintAsset)
+	{
+		FKismetEditorUtilities::CompileBlueprint(BlueprintAsset);
+	}
 }
 
 FName FClingScriptBlueprintEditor::GetToolkitFName() const

@@ -42,3 +42,9 @@ DEFINE_FUNCTION(UClingBlueprintFunctionLibrary::execRunCppScript)
 	P_FINISH;
 	*(bool*)RESULT_PARAM = true;
 }
+
+int32 UClingBlueprintFunctionLibrary::CallClingTestFunction(UObject* Object, FName FunctionName)
+{
+	UE_LOG(LogTemp, Warning, TEXT("CallClingTestFunction: %s on %s"), *FunctionName.ToString(), *GetNameSafe(Object));
+	return 42;
+}

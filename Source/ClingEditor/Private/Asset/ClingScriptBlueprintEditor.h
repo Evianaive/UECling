@@ -2,6 +2,7 @@
 
 #include "CoreMinimal.h"
 #include "Toolkits/AssetEditorToolkit.h"
+#include "Framework/MultiBox/MultiBoxBuilder.h"
 
 class UClingScriptBlueprint;
 class SCppMultiLineEditableTextBox;
@@ -19,6 +20,10 @@ public:
 	virtual FLinearColor GetWorldCentricTabColorScale() const override;
 	virtual void RegisterTabSpawners(const TSharedRef<FTabManager>& TabManager) override;
 	virtual void UnregisterTabSpawners(const TSharedRef<FTabManager>& TabManager) override;
+
+	void ExtendToolbar();
+	void FillToolbar(FToolBarBuilder& ToolbarBuilder);
+	void CompileBlueprint();
 
 private:
 	TSharedRef<SDockTab> SpawnTab_Source(const FSpawnTabArgs& Args);

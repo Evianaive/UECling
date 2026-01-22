@@ -118,3 +118,35 @@ Cpp::TInterp_t FClingRuntimeModule::StartInterpreterInternal()
 #undef LOCTEXT_NAMESPACE
 	
 IMPLEMENT_MODULE(FClingRuntimeModule, ClingRuntime)
+
+extern "C" CLINGRUNTIME_API void* ClingRuntime_GetClingInstance(UObject* Obj)
+{
+	static const FName ClingInstanceName(TEXT("ClingInstance"));
+	if (FProperty* Prop = Obj->GetClass()->FindPropertyByName(ClingInstanceName))
+	{
+		return *(void**)((char*)Obj + Prop->GetOffset_ForInternal());
+	}
+	return nullptr;
+}
+
+extern "C" CLINGRUNTIME_API int32 ClingRuntime_GetStepInt(void* StackPtr)
+{
+	FFrame& Stack = *(FFrame*)StackPtr;
+	int32 Value = 0;
+	Stack.StepCompiledIn<FProperty>(&Value);
+	return Value;
+}
+
+extern "C" CLINGRUNTIME_API float ClingRuntime_GetStepFloat(void* StackPtr)
+{
+	FFrame& Stack = *(FFrame*)StackPtr;
+	float Value = 0.0f;
+	Stack.StepCompiledIn<FProperty>(&Value);
+	return Value;
+}
+
+extern "C" CLINGRUNTIME_API void ClingRuntime_FinishStep(void* StackPtr)
+{
+	FFrame& Stack = *(FFrame*)StackPtr;
+	P_FINISH;
+}

@@ -20,4 +20,7 @@ public:
 	static bool RunCppScript(
 		int32 ArgCount);
 	DECLARE_FUNCTION(execRunCppScript);
+
+	UFUNCTION(BlueprintCallable, Category = "Cling|Test")
+	static int32 CallClingTestFunction(UObject* Object, FName FunctionName);
 };
