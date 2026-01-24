@@ -20,8 +20,10 @@ class CLINGEDITOR_API SClingNotebookCell : public SCompoundWidget
 public:
 	SLATE_BEGIN_ARGS(SClingNotebookCell) {}
 		SLATE_ARGUMENT(FClingNotebookCellData*, CellData)
-		SLATE_EVENT(FSimpleDelegate, OnRunCode)
+		SLATE_ARGUMENT(UClingNotebook*, NotebookAsset)
+		SLATE_ARGUMENT(int32, CellIndex)
 		SLATE_EVENT(FSimpleDelegate, OnRunToHere)
+		SLATE_EVENT(FSimpleDelegate, OnUndoToHere)
 		SLATE_EVENT(FSimpleDelegate, OnDeleteCell)
 		SLATE_EVENT(FSimpleDelegate, OnAddCellAbove)
 		SLATE_EVENT(FSimpleDelegate, OnAddCellBelow)
@@ -32,13 +34,15 @@ public:
 
 private:
 	FClingNotebookCellData* CellData = nullptr;
+	UClingNotebook* NotebookAsset = nullptr;
+	int32 CellIndex = -1;
 
 	// Cell UI
 	TSharedPtr<SMultiLineEditableTextBox> CodeTextBox;
 
 	// Delegate
-	FSimpleDelegate OnRunCodeDelegate;
 	FSimpleDelegate OnRunToHereDelegate;
+	FSimpleDelegate OnUndoToHereDelegate;
 	FSimpleDelegate OnDeleteCellDelegate;
 	FSimpleDelegate OnAddCellAboveDelegate;
 	FSimpleDelegate OnAddCellBelowDelegate;
@@ -47,8 +51,8 @@ private:
 	void UpdateCellUI();
 
 	// Button press event
-	FReply OnRunButtonClicked();
 	FReply OnRunToHereButtonClicked();
+	FReply OnUndoToHereButtonClicked();
 	FReply OnDeleteButtonClicked();
 	FReply OnAddAboveButtonClicked();
 	FReply OnAddBelowButtonClicked();
@@ -88,6 +92,7 @@ private:
 	void DeleteCell(int32 InIndex);
 	void RunCell(int32 InIndex);
 	void RunToHere(int32 InIndex);
+	void UndoToHere(int32 InIndex);
 
 	// Compilation state
 	bool bIsCompiling = false;

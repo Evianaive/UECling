@@ -22,8 +22,10 @@
 void SClingNotebookCell::Construct(const FArguments& InArgs)
 {
 	CellData = InArgs._CellData;
-	OnRunCodeDelegate = InArgs._OnRunCode;
+	NotebookAsset = InArgs._NotebookAsset;
+	CellIndex = InArgs._CellIndex;
 	OnRunToHereDelegate = InArgs._OnRunToHere;
+	OnUndoToHereDelegate = InArgs._OnUndoToHere;
 	OnDeleteCellDelegate = InArgs._OnDeleteCell;
 	OnAddCellAboveDelegate = InArgs._OnAddCellAbove;
 	OnAddCellBelowDelegate = InArgs._OnAddCellBelow;
@@ -121,6 +123,15 @@ void SClingNotebookCell::UpdateCellUI()
 					SNew(SCheckBox)
 					.IsChecked_Lambda([this]() { return CellData->bExecuteInGameThread ? ECheckBoxState::Checked : ECheckBoxState::Unchecked; })
 					.OnCheckStateChanged_Lambda([this](ECheckBoxState NewState) { CellData->bExecuteInGameThread = (NewState == ECheckBoxState::Checked); })
+					.IsEnabled_Lambda([this]() {
+						if (CellData->bIsCompiling) return false;
+						if (!NotebookAsset || !NotebookAsset->Cells.IsValidIndex(CellIndex)) return true;
+						for (int32 i = CellIndex; i < NotebookAsset->Cells.Num(); ++i)
+						{
+							if (NotebookAsset->Cells[i].bIsCompleted) return false;
+						}
+						return true;
+					})
 					[
 						SNew(STextBlock)
 						.Text(INVTEXT("Run in GameThread"))
@@ -162,6 +173,15 @@ void SClingNotebookCell::UpdateCellUI()
 					.ToolTipText(INVTEXT("Execute from start to this cell"))
 					.OnClicked(this, &SClingNotebookCell::OnRunToHereButtonClicked)
 					.ButtonStyle(FAppStyle::Get(), "SimpleButton")
+					.IsEnabled_Lambda([this]() {
+						if (!NotebookAsset || !NotebookAsset->Cells.IsValidIndex(CellIndex)) return false;
+						if (CellData->bIsCompleted || CellData->bIsCompiling) return false;
+						for (int32 i = CellIndex + 1; i < NotebookAsset->Cells.Num(); ++i)
+						{
+							if (NotebookAsset->Cells[i].bIsCompleted) return false;
+						}
+						return true;
+					})
 				]
 
 				+SHorizontalBox::Slot()
@@ -169,9 +189,19 @@ void SClingNotebookCell::UpdateCellUI()
 				.Padding(2.0f)
 				[
 					SNew(SButton)
-					.Text(INVTEXT("Run"))
-					.OnClicked(this, &SClingNotebookCell::OnRunButtonClicked)
+					.Text(INVTEXT("Undo To Here"))
+					.ToolTipText(INVTEXT("Undo this cell and all subsequent cells"))
+					.OnClicked(this, &SClingNotebookCell::OnUndoToHereButtonClicked)
 					.ButtonStyle(FAppStyle::Get(), "SimpleButton")
+					.IsEnabled_Lambda([this]() {
+						if (CellData->bIsCompiling) return false;
+						if (!NotebookAsset || !NotebookAsset->Cells.IsValidIndex(CellIndex)) return false;
+						for (int32 i = CellIndex; i < NotebookAsset->Cells.Num(); ++i)
+						{
+							if (NotebookAsset->Cells[i].bIsCompleted) return true;
+						}
+						return CellData->bHasOutput;
+					})
 				]
 				
 				+SHorizontalBox::Slot()
@@ -194,6 +224,15 @@ void SClingNotebookCell::UpdateCellUI()
 				.Text(FText::FromString(CellData->Content))
 				.OnTextChanged(this, &SClingNotebookCell::OnCodeTextChanged)
 				.Visibility_Lambda([this]() { return CellData->bIsExpanded ? EVisibility::Visible : EVisibility::Collapsed; })
+				.IsReadOnly_Lambda([this]() {
+					if (CellData->bIsCompiling) return true;
+					if (!NotebookAsset || !NotebookAsset->Cells.IsValidIndex(CellIndex)) return false;
+					for (int32 i = CellIndex; i < NotebookAsset->Cells.Num(); ++i)
+					{
+						if (NotebookAsset->Cells[i].bIsCompleted) return true;
+					}
+					return false;
+				})
 			]
 			
 			// 输出显示区域
@@ -214,15 +253,15 @@ void SClingNotebookCell::UpdateCellUI()
 	];
 }
 
-FReply SClingNotebookCell::OnRunButtonClicked()
-{
-	OnRunCodeDelegate.ExecuteIfBound();
-	return FReply::Handled();
-}
-
 FReply SClingNotebookCell::OnRunToHereButtonClicked()
 {
 	OnRunToHereDelegate.ExecuteIfBound();
+	return FReply::Handled();
+}
+
+FReply SClingNotebookCell::OnUndoToHereButtonClicked()
+{
+	OnUndoToHereDelegate.ExecuteIfBound();
 	return FReply::Handled();
 }
 
@@ -346,10 +385,12 @@ void SNumericNotebook::RestartInterp()
 	{
 		NotebookAsset->RestartInterpreter();
 		
-		// Reset completed status for all cells
+		// Reset status for all cells
 		for (auto& Cell : NotebookAsset->Cells)
 		{
 			Cell.bIsCompleted = false;
+			Cell.bHasOutput = false;
+			Cell.Output.Empty();
 		}
 	}
 	
@@ -504,7 +545,7 @@ void SNumericNotebook::RunToHere(int32 InIndex)
 
 	for (int32 i = 0; i <= InIndex; ++i)
 	{
-		if (!ExecutionQueue.Contains(i) && !CompilingCells.Contains(i))
+		if (!ExecutionQueue.Contains(i) && !CompilingCells.Contains(i) && !NotebookAsset->Cells[i].bIsCompleted)
 		{
 			ExecutionQueue.Add(i);
 			NotebookAsset->Cells[i].bIsCompiling = true;
@@ -516,6 +557,52 @@ void SNumericNotebook::RunToHere(int32 InIndex)
 	{
 		bIsCompiling = true;
 		ProcessNextInQueue();
+	}
+}
+
+void SNumericNotebook::UndoToHere(int32 InIndex)
+{
+	if (!NotebookAsset || !NotebookAsset->Cells.IsValidIndex(InIndex)) return;
+	if (bIsCompiling) return;
+
+	int32 UndoCount = 0;
+	bool bNeedsReset = false;
+	for (int32 i = InIndex; i < NotebookAsset->Cells.Num(); ++i)
+	{
+		if (NotebookAsset->Cells[i].bIsCompleted)
+		{
+			UndoCount++;
+		}
+		if (NotebookAsset->Cells[i].bIsCompleted || NotebookAsset->Cells[i].bHasOutput)
+		{
+			bNeedsReset = true;
+		}
+	}
+
+	if (UndoCount > 0)
+	{
+		FScopeLock Lock(&FClingRuntimeModule::Get().GetCppInterOpLock());
+		void* Interp = GetOrStartInterp();
+		if (Interp)
+		{
+			void* StoreInterp = Cpp::GetInterpreter();
+			Cpp::ActivateInterpreter(Interp);
+			Cpp::Undo(UndoCount);
+			Cpp::ActivateInterpreter(StoreInterp);
+		}
+	}
+
+	if (bNeedsReset)
+	{
+		for (int32 i = InIndex; i < NotebookAsset->Cells.Num(); ++i)
+		{
+			NotebookAsset->Cells[i].bIsCompleted = false;
+			NotebookAsset->Cells[i].bHasOutput = false;
+			NotebookAsset->Cells[i].Output.Empty();
+		}
+
+		NotebookAsset->MarkPackageDirty();
+		UpdateDocumentUI();
 	}
 }
 
@@ -540,8 +627,10 @@ void SNumericNotebook::UpdateDocumentUI()
 		[
 			SNew(SClingNotebookCell)
 			.CellData(&NotebookAsset->Cells[i])
-			.OnRunCode_Lambda([this, CurrentIndex]() { RunCell(CurrentIndex); })
+			.NotebookAsset(NotebookAsset)
+			.CellIndex(CurrentIndex)
 			.OnRunToHere_Lambda([this, CurrentIndex]() { RunToHere(CurrentIndex); })
+			.OnUndoToHere_Lambda([this, CurrentIndex]() { UndoToHere(CurrentIndex); })
 			.OnDeleteCell_Lambda([this, CurrentIndex]() { DeleteCell(CurrentIndex); })
 			.OnAddCellAbove_Lambda([this, CurrentIndex]() { AddNewCell(CurrentIndex); })
 			.OnAddCellBelow_Lambda([this, CurrentIndex]() { AddNewCell(CurrentIndex + 1); })
