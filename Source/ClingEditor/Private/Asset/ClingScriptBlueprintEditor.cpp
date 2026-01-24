@@ -1,6 +1,7 @@
 #include "Asset/ClingScriptBlueprintEditor.h"
 
 #include "ClingScriptBlueprint.h"
+#include "KismetCompilerModule.h"
 #include "Kismet2/KismetEditorUtilities.h"
 #include "SlateWidgets/CppMultiLineEditableTextBox.h"
 #include "Widgets/Docking/SDockTab.h"
@@ -60,7 +61,9 @@ void FClingScriptBlueprintEditor::CompileBlueprint()
 {
 	if (BlueprintAsset)
 	{
-		FKismetEditorUtilities::CompileBlueprint(BlueprintAsset);
+		IKismetCompilerInterface& KismetCompilerModule = FModuleManager::LoadModuleChecked<IKismetCompilerInterface>(TEXT("KismetCompiler"));
+		// KismetCompilerModule.GetCompilers().Find()
+		FKismetEditorUtilities::CompileBlueprint(BlueprintAsset);		
 	}
 }
 

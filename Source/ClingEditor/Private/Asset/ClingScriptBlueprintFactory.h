@@ -15,5 +15,6 @@ public:
 	UPROPERTY(EditAnywhere, Category = "Cling")
 	TSubclassOf<class UObject> ParentClass;
 
+	virtual bool ConfigureProperties() override;
 	virtual UObject* FactoryCreateNew(UClass* InClass, UObject* InParent, FName InName, EObjectFlags Flags, UObject* Context, FFeedbackContext* Warn) override;
 };

@@ -14,6 +14,9 @@ public:
 	UPROPERTY()
 	FString SourceCode;
 
+	UPROPERTY(Transient)
+	FString LastCompiledSourceCode;
+
 #if WITH_EDITOR
 	virtual UClass* GetBlueprintClass() const override;
 
@@ -21,7 +24,7 @@ public:
 	{
 		return false;
 	}
-
+	virtual bool SupportsEventGraphs() const { return false; }
 	static bool ValidateGeneratedClass(const UClass* InClass);
 #endif
 };

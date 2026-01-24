@@ -143,5 +143,5 @@ public:
 	UFUNCTION(BlueprintCallable,CallInEditor)
 	void GeneratePCH(bool bForce = false);
 	
-	void IterThroughIncludePaths(TFunction<void(const FString&)> InFunc);
+	void IterThroughIncludePaths(TFunctionRef<void(const FString&)> InFunc);
 };

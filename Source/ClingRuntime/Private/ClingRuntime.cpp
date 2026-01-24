@@ -126,6 +126,10 @@ extern "C" CLINGRUNTIME_API void* ClingRuntime_GetClingInstance(UObject* Obj)
 	{
 		return *(void**)((char*)Obj + Prop->GetOffset_ForInternal());
 	}
+	// Fallback: If no ClingInstance property, maybe the object itself is at some offset?
+	// But according to user, we should use Offset.
+	// If the C++ instance IS at an offset from UObject, we should return that.
+	// Let's assume for now ClingInstance still holds the pointer.
 	return nullptr;
 }
 
@@ -141,6 +145,38 @@ extern "C" CLINGRUNTIME_API float ClingRuntime_GetStepFloat(void* StackPtr)
 {
 	FFrame& Stack = *(FFrame*)StackPtr;
 	float Value = 0.0f;
+	Stack.StepCompiledIn<FProperty>(&Value);
+	return Value;
+}
+
+extern "C" CLINGRUNTIME_API double ClingRuntime_GetStepDouble(void* StackPtr)
+{
+	FFrame& Stack = *(FFrame*)StackPtr;
+	double Value = 0.0;
+	Stack.StepCompiledIn<FProperty>(&Value);
+	return Value;
+}
+
+extern "C" CLINGRUNTIME_API int64 ClingRuntime_GetStepInt64(void* StackPtr)
+{
+	FFrame& Stack = *(FFrame*)StackPtr;
+	int64 Value = 0;
+	Stack.StepCompiledIn<FProperty>(&Value);
+	return Value;
+}
+
+extern "C" CLINGRUNTIME_API uint8 ClingRuntime_GetStepByte(void* StackPtr)
+{
+	FFrame& Stack = *(FFrame*)StackPtr;
+	uint8 Value = 0;
+	Stack.StepCompiledIn<FProperty>(&Value);
+	return Value;
+}
+
+extern "C" CLINGRUNTIME_API bool ClingRuntime_GetStepBool(void* StackPtr)
+{
+	FFrame& Stack = *(FFrame*)StackPtr;
+	bool Value = false;
 	Stack.StepCompiledIn<FProperty>(&Value);
 	return Value;
 }

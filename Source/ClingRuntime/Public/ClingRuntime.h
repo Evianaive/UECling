@@ -13,6 +13,10 @@ namespace cling
 extern "C" CLINGRUNTIME_API void* ClingRuntime_GetClingInstance(UObject* Obj);
 extern "C" CLINGRUNTIME_API int32 ClingRuntime_GetStepInt(void* StackPtr);
 extern "C" CLINGRUNTIME_API float ClingRuntime_GetStepFloat(void* StackPtr);
+extern "C" CLINGRUNTIME_API double ClingRuntime_GetStepDouble(void* StackPtr);
+extern "C" CLINGRUNTIME_API int64 ClingRuntime_GetStepInt64(void* StackPtr);
+extern "C" CLINGRUNTIME_API uint8 ClingRuntime_GetStepByte(void* StackPtr);
+extern "C" CLINGRUNTIME_API bool ClingRuntime_GetStepBool(void* StackPtr);
 extern "C" CLINGRUNTIME_API void ClingRuntime_FinishStep(void* StackPtr);
 
 class CLINGRUNTIME_API FClingRuntimeModule : public IModuleInterface

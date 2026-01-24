@@ -396,8 +396,8 @@ void UClingSetting::GeneratePCH(bool bForce)
 	}
 }
 
-void UClingSetting::IterThroughIncludePaths(TFunction<void(const FString&)> InFunc)
-{	
+void UClingSetting::IterThroughIncludePaths(TFunctionRef<void(const FString& Path)> InFunc)
+{
 	InFunc(FPaths::ConvertRelativePathToFull(FPaths::EngineSourceDir()));
 	for (auto& ModuleBuildInfo : ModuleBuildInfos)
 	{
