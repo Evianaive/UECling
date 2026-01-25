@@ -30,6 +30,8 @@ void SClingNotebookCell::Construct(const FArguments& InArgs)
 	OnAddCellAboveDelegate = InArgs._OnAddCellAbove;
 	OnAddCellBelowDelegate = InArgs._OnAddCellBelow;
 	OnContentChangedDelegate = InArgs._OnContentChanged;
+	OnSelectedDelegate = InArgs._OnSelected;
+	IsSelected = InArgs._IsSelected;
 
 	UpdateCellUI();
 }
@@ -46,6 +48,7 @@ void SClingNotebookCell::UpdateCellUI()
 	[
 		SNew(SBorder)
 		.BorderImage(FAppStyle::Get().GetBrush("ToolPanel.GroupBorder"))
+		.BorderBackgroundColor_Lambda([this]() { return IsSelected.Get() ? FLinearColor::Yellow : FLinearColor::White; })
 		.Padding(2.0f)
 		[
 			SNew(SVerticalBox)
@@ -295,6 +298,124 @@ void SClingNotebookCell::OnCodeTextChanged(const FText& InText)
 	OnContentChangedDelegate.ExecuteIfBound(InText);
 }
 
+FReply SClingNotebookCell::OnMouseButtonDown(const FGeometry& MyGeometry, const FPointerEvent& MouseEvent)
+{
+	OnSelectedDelegate.ExecuteIfBound();
+	return FReply::Unhandled();
+}
+
+void SClingNotebookDetailsPanel::Construct(const FArguments& InArgs)
+{
+	NotebookAsset = InArgs._NotebookAsset;
+	NotebookWidgetPtr = InArgs._NotebookWidget;
+
+	if (TSharedPtr<SNumericNotebook> NotebookWidget = NotebookWidgetPtr.Pin())
+	{
+		NotebookWidget->OnCellSelectionChanged.AddSP(this, &SClingNotebookDetailsPanel::OnSelectionChanged);
+	}
+
+	Refresh();
+}
+
+void SClingNotebookDetailsPanel::OnSelectionChanged(int32 NewIndex)
+{
+	Refresh();
+}
+
+void SClingNotebookDetailsPanel::Refresh()
+{
+	TSharedPtr<SNumericNotebook> NotebookWidget = NotebookWidgetPtr.Pin();
+	FClingNotebookCellData* SelectedData = NotebookWidget.IsValid() ? NotebookWidget->GetSelectedCellData() : nullptr;
+
+	if (!SelectedData)
+	{
+		ChildSlot
+		[
+			SNew(SBox)
+			.HAlign(HAlign_Center)
+			.VAlign(VAlign_Center)
+			[
+				SNew(STextBlock)
+				.Text(INVTEXT("Select a cell in the notebook to view details"))
+				.Font(FAppStyle::Get().GetFontStyle("HeadingFont"))
+			]
+		];
+		return;
+	}
+
+	ChildSlot
+	[
+		SNew(SBorder)
+		.BorderImage(FAppStyle::Get().GetBrush("ToolPanel.GroupBorder"))
+		.Padding(10.0f)
+		[
+			SNew(SVerticalBox)
+			
+			+SVerticalBox::Slot()
+			.AutoHeight()
+			.Padding(0, 0, 0, 10)
+			[
+				SNew(STextBlock)
+				.Text(FText::Format(INVTEXT("Editing Cell #{0}"), FText::AsNumber(NotebookWidget->GetSelectedCellIndex())))
+				.Font(FAppStyle::Get().GetFontStyle("HeadingFont"))
+			]
+
+			+SVerticalBox::Slot()
+			.FillHeight(1.0f)
+			[
+				SNew(SVerticalBox)
+				+SVerticalBox::Slot()
+				.FillHeight(0.7f)
+				[
+					SAssignNew(DetailCodeTextBox, SCppMultiLineEditableTextBox)
+					.Text(FText::FromString(SelectedData->Content))
+					.OnTextChanged_Lambda([this, SelectedData](const FText& InText) {
+						SelectedData->Content = InText.ToString();
+						if (NotebookAsset) NotebookAsset->MarkPackageDirty();
+					})
+					.IsReadOnly_Lambda([this, SelectedData]() {
+						if (SelectedData->bIsCompiling) return true;
+						
+						if (TSharedPtr<SNumericNotebook> NW = NotebookWidgetPtr.Pin())
+						{
+							int32 CurrentIndex = NW->GetSelectedCellIndex();
+							if (NW->NotebookAsset && NW->NotebookAsset->Cells.IsValidIndex(CurrentIndex))
+							{
+								for (int32 i = CurrentIndex; i < NW->NotebookAsset->Cells.Num(); ++i)
+								{
+									if (NW->NotebookAsset->Cells[i].bIsCompleted) return true;
+								}
+							}
+						}
+						return false;
+					})
+				]
+
+				+SVerticalBox::Slot()
+				.AutoHeight()
+				.Padding(0, 10, 0, 0)
+				[
+					SNew(SSeparator)
+					.Orientation(Orient_Horizontal)
+				]
+
+				+SVerticalBox::Slot()
+				.FillHeight(0.3f)
+				.Padding(0, 10, 0, 0)
+				[
+					SNew(SScrollBox)
+					+SScrollBox::Slot()
+					[
+						SNew(STextBlock)
+						.Text_Lambda([SelectedData]() { return FText::FromString(SelectedData->Output); })
+						.AutoWrapText(true)
+					]
+				]
+			]
+		]
+	];
+}
+
 void SNumericNotebook::Construct(const FArguments& InArgs)
 {
 	NotebookAsset = InArgs._NotebookAsset;
@@ -350,6 +471,26 @@ void SNumericNotebook::Construct(const FArguments& InArgs)
 						.OnClicked(this, &SNumericNotebook::OnRestartInterpButtonClicked)
 						.ButtonStyle(FAppStyle::Get(), "FlatButton.Danger")
 						.IsEnabled_Lambda([this]() { return !bIsCompiling; })
+					]
+
+					+SHorizontalBox::Slot()
+					.AutoWidth()
+					.Padding(5.0f, 0.0f)
+					[
+						SNew(SButton)
+						.Text(INVTEXT("Fold All"))
+						.OnClicked(this, &SNumericNotebook::OnFoldAllButtonClicked)
+						.ButtonStyle(FAppStyle::Get(), "SimpleButton")
+					]
+
+					+SHorizontalBox::Slot()
+					.AutoWidth()
+					.Padding(5.0f, 0.0f)
+					[
+						SNew(SButton)
+						.Text(INVTEXT("Unfold All"))
+						.OnClicked(this, &SNumericNotebook::OnUnfoldAllButtonClicked)
+						.ButtonStyle(FAppStyle::Get(), "SimpleButton")
 					]
 					
 					+SHorizontalBox::Slot()
@@ -425,6 +566,17 @@ void SNumericNotebook::DeleteCell(int32 InIndex)
 		if (NotebookAsset->Cells.IsValidIndex(InIndex))
 		{
 			NotebookAsset->Cells.RemoveAt(InIndex);
+			
+			// Adjust selection
+			if (SelectedCellIndex == InIndex)
+			{
+				SetSelectedCell(-1);
+			}
+			else if (SelectedCellIndex > InIndex)
+			{
+				SetSelectedCell(SelectedCellIndex - 1);
+			}
+
 			NotebookAsset->MarkPackageDirty();
 			UpdateDocumentUI();
 		}
@@ -636,6 +788,8 @@ void SNumericNotebook::UpdateDocumentUI()
 			.OnAddCellBelow_Lambda([this, CurrentIndex]() { AddNewCell(CurrentIndex + 1); })
 			.OnContentChanged_Lambda([this](const FText&) { if (NotebookAsset) NotebookAsset->MarkPackageDirty(); })
 			.IsEnabled_Lambda([this, CurrentIndex]() { return !CompilingCells.Contains(CurrentIndex); })
+			.OnSelected_Lambda([this, CurrentIndex]() { SetSelectedCell(CurrentIndex); })
+			.IsSelected_Lambda([this, CurrentIndex]() { return SelectedCellIndex == CurrentIndex; })
 		];
 	}
 }
@@ -650,4 +804,51 @@ FReply SNumericNotebook::OnRestartInterpButtonClicked()
 {
 	RestartInterp();
 	return FReply::Handled();
+}
+
+FReply SNumericNotebook::OnFoldAllButtonClicked()
+{
+	if (NotebookAsset)
+	{
+		for (auto& Cell : NotebookAsset->Cells)
+		{
+			Cell.bIsExpanded = false;
+		}
+		UpdateDocumentUI();
+	}
+	return FReply::Handled();
+}
+
+FReply SNumericNotebook::OnUnfoldAllButtonClicked()
+{
+	if (NotebookAsset)
+	{
+		for (auto& Cell : NotebookAsset->Cells)
+		{
+			Cell.bIsExpanded = true;
+		}
+		UpdateDocumentUI();
+	}
+	return FReply::Handled();
+}
+
+void SNumericNotebook::SetSelectedCell(int32 Index)
+{
+	if (SelectedCellIndex != Index)
+	{
+		SelectedCellIndex = Index;
+		OnCellSelectionChanged.Broadcast(SelectedCellIndex);
+		
+		// Optional: Refresh UI to show highlight
+		UpdateDocumentUI();
+	}
+}
+
+FClingNotebookCellData* SNumericNotebook::GetSelectedCellData() const
+{
+	if (NotebookAsset && NotebookAsset->Cells.IsValidIndex(SelectedCellIndex))
+	{
+		return &NotebookAsset->Cells[SelectedCellIndex];
+	}
+	return nullptr;
 }

@@ -12,6 +12,8 @@
 
 #include "ClingNotebook.h"
 
+class SNumericNotebook;
+
 /**
  * Notebook Cell Widget
  */
@@ -28,14 +30,19 @@ public:
 		SLATE_EVENT(FSimpleDelegate, OnAddCellAbove)
 		SLATE_EVENT(FSimpleDelegate, OnAddCellBelow)
 		SLATE_EVENT(FOnTextChanged, OnContentChanged)
+		SLATE_EVENT(FSimpleDelegate, OnSelected)
+		SLATE_ATTRIBUTE(bool, IsSelected)
 	SLATE_END_ARGS()
 
 	void Construct(const FArguments& InArgs);
+
+	virtual FReply OnMouseButtonDown(const FGeometry& MyGeometry, const FPointerEvent& MouseEvent) override;
 
 private:
 	FClingNotebookCellData* CellData = nullptr;
 	UClingNotebook* NotebookAsset = nullptr;
 	int32 CellIndex = -1;
+	TAttribute<bool> IsSelected;
 
 	// Cell UI
 	TSharedPtr<SMultiLineEditableTextBox> CodeTextBox;
@@ -47,6 +54,7 @@ private:
 	FSimpleDelegate OnAddCellAboveDelegate;
 	FSimpleDelegate OnAddCellBelowDelegate;
 	FOnTextChanged OnContentChangedDelegate;
+	FSimpleDelegate OnSelectedDelegate;
 	
 	void UpdateCellUI();
 
@@ -63,6 +71,29 @@ private:
 };
 
 /**
+ * Details Panel for a single cell
+ */
+class CLINGEDITOR_API SClingNotebookDetailsPanel : public SCompoundWidget
+{
+public:
+	SLATE_BEGIN_ARGS(SClingNotebookDetailsPanel) {}
+		SLATE_ARGUMENT(UClingNotebook*, NotebookAsset)
+		SLATE_ARGUMENT(TSharedPtr<SNumericNotebook>, NotebookWidget)
+	SLATE_END_ARGS()
+
+	void Construct(const FArguments& InArgs);
+
+private:
+	UClingNotebook* NotebookAsset = nullptr;
+	TWeakPtr<SNumericNotebook> NotebookWidgetPtr;
+	
+	void OnSelectionChanged(int32 NewIndex);
+	void Refresh();
+
+	TSharedPtr<SMultiLineEditableTextBox> DetailCodeTextBox;
+};
+
+/**
  * Main Widget of Notebook
  */
 class CLINGEDITOR_API SNumericNotebook : public SCompoundWidget
@@ -75,9 +106,11 @@ public:
 	void Construct(const FArguments& InArgs);
 	// static TSharedPtr<SNumericNotebook> CreateTestWidget();
 
-private:
+public:
 	// Related Asset
 	UClingNotebook* NotebookAsset;
+
+private:
 
 	// ScrollBox
 	TSharedPtr<SScrollBox> ScrollBox;
@@ -107,4 +140,17 @@ private:
 	
 	FReply OnAddNewCellButtonClicked();
 	FReply OnRestartInterpButtonClicked();
+	FReply OnFoldAllButtonClicked();
+	FReply OnUnfoldAllButtonClicked();
+
+public:
+	DECLARE_MULTICAST_DELEGATE_OneParam(FOnCellSelectionChanged, int32);
+	FOnCellSelectionChanged OnCellSelectionChanged;
+
+	void SetSelectedCell(int32 Index);
+	int32 GetSelectedCellIndex() const { return SelectedCellIndex; }
+	FClingNotebookCellData* GetSelectedCellData() const;
+
+private:
+	int32 SelectedCellIndex = -1;
 };
