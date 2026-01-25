@@ -36,9 +36,6 @@ protected:
 	/** Styles used to display the text */
 	const FSyntaxTextStyle& SyntaxTextStyle;
 
-	/** String representing tabs */
-	FString TabString;
-
 	TSet<FString> KnownTypes;
 	TSet<FString> KnownEnums;
 	TSet<FString> KnownNamespaces;

@@ -18,6 +18,7 @@ public:
 	static const FName& GetStyleSetName();
 
 	static FTextBlockStyle NormalText;
+	static FTextBlockStyle BoldText;
 private:
 	/** Singleton instances of this style. */
 	static TSharedPtr< class FSlateStyleSet > StyleSet;

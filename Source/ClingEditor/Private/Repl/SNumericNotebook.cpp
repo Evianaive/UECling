@@ -27,7 +27,6 @@ void SClingNotebookCell::Construct(const FArguments& InArgs)
 	OnRunToHereDelegate = InArgs._OnRunToHere;
 	OnUndoToHereDelegate = InArgs._OnUndoToHere;
 	OnDeleteCellDelegate = InArgs._OnDeleteCell;
-	OnAddCellAboveDelegate = InArgs._OnAddCellAbove;
 	OnAddCellBelowDelegate = InArgs._OnAddCellBelow;
 	OnContentChangedDelegate = InArgs._OnContentChanged;
 	OnSelectedDelegate = InArgs._OnSelected;
@@ -48,7 +47,7 @@ void SClingNotebookCell::UpdateCellUI()
 	[
 		SNew(SBorder)
 		.BorderImage(FAppStyle::Get().GetBrush("ToolPanel.GroupBorder"))
-		.BorderBackgroundColor_Lambda([this]() { return IsSelected.Get() ? FLinearColor::Yellow : FLinearColor::White; })
+		.BorderBackgroundColor_Lambda([this]() { return IsSelected.Get() ? FStyleColors::Select: FLinearColor::White; })
 		.Padding(2.0f)
 		[
 			SNew(SVerticalBox)
@@ -145,17 +144,6 @@ void SClingNotebookCell::UpdateCellUI()
 				// 空间填充
 				+SHorizontalBox::Slot()
 				.FillWidth(1.0f)
-				
-				// 控制按钮
-				+SHorizontalBox::Slot()
-				.AutoWidth()
-				.Padding(2.0f)
-				[
-					SNew(SButton)
-					.Text(INVTEXT("+ Above"))
-					.OnClicked(this, &SClingNotebookCell::OnAddAboveButtonClicked)
-					.ButtonStyle(FAppStyle::Get(), "SimpleButton")
-				]
 				
 				+SHorizontalBox::Slot()
 				.AutoWidth()
@@ -271,12 +259,6 @@ FReply SClingNotebookCell::OnUndoToHereButtonClicked()
 FReply SClingNotebookCell::OnDeleteButtonClicked()
 {
 	OnDeleteCellDelegate.ExecuteIfBound();
-	return FReply::Handled();
-}
-
-FReply SClingNotebookCell::OnAddAboveButtonClicked()
-{
-	OnAddCellAboveDelegate.ExecuteIfBound();
 	return FReply::Handled();
 }
 
@@ -784,7 +766,6 @@ void SNumericNotebook::UpdateDocumentUI()
 			.OnRunToHere_Lambda([this, CurrentIndex]() { RunToHere(CurrentIndex); })
 			.OnUndoToHere_Lambda([this, CurrentIndex]() { UndoToHere(CurrentIndex); })
 			.OnDeleteCell_Lambda([this, CurrentIndex]() { DeleteCell(CurrentIndex); })
-			.OnAddCellAbove_Lambda([this, CurrentIndex]() { AddNewCell(CurrentIndex); })
 			.OnAddCellBelow_Lambda([this, CurrentIndex]() { AddNewCell(CurrentIndex + 1); })
 			.OnContentChanged_Lambda([this](const FText&) { if (NotebookAsset) NotebookAsset->MarkPackageDirty(); })
 			.IsEnabled_Lambda([this, CurrentIndex]() { return !CompilingCells.Contains(CurrentIndex); })

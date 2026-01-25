@@ -27,7 +27,6 @@ public:
 		SLATE_EVENT(FSimpleDelegate, OnRunToHere)
 		SLATE_EVENT(FSimpleDelegate, OnUndoToHere)
 		SLATE_EVENT(FSimpleDelegate, OnDeleteCell)
-		SLATE_EVENT(FSimpleDelegate, OnAddCellAbove)
 		SLATE_EVENT(FSimpleDelegate, OnAddCellBelow)
 		SLATE_EVENT(FOnTextChanged, OnContentChanged)
 		SLATE_EVENT(FSimpleDelegate, OnSelected)
@@ -51,7 +50,6 @@ private:
 	FSimpleDelegate OnRunToHereDelegate;
 	FSimpleDelegate OnUndoToHereDelegate;
 	FSimpleDelegate OnDeleteCellDelegate;
-	FSimpleDelegate OnAddCellAboveDelegate;
 	FSimpleDelegate OnAddCellBelowDelegate;
 	FOnTextChanged OnContentChangedDelegate;
 	FSimpleDelegate OnSelectedDelegate;
@@ -62,7 +60,6 @@ private:
 	FReply OnRunToHereButtonClicked();
 	FReply OnUndoToHereButtonClicked();
 	FReply OnDeleteButtonClicked();
-	FReply OnAddAboveButtonClicked();
 	FReply OnAddBelowButtonClicked();
 	FReply OnToggleExpandClicked();
 
