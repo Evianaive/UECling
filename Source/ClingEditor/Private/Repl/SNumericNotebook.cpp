@@ -23,6 +23,7 @@ void SClingNotebookCell::Construct(const FArguments& InArgs)
 {
 	CellData = InArgs._CellData;
 	NotebookAsset = InArgs._NotebookAsset;
+	NotebookWidget = InArgs._NotebookWidget;
 	CellIndex = InArgs._CellIndex;
 	OnRunToHereDelegate = InArgs._OnRunToHere;
 	OnUndoToHereDelegate = InArgs._OnUndoToHere;
@@ -47,7 +48,7 @@ void SClingNotebookCell::UpdateCellUI()
 	[
 		SNew(SBorder)
 		.BorderImage(FAppStyle::Get().GetBrush("ToolPanel.GroupBorder"))
-		.BorderBackgroundColor_Lambda([this]() { return IsSelected.Get() ? FStyleColors::Select: FLinearColor::White; })
+		.BorderBackgroundColor_Lambda([this]() { return IsSelected.Get() ? FLinearColor::Gray : FLinearColor::White; })
 		.Padding(2.0f)
 		[
 			SNew(SVerticalBox)
@@ -126,13 +127,7 @@ void SClingNotebookCell::UpdateCellUI()
 					.IsChecked_Lambda([this]() { return CellData->bExecuteInGameThread ? ECheckBoxState::Checked : ECheckBoxState::Unchecked; })
 					.OnCheckStateChanged_Lambda([this](ECheckBoxState NewState) { CellData->bExecuteInGameThread = (NewState == ECheckBoxState::Checked); })
 					.IsEnabled_Lambda([this]() {
-						if (CellData->bIsCompiling) return false;
-						if (!NotebookAsset || !NotebookAsset->Cells.IsValidIndex(CellIndex)) return true;
-						for (int32 i = CellIndex; i < NotebookAsset->Cells.Num(); ++i)
-						{
-							if (NotebookAsset->Cells[i].bIsCompleted) return false;
-						}
-						return true;
+						return NotebookWidget ? !NotebookWidget->IsCellReadOnly(CellIndex) : true;
 					})
 					[
 						SNew(STextBlock)
@@ -153,6 +148,9 @@ void SClingNotebookCell::UpdateCellUI()
 					.Text(INVTEXT("+ Below"))
 					.OnClicked(this, &SClingNotebookCell::OnAddBelowButtonClicked)
 					.ButtonStyle(FAppStyle::Get(), "SimpleButton")
+					.IsEnabled_Lambda([this]() {
+						return NotebookWidget ? NotebookWidget->IsCellAddableBelow(CellIndex) : true;
+					})
 				]
 				
 				+SHorizontalBox::Slot()
@@ -165,13 +163,7 @@ void SClingNotebookCell::UpdateCellUI()
 					.OnClicked(this, &SClingNotebookCell::OnRunToHereButtonClicked)
 					.ButtonStyle(FAppStyle::Get(), "SimpleButton")
 					.IsEnabled_Lambda([this]() {
-						if (!NotebookAsset || !NotebookAsset->Cells.IsValidIndex(CellIndex)) return false;
-						if (CellData->bIsCompleted || CellData->bIsCompiling) return false;
-						for (int32 i = CellIndex + 1; i < NotebookAsset->Cells.Num(); ++i)
-						{
-							if (NotebookAsset->Cells[i].bIsCompleted) return false;
-						}
-						return true;
+						return NotebookWidget ? !NotebookWidget->IsCellReadOnly(CellIndex) : true;
 					})
 				]
 
@@ -203,6 +195,9 @@ void SClingNotebookCell::UpdateCellUI()
 					.Text(INVTEXT("X"))
 					.OnClicked(this, &SClingNotebookCell::OnDeleteButtonClicked)
 					.ButtonStyle(FAppStyle::Get(), "SimpleButton")
+					.IsEnabled_Lambda([this]() {
+						return NotebookWidget ? NotebookWidget->IsCellDeletable(CellIndex) : true;
+					})
 				]
 			]
 			
@@ -216,13 +211,7 @@ void SClingNotebookCell::UpdateCellUI()
 				.OnTextChanged(this, &SClingNotebookCell::OnCodeTextChanged)
 				.Visibility_Lambda([this]() { return CellData->bIsExpanded ? EVisibility::Visible : EVisibility::Collapsed; })
 				.IsReadOnly_Lambda([this]() {
-					if (CellData->bIsCompiling) return true;
-					if (!NotebookAsset || !NotebookAsset->Cells.IsValidIndex(CellIndex)) return false;
-					for (int32 i = CellIndex; i < NotebookAsset->Cells.Num(); ++i)
-					{
-						if (NotebookAsset->Cells[i].bIsCompleted) return true;
-					}
-					return false;
+					return NotebookWidget ? NotebookWidget->IsCellReadOnly(CellIndex) : false;
 				})
 			]
 			
@@ -325,14 +314,30 @@ void SClingNotebookDetailsPanel::Refresh()
 		return;
 	}
 
+	TSharedPtr<SVerticalBox> FunctionButtonsBox;
+
 	ChildSlot
 	[
 		SNew(SBorder)
-		.BorderImage(FAppStyle::Get().GetBrush("ToolPanel.GroupBorder"))
+		.BorderImage(FAppStyle::Get().GetBrush("ToolPanel.DarkGroupBorder"))
 		.Padding(10.0f)
 		[
 			SNew(SVerticalBox)
 			
+			// Top Bar for Function Buttons
+			+SVerticalBox::Slot()
+			.AutoHeight()
+			.Padding(0, 0, 0, 10)
+			[
+				SAssignNew(FunctionButtonsBox, SVerticalBox)
+			]
+			+SVerticalBox::Slot()
+			.AutoHeight()
+			.Padding(0, 10, 0, 0)
+			[
+				SNew(SSeparator)
+				.Orientation(Orient_Horizontal)
+			]
 			+SVerticalBox::Slot()
 			.AutoHeight()
 			.Padding(0, 0, 0, 10)
@@ -355,19 +360,10 @@ void SClingNotebookDetailsPanel::Refresh()
 						SelectedData->Content = InText.ToString();
 						if (NotebookAsset) NotebookAsset->MarkPackageDirty();
 					})
-					.IsReadOnly_Lambda([this, SelectedData]() {
-						if (SelectedData->bIsCompiling) return true;
-						
+					.IsReadOnly_Lambda([this]() {
 						if (TSharedPtr<SNumericNotebook> NW = NotebookWidgetPtr.Pin())
 						{
-							int32 CurrentIndex = NW->GetSelectedCellIndex();
-							if (NW->NotebookAsset && NW->NotebookAsset->Cells.IsValidIndex(CurrentIndex))
-							{
-								for (int32 i = CurrentIndex; i < NW->NotebookAsset->Cells.Num(); ++i)
-								{
-									if (NW->NotebookAsset->Cells[i].bIsCompleted) return true;
-								}
-							}
+							return NW->IsCellReadOnly(NW->GetSelectedCellIndex());
 						}
 						return false;
 					})
@@ -396,6 +392,70 @@ void SClingNotebookDetailsPanel::Refresh()
 			]
 		]
 	];
+
+	// Detect void functions with no arguments and add buttons
+	FString Content = SelectedData->Content;
+	FRegexPattern Pattern(TEXT("void\\s+([a-zA-Z_][a-zA-Z0-9_]*)\\s*\\(\\s*\\)"));
+	FRegexMatcher Matcher(Pattern, Content);
+
+	TArray<FString> DetectedFunctions;
+	while (Matcher.FindNext())
+	{
+		DetectedFunctions.Add(Matcher.GetCaptureGroup(1));
+	}
+
+	if (DetectedFunctions.Num() > 0)
+	{
+		TSharedPtr<SHorizontalBox> HBox;
+		FunctionButtonsBox->AddSlot()
+		.AutoHeight()
+		[
+			SAssignNew(HBox, SHorizontalBox)
+		];
+
+		for (const FString& FuncName : DetectedFunctions)
+		{
+			HBox->AddSlot()
+			.AutoWidth()
+			.Padding(2.0f)
+			[
+				SNew(SButton)
+				.Text(FText::FromString(FuncName))
+				// .ButtonStyle(FAppStyle::Get(), "SimpleButton")
+				.OnClicked_Lambda([this, FuncName]() -> FReply
+				{
+					if (TSharedPtr<SNumericNotebook> NW = NotebookWidgetPtr.Pin())
+					{
+						void* Interp = NW->NotebookAsset ? NW->NotebookAsset->GetInterpreter() : nullptr;
+						if (Interp)
+						{
+							FScopeLock Lock(&FClingRuntimeModule::Get().GetCppInterOpLock());
+							void* StoreInterp = Cpp::GetInterpreter();
+							Cpp::ActivateInterpreter(Interp);
+							
+							Cpp::TCppScope_t FuncHandle = Cpp::GetNamed(TCHAR_TO_ANSI(*FuncName), Cpp::GetGlobalScope());
+							if (FuncHandle && Cpp::IsFunction(FuncHandle))
+							{
+								if (Cpp::GetFunctionNumArgs((Cpp::TCppFunction_t)FuncHandle) == 0)
+								{
+									void* Addr = Cpp::GetFunctionAddress((Cpp::TCppFunction_t)FuncHandle);
+									if (Addr)
+									{
+										typedef void (*VoidFunc)();
+										VoidFunc f = (VoidFunc)Addr;
+										f();
+									}
+								}
+							}
+							
+							Cpp::ActivateInterpreter(StoreInterp);
+						}
+					}
+					return FReply::Handled();
+				})
+			];
+		}
+	}
 }
 
 void SNumericNotebook::Construct(const FArguments& InArgs)
@@ -584,93 +644,83 @@ void SNumericNotebook::ProcessNextInQueue()
 	if (bIsProcessingQueue || ExecutionQueue.Num() == 0) return;
 
 	bIsProcessingQueue = true;
-	int32 InIndex = ExecutionQueue[0];
-	ExecutionQueue.RemoveAt(0);
 
-	void* Interp = GetOrStartInterp();
-	if (!Interp)
+	while (ExecutionQueue.Num() > 0)
 	{
-		bIsProcessingQueue = false;
-		return;
-	}
+		int32 InIndex = ExecutionQueue[0];
+		ExecutionQueue.RemoveAt(0);
 
-	FClingNotebookCellData& Cell = NotebookAsset->Cells[InIndex];
-	FString Code = Cell.Content;
-	bool bExecuteInGameThread = Cell.bExecuteInGameThread;
-
-	auto ExecuteTask = [this, Interp, InIndex, Code]()
-	{
-		FScopeLock Lock(&FClingRuntimeModule::Get().GetCppInterOpLock());
-
-		struct FLocal
+		void* Interp = GetOrStartInterp();
+		if (!Interp)
 		{
-			FLocal(void* InInterp)
-			{
-				StoreInterp = Cpp::GetInterpreter();
-				Cpp::ActivateInterpreter(InInterp);
-			}
-			~FLocal()
-			{
-				Cpp::ActivateInterpreter(StoreInterp);
-			}
-			void* StoreInterp;
-		};
-		FLocal Guard{Interp};
-		
-		static thread_local FString AsyncErrors;
-		AsyncErrors.Reset();
-		
-		Cpp::BeginStdStreamCapture(Cpp::kStdErr);
-		
-		int32 CompilationResult = Cpp::Process(TCHAR_TO_ANSI(*Code));
-		
-		Cpp::EndStdStreamCapture([](const char* Result)
-		{
-			AsyncErrors = UTF8_TO_TCHAR(Result);
-		});
+			continue;
+		}
 
-		FString OutErrors = AsyncErrors;
+		FClingNotebookCellData& Cell = NotebookAsset->Cells[InIndex];
+		FString Code = Cell.Content;
 
-		AsyncTask(ENamedThreads::GameThread, [this, InIndex, CompilationResult, OutErrors]()
+		// Execute Synchronously on GameThread
 		{
-			if (NotebookAsset && NotebookAsset->Cells.IsValidIndex(InIndex))
+			FScopeLock Lock(&FClingRuntimeModule::Get().GetCppInterOpLock());
+
+			struct FLocal
 			{
-				FClingNotebookCellData& CellData = NotebookAsset->Cells[InIndex];
-				CellData.Output = OutErrors;
-				CellData.bHasOutput = true;
-				CellData.bIsCompiling = false;
+				FLocal(void* InInterp)
+				{
+					StoreInterp = Cpp::GetInterpreter();
+					Cpp::ActivateInterpreter(InInterp);
+				}
+				~FLocal()
+				{
+					Cpp::ActivateInterpreter(StoreInterp);
+				}
+				void* StoreInterp;
+			};
+			FLocal Guard{Interp};
+			
+			static FString StaticErrors;
+			StaticErrors.Reset();
+			
+			Cpp::BeginStdStreamCapture(Cpp::kStdErr);
+			
+			int32 CompilationResult = Cpp::Process(TCHAR_TO_ANSI(*Code));
+			
+			Cpp::EndStdStreamCapture([](const char* Result)
+			{
+				StaticErrors = UTF8_TO_TCHAR(Result);
+			});
+
+			FString OutErrors = StaticErrors;
+
+			if (NotebookAsset && (NotebookAsset->Cells.Num() > InIndex))
+			{
+				FClingNotebookCellData& CellDataAt = NotebookAsset->Cells[InIndex];
+				CellDataAt.Output = OutErrors;
+				CellDataAt.bHasOutput = true;
+				CellDataAt.bIsCompiling = false;
 				
 				if (CompilationResult == 0)
 				{
-					CellData.bIsCompleted = true;
-					if (CellData.Output.IsEmpty())
+					CellDataAt.bIsCompleted = true;
+					if (CellDataAt.Output.IsEmpty())
 					{
-						CellData.Output = FString::Printf(TEXT("Success (Executed at %s)"), *FDateTime::Now().ToString());
+						CellDataAt.Output = FString::Printf(TEXT("Success (Executed at %s)"), *FDateTime::Now().ToString());
 					}
 				}
 				else
 				{
-					CellData.bIsCompleted = false;
+					CellDataAt.bIsCompleted = false;
 				}
 				
 				NotebookAsset->MarkPackageDirty();
 			}
 
 			CompilingCells.Remove(InIndex);
-			bIsCompiling = (CompilingCells.Num() > 0);
-			bIsProcessingQueue = false;
-			ProcessNextInQueue();
-		});
-	};
+		}
+	}
 
-	if (bExecuteInGameThread)
-	{
-		ExecuteTask();
-	}
-	else
-	{
-		AsyncTask(ENamedThreads::AnyBackgroundHiPriTask, ExecuteTask);
-	}
+	bIsCompiling = (CompilingCells.Num() > 0);
+	bIsProcessingQueue = false;
 }
 
 void SNumericNotebook::RunToHere(int32 InIndex)
@@ -742,11 +792,11 @@ void SNumericNotebook::UndoToHere(int32 InIndex)
 
 void SNumericNotebook::UpdateDocumentUI()
 {
-	if (!IsInGameThread())
-	{
-		AsyncTask(ENamedThreads::GameThread, [this]() { UpdateDocumentUI(); });
-		return;
-	}
+	// if (!IsInGameThread())
+	// {
+	// 	AsyncTask(ENamedThreads::GameThread, [this]() { UpdateDocumentUI(); });
+	// 	return;
+	// }
 
 	if (!ScrollBox.IsValid() || !NotebookAsset) return;
 
@@ -762,6 +812,7 @@ void SNumericNotebook::UpdateDocumentUI()
 			SNew(SClingNotebookCell)
 			.CellData(&NotebookAsset->Cells[i])
 			.NotebookAsset(NotebookAsset)
+			.NotebookWidget(this)
 			.CellIndex(CurrentIndex)
 			.OnRunToHere_Lambda([this, CurrentIndex]() { RunToHere(CurrentIndex); })
 			.OnUndoToHere_Lambda([this, CurrentIndex]() { UndoToHere(CurrentIndex); })
@@ -827,9 +878,39 @@ void SNumericNotebook::SetSelectedCell(int32 Index)
 
 FClingNotebookCellData* SNumericNotebook::GetSelectedCellData() const
 {
-	if (NotebookAsset && NotebookAsset->Cells.IsValidIndex(SelectedCellIndex))
+	if (NotebookAsset && (NotebookAsset->Cells.Num() > SelectedCellIndex) && (SelectedCellIndex >= 0))
 	{
-		return &NotebookAsset->Cells[SelectedCellIndex];
+		auto& CellAt = NotebookAsset->Cells[SelectedCellIndex];
+		return &CellAt;
 	}
 	return nullptr;
+}
+
+bool SNumericNotebook::IsCellReadOnly(int32 Index) const
+{
+	if (!NotebookAsset || !NotebookAsset->Cells.IsValidIndex(Index)) return false;
+	if (NotebookAsset->Cells[Index].bIsCompiling) return true;
+	
+	for (int32 i = Index; i < NotebookAsset->Cells.Num(); ++i)
+	{
+		if (NotebookAsset->Cells[i].bIsCompleted) return true;
+	}
+	return false;
+}
+
+bool SNumericNotebook::IsCellDeletable(int32 Index) const
+{
+	// 只有非只读（未编译且其后无编译节）的节才可以删除
+	return !IsCellReadOnly(Index);
+}
+
+bool SNumericNotebook::IsCellAddableBelow(int32 Index) const
+{
+	// 下方添加节时要看下方节的状态
+	if (!NotebookAsset) return false;
+	int32 NextIndex = Index + 1;
+	if (NextIndex >= NotebookAsset->Cells.Num()) return true; // 最后一个节下方总是可以添加
+	
+	// 如果下方节是只读的（即它是编译序列的一部分），则不允许在其上方插入
+	return !IsCellReadOnly(NextIndex);
 }

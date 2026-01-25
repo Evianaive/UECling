@@ -8,9 +8,11 @@ const FName ClingNotebookDetailsTabId(TEXT("ClingNotebook_Details"));
 
 void FClingNotebookEditor::InitEditor(const EToolkitMode::Type Mode, const TSharedPtr<IToolkitHost>& EditWithinLevelEditor, UClingNotebook* InNotebook)
 {
+	// Todo check if this work?
+	GEditor->GetEditorSubsystem<UAssetEditorSubsystem>()->CloseOtherEditors(InNotebook, this);
 	NotebookAsset = InNotebook;
 
-	TSharedRef<FTabManager::FLayout> StandaloneLayout = FTabManager::NewLayout("Standalone_ClingNotebook_Layout_v2")
+	const TSharedRef<FTabManager::FLayout> StandaloneLayout = FTabManager::NewLayout("Standalone_ClingNotebook_Layout_v2")
 	->AddArea
 	(
 		FTabManager::NewPrimaryArea()

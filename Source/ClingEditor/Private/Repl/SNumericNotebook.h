@@ -23,6 +23,7 @@ public:
 	SLATE_BEGIN_ARGS(SClingNotebookCell) {}
 		SLATE_ARGUMENT(FClingNotebookCellData*, CellData)
 		SLATE_ARGUMENT(UClingNotebook*, NotebookAsset)
+		SLATE_ARGUMENT(SNumericNotebook*, NotebookWidget)
 		SLATE_ARGUMENT(int32, CellIndex)
 		SLATE_EVENT(FSimpleDelegate, OnRunToHere)
 		SLATE_EVENT(FSimpleDelegate, OnUndoToHere)
@@ -40,6 +41,7 @@ public:
 private:
 	FClingNotebookCellData* CellData = nullptr;
 	UClingNotebook* NotebookAsset = nullptr;
+	SNumericNotebook* NotebookWidget = nullptr;
 	int32 CellIndex = -1;
 	TAttribute<bool> IsSelected;
 
@@ -132,6 +134,12 @@ private:
 	bool bIsProcessingQueue = false;
 	void ProcessNextInQueue();
 
+public:
+	bool IsCellReadOnly(int32 Index) const;
+	bool IsCellDeletable(int32 Index) const;
+	bool IsCellAddableBelow(int32 Index) const;
+
+private:
 	// UI Update
 	void UpdateDocumentUI();
 	
