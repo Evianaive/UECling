@@ -48,8 +48,38 @@ public:
 	UPROPERTY(EditAnywhere, Category = "Cling")
 	TArray<FClingNotebookCellData> Cells;
 
+	UPROPERTY(Transient)
+	int32 SelectedCellIndex = -1;
+
+	DECLARE_MULTICAST_DELEGATE_OneParam(FOnCellSelectionChanged, int32);
+	FOnCellSelectionChanged OnCellSelectionChanged;
+
+	void SetSelectedCell(int32 Index);
+
+	// Compilation state
+	bool bIsCompiling = false;
+	TSet<int32> CompilingCells;
+	TArray<int32> ExecutionQueue;
+	bool bIsProcessingQueue = false;
+
 	void* GetInterpreter();
 	void RestartInterpreter();
+
+	// Cell Management
+	void AddNewCell(int32 InIndex = -1);
+	void DeleteCell(int32 InIndex);
+
+	// Execution Logic
+	void RunCell(int32 InIndex);
+	void RunToHere(int32 InIndex);
+	void UndoToHere(int32 InIndex);
+	void ProcessNextInQueue();
+
+	// State Queries
+	FClingNotebookCellData* GetSelectedCellData();
+	bool IsCellReadOnly(int32 Index) const;
+	bool IsCellDeletable(int32 Index) const;
+	bool IsCellAddableBelow(int32 Index) const;
 
 private:
 	void* Interpreter = nullptr;

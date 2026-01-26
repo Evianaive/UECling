@@ -93,6 +93,5 @@ TSharedRef<SDockTab> FClingNotebookEditor::SpawnTab_Details(const FSpawnTabArgs&
 	[
 		SNew(SClingNotebookDetailsPanel)
 		.NotebookAsset(NotebookAsset)
-		.NotebookWidget(NotebookWidget)
 	];
 }

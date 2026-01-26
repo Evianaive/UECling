@@ -476,13 +476,13 @@ void FCppRichTextSyntaxHighlightMarshaller::RefreshSemanticNames()
 		thread_local TSet<FString>* LocalKnownNames = nullptr;
 		
 		TGuardValue Guard{LocalKnownNames,&KnownTypes};
-		Cpp::GetAllCppNames(Cpp::GetGlobalScope(),[](const char* const* Names, size_t Size)
-		{
-			for (size_t i = 0; i < Size; ++i)
-			{
-				LocalKnownNames->Add(UTF8_TO_TCHAR(Names[i]));
-			}
-		});		
+		// Cpp::GetAllCppNames(Cpp::GetGlobalScope(),[](const char* const* Names, size_t Size)
+		// {
+		// 	for (size_t i = 0; i < Size; ++i)
+		// 	{
+		// 		LocalKnownNames->Add(UTF8_TO_TCHAR(Names[i]));
+		// 	}
+		// });		
 		
 		LocalKnownNames = &KnownEnums;
 		Cpp::GetEnums(Cpp::GetGlobalScope(),[](const char* const* Names, size_t Size)

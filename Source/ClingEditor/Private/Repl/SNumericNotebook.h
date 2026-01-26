@@ -23,7 +23,6 @@ public:
 	SLATE_BEGIN_ARGS(SClingNotebookCell) {}
 		SLATE_ARGUMENT(FClingNotebookCellData*, CellData)
 		SLATE_ARGUMENT(UClingNotebook*, NotebookAsset)
-		SLATE_ARGUMENT(SNumericNotebook*, NotebookWidget)
 		SLATE_ARGUMENT(int32, CellIndex)
 		SLATE_EVENT(FSimpleDelegate, OnRunToHere)
 		SLATE_EVENT(FSimpleDelegate, OnUndoToHere)
@@ -41,7 +40,6 @@ public:
 private:
 	FClingNotebookCellData* CellData = nullptr;
 	UClingNotebook* NotebookAsset = nullptr;
-	SNumericNotebook* NotebookWidget = nullptr;
 	int32 CellIndex = -1;
 	TAttribute<bool> IsSelected;
 
@@ -77,14 +75,12 @@ class CLINGEDITOR_API SClingNotebookDetailsPanel : public SCompoundWidget
 public:
 	SLATE_BEGIN_ARGS(SClingNotebookDetailsPanel) {}
 		SLATE_ARGUMENT(UClingNotebook*, NotebookAsset)
-		SLATE_ARGUMENT(TSharedPtr<SNumericNotebook>, NotebookWidget)
 	SLATE_END_ARGS()
 
 	void Construct(const FArguments& InArgs);
 
 private:
 	UClingNotebook* NotebookAsset = nullptr;
-	TWeakPtr<SNumericNotebook> NotebookWidgetPtr;
 	
 	void OnSelectionChanged(int32 NewIndex);
 	void Refresh();
@@ -103,41 +99,17 @@ public:
 	SLATE_END_ARGS()
 
 	void Construct(const FArguments& InArgs);
-	// static TSharedPtr<SNumericNotebook> CreateTestWidget();
 
 public:
 	// Related Asset
 	UClingNotebook* NotebookAsset;
 
 private:
-
 	// ScrollBox
 	TSharedPtr<SScrollBox> ScrollBox;
 
-	// Interpreter used by this asset
-	void* GetOrStartInterp();
-
-	// Restart Interpreter
-	void RestartInterp();
-	
-	void AddNewCell(int32 InIndex = -1);
-	void DeleteCell(int32 InIndex);
-	void RunCell(int32 InIndex);
-	void RunToHere(int32 InIndex);
-	void UndoToHere(int32 InIndex);
-
-	// Compilation state
-	bool bIsCompiling = false;
-	TSet<int32> CompilingCells;
-	
-	TArray<int32> ExecutionQueue;
-	bool bIsProcessingQueue = false;
-	void ProcessNextInQueue();
-
 public:
-	bool IsCellReadOnly(int32 Index) const;
-	bool IsCellDeletable(int32 Index) const;
-	bool IsCellAddableBelow(int32 Index) const;
+	void SetSelectedCell(int32 Index);
 
 private:
 	// UI Update
@@ -147,15 +119,4 @@ private:
 	FReply OnRestartInterpButtonClicked();
 	FReply OnFoldAllButtonClicked();
 	FReply OnUnfoldAllButtonClicked();
-
-public:
-	DECLARE_MULTICAST_DELEGATE_OneParam(FOnCellSelectionChanged, int32);
-	FOnCellSelectionChanged OnCellSelectionChanged;
-
-	void SetSelectedCell(int32 Index);
-	int32 GetSelectedCellIndex() const { return SelectedCellIndex; }
-	FClingNotebookCellData* GetSelectedCellData() const;
-
-private:
-	int32 SelectedCellIndex = -1;
 };
