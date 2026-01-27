@@ -120,6 +120,8 @@ Cpp::TInterp_t FClingRuntimeModule::StartInterpreterInternal()
 		FScopeLock Lock(&CppInterOpLock);
 		Interp = Cpp::CreateInterpreter(&Argv[0], Argv.Num(),nullptr,0);
 	}
+	// Cling-safe UE_LOG wrapper (CLING_LOG macro and ClingLog:: namespace)
+	Cpp::Declare("#include \"ClingScript/Private/UEClingCoreScript/ClingLogWrapper.h\"");
 // #else
 	// auto Interp = Cpp::CreateInterpreter(Argv, {});
 // #endif
