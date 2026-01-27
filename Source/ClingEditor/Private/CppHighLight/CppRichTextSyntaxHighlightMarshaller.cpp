@@ -475,7 +475,7 @@ void FCppRichTextSyntaxHighlightMarshaller::RefreshSemanticNames()
 		// Cpp::ActivateInterpreter(Module->BaseInterp);
 		thread_local TSet<FString>* LocalKnownNames = nullptr;
 		
-		TGuardValue Guard{LocalKnownNames,&KnownTypes};
+		// TGuardValue Guard{LocalKnownNames,&KnownTypes};
 		// Cpp::GetAllCppNames(Cpp::GetGlobalScope(),[](const char* const* Names, size_t Size)
 		// {
 		// 	for (size_t i = 0; i < Size; ++i)
@@ -483,27 +483,27 @@ void FCppRichTextSyntaxHighlightMarshaller::RefreshSemanticNames()
 		// 		LocalKnownNames->Add(UTF8_TO_TCHAR(Names[i]));
 		// 	}
 		// });		
-		
-		LocalKnownNames = &KnownEnums;
-		Cpp::GetEnums(Cpp::GetGlobalScope(),[](const char* const* Names, size_t Size)
-		{
-			for (size_t i = 0; i < Size; ++i)
-			{
-				LocalKnownNames->Add(UTF8_TO_TCHAR(Names[i]));
-			}
-		});
-		
-		LocalKnownNames = &KnownNamespaces;
-		Cpp::GetUsingNamespaces(Cpp::GetGlobalScope(),[](const Cpp::TCppScope_t* Scopes, size_t Size)
-		{
-			for (size_t i = 0; i < Size; ++i)
-			{
-				Cpp::GetName(Scopes[i],[](const char* Name)
-				{
-					LocalKnownNames->Add(UTF8_TO_TCHAR(Name));
-				});
-			}
-		});
+		//
+		// LocalKnownNames = &KnownEnums;
+		// Cpp::GetEnums(Cpp::GetGlobalScope(),[](const char* const* Names, size_t Size)
+		// {
+		// 	for (size_t i = 0; i < Size; ++i)
+		// 	{
+		// 		LocalKnownNames->Add(UTF8_TO_TCHAR(Names[i]));
+		// 	}
+		// });
+		//
+		// LocalKnownNames = &KnownNamespaces;
+		// Cpp::GetUsingNamespaces(Cpp::GetGlobalScope(),[](const Cpp::TCppScope_t* Scopes, size_t Size)
+		// {
+		// 	for (size_t i = 0; i < Size; ++i)
+		// 	{
+		// 		Cpp::GetName(Scopes[i],[](const char* Name)
+		// 		{
+		// 			LocalKnownNames->Add(UTF8_TO_TCHAR(Name));
+		// 		});
+		// 	}
+		// });
 	}
 
 	// 补充 UE UObject 符号，这在处理 UE 专属代码时非常有用
