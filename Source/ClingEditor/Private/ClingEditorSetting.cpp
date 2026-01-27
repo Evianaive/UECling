@@ -19,17 +19,17 @@
 
 UClingEditorSetting::UClingEditorSetting()
 	:SyntaxTextStyle{
-		.NormalTextStyle=FTextBlockStyle(FClingCodeEditorStyle::NormalText).SetColorAndOpacity(FColor(0xffdfd706)),// yellow
+		.NormalTextStyle=FTextBlockStyle(FClingCodeEditorStyle::NormalText).SetColorAndOpacity(FColor(0xffcfcfcf)),// yellow
 		.OperatorTextStyle=FTextBlockStyle(FClingCodeEditorStyle::NormalText).SetColorAndOpacity(FColor(0xffcfcfcf)),// light grey
-		.KeywordTextStyle=FTextBlockStyle(FClingCodeEditorStyle::NormalText).SetColorAndOpacity(FColor(0xff008ad4)),// blue
-		.StringTextStyle=FTextBlockStyle(FClingCodeEditorStyle::NormalText).SetColorAndOpacity(FColor(0xff9e4a1e)),// pinkish
+		.KeywordTextStyle=FTextBlockStyle(FClingCodeEditorStyle::NormalText).SetColorAndOpacity(FColor(0xffcc7cfc)),// blue
+		.StringTextStyle=FTextBlockStyle(FClingCodeEditorStyle::NormalText).SetColorAndOpacity(FColor(0xffae5a2e)),// pinkish
 		.NumberTextStyle=FTextBlockStyle(FClingCodeEditorStyle::NormalText).SetColorAndOpacity(FColor(0xff6db3a8)),// cyan
 		.CommentTextStyle=FTextBlockStyle(FClingCodeEditorStyle::NormalText).SetColorAndOpacity(FColor(0xff57a64a)),// green
-		.PreProcessorKeywordTextStyle=FTextBlockStyle(FClingCodeEditorStyle::NormalText).SetColorAndOpacity(FColor(0xffcfcfcf)),// light grey
-		.TypeTextStyle=FTextBlockStyle(FClingCodeEditorStyle::NormalText).SetColorAndOpacity(FColor(0xffd4c006)),// light grey
-		.VarTextStyle=FTextBlockStyle(FClingCodeEditorStyle::NormalText).SetColorAndOpacity(FColor(0xffcf8f0f)),// light grey
+		.PreProcessorKeywordTextStyle=FTextBlockStyle(FClingCodeEditorStyle::NormalText).SetColorAndOpacity(FColor(0xff9f4fdf)),// light grey
+		.TypeTextStyle=FTextBlockStyle(FClingCodeEditorStyle::BoldText).SetColorAndOpacity(FColor(0xffd4c006)),// light grey
+		.VarTextStyle=FTextBlockStyle(FClingCodeEditorStyle::NormalText).SetColorAndOpacity(FColor(0xff8e4a3e)),// light grey
 		.EnumTextStyle=FTextBlockStyle(FClingCodeEditorStyle::NormalText).SetColorAndOpacity(FColor(0xff0fcf4f)),// light grey
-		.NamespaceTextStyle=FTextBlockStyle(FClingCodeEditorStyle::NormalText).SetColorAndOpacity(FColor(0xffaf0fef))// light grey
+		.NamespaceTextStyle=FTextBlockStyle(FClingCodeEditorStyle::NormalText).SetColorAndOpacity(FColor(0xffcc7cfc))// light grey
 	}
 {
 	CategoryName = TEXT("Plugins");

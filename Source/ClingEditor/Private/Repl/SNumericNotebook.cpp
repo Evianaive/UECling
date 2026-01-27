@@ -22,12 +22,15 @@
 void SClingNotebookCell::Construct(const FArguments& InArgs)
 {
 	CellData = InArgs._CellData;
-	OnRunCodeDelegate = InArgs._OnRunCode;
+	NotebookAsset = InArgs._NotebookAsset;
+	CellIndex = InArgs._CellIndex;
 	OnRunToHereDelegate = InArgs._OnRunToHere;
+	OnUndoToHereDelegate = InArgs._OnUndoToHere;
 	OnDeleteCellDelegate = InArgs._OnDeleteCell;
-	OnAddCellAboveDelegate = InArgs._OnAddCellAbove;
 	OnAddCellBelowDelegate = InArgs._OnAddCellBelow;
 	OnContentChangedDelegate = InArgs._OnContentChanged;
+	OnSelectedDelegate = InArgs._OnSelected;
+	IsSelected = InArgs._IsSelected;
 
 	UpdateCellUI();
 }
@@ -44,6 +47,7 @@ void SClingNotebookCell::UpdateCellUI()
 	[
 		SNew(SBorder)
 		.BorderImage(FAppStyle::Get().GetBrush("ToolPanel.GroupBorder"))
+		.BorderBackgroundColor_Lambda([this]() { return IsSelected.Get() ? FLinearColor::Gray : FLinearColor::White; })
 		.Padding(2.0f)
 		[
 			SNew(SVerticalBox)
@@ -121,6 +125,9 @@ void SClingNotebookCell::UpdateCellUI()
 					SNew(SCheckBox)
 					.IsChecked_Lambda([this]() { return CellData->bExecuteInGameThread ? ECheckBoxState::Checked : ECheckBoxState::Unchecked; })
 					.OnCheckStateChanged_Lambda([this](ECheckBoxState NewState) { CellData->bExecuteInGameThread = (NewState == ECheckBoxState::Checked); })
+					.IsEnabled_Lambda([this]() {
+						return NotebookAsset ? !NotebookAsset->IsCellReadOnly(CellIndex) : true;
+					})
 					[
 						SNew(STextBlock)
 						.Text(INVTEXT("Run in GameThread"))
@@ -132,17 +139,6 @@ void SClingNotebookCell::UpdateCellUI()
 				+SHorizontalBox::Slot()
 				.FillWidth(1.0f)
 				
-				// 控制按钮
-				+SHorizontalBox::Slot()
-				.AutoWidth()
-				.Padding(2.0f)
-				[
-					SNew(SButton)
-					.Text(INVTEXT("+ Above"))
-					.OnClicked(this, &SClingNotebookCell::OnAddAboveButtonClicked)
-					.ButtonStyle(FAppStyle::Get(), "SimpleButton")
-				]
-				
 				+SHorizontalBox::Slot()
 				.AutoWidth()
 				.Padding(2.0f)
@@ -151,6 +147,9 @@ void SClingNotebookCell::UpdateCellUI()
 					.Text(INVTEXT("+ Below"))
 					.OnClicked(this, &SClingNotebookCell::OnAddBelowButtonClicked)
 					.ButtonStyle(FAppStyle::Get(), "SimpleButton")
+					.IsEnabled_Lambda([this]() {
+						return NotebookAsset ? NotebookAsset->IsCellAddableBelow(CellIndex) : true;
+					})
 				]
 				
 				+SHorizontalBox::Slot()
@@ -162,6 +161,9 @@ void SClingNotebookCell::UpdateCellUI()
 					.ToolTipText(INVTEXT("Execute from start to this cell"))
 					.OnClicked(this, &SClingNotebookCell::OnRunToHereButtonClicked)
 					.ButtonStyle(FAppStyle::Get(), "SimpleButton")
+					.IsEnabled_Lambda([this]() {
+						return NotebookAsset ? !NotebookAsset->IsCellReadOnly(CellIndex) : true;
+					})
 				]
 
 				+SHorizontalBox::Slot()
@@ -169,9 +171,19 @@ void SClingNotebookCell::UpdateCellUI()
 				.Padding(2.0f)
 				[
 					SNew(SButton)
-					.Text(INVTEXT("Run"))
-					.OnClicked(this, &SClingNotebookCell::OnRunButtonClicked)
+					.Text(INVTEXT("Undo To Here"))
+					.ToolTipText(INVTEXT("Undo this cell and all subsequent cells"))
+					.OnClicked(this, &SClingNotebookCell::OnUndoToHereButtonClicked)
 					.ButtonStyle(FAppStyle::Get(), "SimpleButton")
+					.IsEnabled_Lambda([this]() {
+						if (CellData->bIsCompiling) return false;
+						if (!NotebookAsset || !NotebookAsset->Cells.IsValidIndex(CellIndex)) return false;
+						for (int32 i = CellIndex; i < NotebookAsset->Cells.Num(); ++i)
+						{
+							if (NotebookAsset->Cells[i].bIsCompleted) return true;
+						}
+						return CellData->bHasOutput;
+					})
 				]
 				
 				+SHorizontalBox::Slot()
@@ -182,6 +194,9 @@ void SClingNotebookCell::UpdateCellUI()
 					.Text(INVTEXT("X"))
 					.OnClicked(this, &SClingNotebookCell::OnDeleteButtonClicked)
 					.ButtonStyle(FAppStyle::Get(), "SimpleButton")
+					.IsEnabled_Lambda([this]() {
+						return NotebookAsset ? NotebookAsset->IsCellDeletable(CellIndex) : true;
+					})
 				]
 			]
 			
@@ -194,6 +209,9 @@ void SClingNotebookCell::UpdateCellUI()
 				.Text(FText::FromString(CellData->Content))
 				.OnTextChanged(this, &SClingNotebookCell::OnCodeTextChanged)
 				.Visibility_Lambda([this]() { return CellData->bIsExpanded ? EVisibility::Visible : EVisibility::Collapsed; })
+				.IsReadOnly_Lambda([this]() {
+					return NotebookAsset ? NotebookAsset->IsCellReadOnly(CellIndex) : false;
+				})
 			]
 			
 			// 输出显示区域
@@ -214,27 +232,21 @@ void SClingNotebookCell::UpdateCellUI()
 	];
 }
 
-FReply SClingNotebookCell::OnRunButtonClicked()
-{
-	OnRunCodeDelegate.ExecuteIfBound();
-	return FReply::Handled();
-}
-
 FReply SClingNotebookCell::OnRunToHereButtonClicked()
 {
 	OnRunToHereDelegate.ExecuteIfBound();
 	return FReply::Handled();
 }
 
-FReply SClingNotebookCell::OnDeleteButtonClicked()
+FReply SClingNotebookCell::OnUndoToHereButtonClicked()
 {
-	OnDeleteCellDelegate.ExecuteIfBound();
+	OnUndoToHereDelegate.ExecuteIfBound();
 	return FReply::Handled();
 }
 
-FReply SClingNotebookCell::OnAddAboveButtonClicked()
+FReply SClingNotebookCell::OnDeleteButtonClicked()
 {
-	OnAddCellAboveDelegate.ExecuteIfBound();
+	OnDeleteCellDelegate.ExecuteIfBound();
 	return FReply::Handled();
 }
 
@@ -254,6 +266,195 @@ void SClingNotebookCell::OnCodeTextChanged(const FText& InText)
 {
 	CellData->Content = InText.ToString();
 	OnContentChangedDelegate.ExecuteIfBound(InText);
+}
+
+FReply SClingNotebookCell::OnMouseButtonDown(const FGeometry& MyGeometry, const FPointerEvent& MouseEvent)
+{
+	OnSelectedDelegate.ExecuteIfBound();
+	return FReply::Unhandled();
+}
+
+void SClingNotebookDetailsPanel::Construct(const FArguments& InArgs)
+{
+	NotebookAsset = InArgs._NotebookAsset;
+
+	if (NotebookAsset)
+	{
+		NotebookAsset->OnCellSelectionChanged.AddSP(this, &SClingNotebookDetailsPanel::OnSelectionChanged);
+	}
+
+	Refresh();
+}
+
+void SClingNotebookDetailsPanel::OnSelectionChanged(int32 NewIndex)
+{
+	Refresh();
+}
+
+void SClingNotebookDetailsPanel::Refresh()
+{
+	FClingNotebookCellData* SelectedData = NotebookAsset ? NotebookAsset->GetSelectedCellData() : nullptr;
+
+	if (!SelectedData)
+	{
+		ChildSlot
+		[
+			SNew(SBox)
+			.HAlign(HAlign_Center)
+			.VAlign(VAlign_Center)
+			[
+				SNew(STextBlock)
+				.Text(INVTEXT("Select a cell in the notebook to view details"))
+				.Font(FAppStyle::Get().GetFontStyle("HeadingFont"))
+			]
+		];
+		return;
+	}
+
+	TSharedPtr<SVerticalBox> FunctionButtonsBox;
+
+	ChildSlot
+	[
+		SNew(SBorder)
+		.BorderImage(FAppStyle::Get().GetBrush("ToolPanel.DarkGroupBorder"))
+		.Padding(10.0f)
+		[
+			SNew(SVerticalBox)
+			
+			// Top Bar for Function Buttons
+			+SVerticalBox::Slot()
+			.AutoHeight()
+			.Padding(0, 0, 0, 10)
+			[
+				SAssignNew(FunctionButtonsBox, SVerticalBox)
+			]
+			+SVerticalBox::Slot()
+			.AutoHeight()
+			.Padding(0, 10, 0, 0)
+			[
+				SNew(SSeparator)
+				.Orientation(Orient_Horizontal)
+			]
+			+SVerticalBox::Slot()
+			.AutoHeight()
+			.Padding(0, 0, 0, 10)
+			[
+				SNew(STextBlock)
+				.Text_Lambda([this]() {
+					return FText::Format(INVTEXT("Editing Cell #{0}"), FText::AsNumber(NotebookAsset ? NotebookAsset->SelectedCellIndex : -1));
+				})
+				.Font(FAppStyle::Get().GetFontStyle("HeadingFont"))
+			]
+
+			+SVerticalBox::Slot()
+			.FillHeight(1.0f)
+			[
+				SNew(SVerticalBox)
+				+SVerticalBox::Slot()
+				.FillHeight(0.7f)
+				[
+					SAssignNew(DetailCodeTextBox, SCppMultiLineEditableTextBox)
+					.Text(FText::FromString(SelectedData->Content))
+					.OnTextChanged_Lambda([this, SelectedData](const FText& InText) {
+						SelectedData->Content = InText.ToString();
+						if (NotebookAsset) NotebookAsset->MarkPackageDirty();
+					})
+					.IsReadOnly_Lambda([this]() {
+						if (NotebookAsset)
+						{
+							return NotebookAsset->IsCellReadOnly(NotebookAsset->SelectedCellIndex);
+						}
+						return false;
+					})
+				]
+
+				+SVerticalBox::Slot()
+				.AutoHeight()
+				.Padding(0, 10, 0, 0)
+				[
+					SNew(SSeparator)
+					.Orientation(Orient_Horizontal)
+				]
+
+				+SVerticalBox::Slot()
+				.FillHeight(0.3f)
+				.Padding(0, 10, 0, 0)
+				[
+					SNew(SScrollBox)
+					+SScrollBox::Slot()
+					[
+						SNew(STextBlock)
+						.Text_Lambda([SelectedData]() { return FText::FromString(SelectedData->Output); })
+						.AutoWrapText(true)
+					]
+				]
+			]
+		]
+	];
+
+	// Detect void functions with no arguments and add buttons
+	FString Content = SelectedData->Content;
+	FRegexPattern Pattern(TEXT("void\\s+([a-zA-Z_][a-zA-Z0-9_]*)\\s*\\(\\s*\\)"));
+	FRegexMatcher Matcher(Pattern, Content);
+
+	TArray<FString> DetectedFunctions;
+	while (Matcher.FindNext())
+	{
+		DetectedFunctions.Add(Matcher.GetCaptureGroup(1));
+	}
+
+	if (DetectedFunctions.Num() > 0)
+	{
+		TSharedPtr<SHorizontalBox> HBox;
+		FunctionButtonsBox->AddSlot()
+		.AutoHeight()
+		[
+			SAssignNew(HBox, SHorizontalBox)
+		];
+
+		for (const FString& FuncName : DetectedFunctions)
+		{
+			HBox->AddSlot()
+			.AutoWidth()
+			.Padding(2.0f)
+			[
+				SNew(SButton)
+				.Text(FText::FromString(FuncName))
+				// .ButtonStyle(FAppStyle::Get(), "SimpleButton")
+				.OnClicked_Lambda([this, FuncName]() -> FReply
+				{
+					if (NotebookAsset)
+					{
+						void* Interp = NotebookAsset->GetInterpreter();
+						if (Interp)
+						{
+							FScopeLock Lock(&FClingRuntimeModule::Get().GetCppInterOpLock());
+							void* StoreInterp = Cpp::GetInterpreter();
+							Cpp::ActivateInterpreter(Interp);
+							
+							Cpp::TCppScope_t FuncHandle = Cpp::GetNamed(TCHAR_TO_ANSI(*FuncName), Cpp::GetGlobalScope());
+							if (FuncHandle && Cpp::IsFunction(FuncHandle))
+							{
+								if (Cpp::GetFunctionNumArgs((Cpp::TCppFunction_t)FuncHandle) == 0)
+								{
+									void* Addr = Cpp::GetFunctionAddress((Cpp::TCppFunction_t)FuncHandle);
+									if (Addr)
+									{
+										typedef void (*VoidFunc)();
+										VoidFunc f = (VoidFunc)Addr;
+										f();
+									}
+								}
+							}
+							
+							Cpp::ActivateInterpreter(StoreInterp);
+						}
+					}
+					return FReply::Handled();
+				})
+			];
+		}
+	}
 }
 
 void SNumericNotebook::Construct(const FArguments& InArgs)
@@ -299,7 +500,7 @@ void SNumericNotebook::Construct(const FArguments& InArgs)
 						.Text(INVTEXT("Add New Code Cell"))
 						.OnClicked(this, &SNumericNotebook::OnAddNewCellButtonClicked)
 						.ButtonStyle(FAppStyle::Get(), "FlatButton.Success")
-						.IsEnabled_Lambda([this]() { return !bIsCompiling; })
+						.IsEnabled_Lambda([this]() { return NotebookAsset ? !NotebookAsset->bIsCompiling : true; })
 					]
 					
 					+SHorizontalBox::Slot()
@@ -310,7 +511,27 @@ void SNumericNotebook::Construct(const FArguments& InArgs)
 						.Text(INVTEXT("Restart Interpreter"))
 						.OnClicked(this, &SNumericNotebook::OnRestartInterpButtonClicked)
 						.ButtonStyle(FAppStyle::Get(), "FlatButton.Danger")
-						.IsEnabled_Lambda([this]() { return !bIsCompiling; })
+						.IsEnabled_Lambda([this]() { return NotebookAsset ? !NotebookAsset->bIsCompiling : true; })
+					]
+
+					+SHorizontalBox::Slot()
+					.AutoWidth()
+					.Padding(5.0f, 0.0f)
+					[
+						SNew(SButton)
+						.Text(INVTEXT("Fold All"))
+						.OnClicked(this, &SNumericNotebook::OnFoldAllButtonClicked)
+						.ButtonStyle(FAppStyle::Get(), "SimpleButton")
+					]
+
+					+SHorizontalBox::Slot()
+					.AutoWidth()
+					.Padding(5.0f, 0.0f)
+					[
+						SNew(SButton)
+						.Text(INVTEXT("Unfold All"))
+						.OnClicked(this, &SNumericNotebook::OnUnfoldAllButtonClicked)
+						.ButtonStyle(FAppStyle::Get(), "SimpleButton")
 					]
 					
 					+SHorizontalBox::Slot()
@@ -331,202 +552,17 @@ void SNumericNotebook::Construct(const FArguments& InArgs)
 	UpdateDocumentUI();
 }
 
-void* SNumericNotebook::GetOrStartInterp()
+void SNumericNotebook::SetSelectedCell(int32 Index)
 {
 	if (NotebookAsset)
 	{
-		return NotebookAsset->GetInterpreter();
-	}
-	return nullptr;
-}
-
-void SNumericNotebook::RestartInterp()
-{
-	if (NotebookAsset)
-	{
-		NotebookAsset->RestartInterpreter();
-		
-		// Reset completed status for all cells
-		for (auto& Cell : NotebookAsset->Cells)
-		{
-			Cell.bIsCompleted = false;
-		}
-	}
-	
-	UpdateDocumentUI();
-}
-
-void SNumericNotebook::AddNewCell(int32 InIndex)
-{
-	if (!NotebookAsset) return;
-
-	FClingNotebookCellData NewCellData;
-	NewCellData.bIsExpanded = true;
-	NewCellData.bIsCompleted = false;
-
-	if (InIndex == -1 || InIndex >= NotebookAsset->Cells.Num())
-	{
-		NotebookAsset->Cells.Add(NewCellData);
-	}
-	else
-	{
-		NotebookAsset->Cells.Insert(NewCellData, InIndex);
-	}
-
-	NotebookAsset->MarkPackageDirty();
-	UpdateDocumentUI();
-}
-
-void SNumericNotebook::DeleteCell(int32 InIndex)
-{
-	if (NotebookAsset)
-	{
-		if (NotebookAsset->Cells.IsValidIndex(InIndex))
-		{
-			NotebookAsset->Cells.RemoveAt(InIndex);
-			NotebookAsset->MarkPackageDirty();
-			UpdateDocumentUI();
-		}
-	}
-}
-
-void SNumericNotebook::RunCell(int32 InIndex)
-{
-	if (!NotebookAsset || !NotebookAsset->Cells.IsValidIndex(InIndex)) return;
-	
-	if (ExecutionQueue.Contains(InIndex) || CompilingCells.Contains(InIndex)) return;
-
-	ExecutionQueue.Add(InIndex);
-	NotebookAsset->Cells[InIndex].bIsCompiling = true;
-	CompilingCells.Add(InIndex);
-	bIsCompiling = true;
-
-	ProcessNextInQueue();
-}
-
-void SNumericNotebook::ProcessNextInQueue()
-{
-	if (bIsProcessingQueue || ExecutionQueue.Num() == 0) return;
-
-	bIsProcessingQueue = true;
-	int32 InIndex = ExecutionQueue[0];
-	ExecutionQueue.RemoveAt(0);
-
-	void* Interp = GetOrStartInterp();
-	if (!Interp)
-	{
-		bIsProcessingQueue = false;
-		return;
-	}
-
-	FClingNotebookCellData& Cell = NotebookAsset->Cells[InIndex];
-	FString Code = Cell.Content;
-	bool bExecuteInGameThread = Cell.bExecuteInGameThread;
-
-	auto ExecuteTask = [this, Interp, InIndex, Code]()
-	{
-		FScopeLock Lock(&FClingRuntimeModule::Get().GetCppInterOpLock());
-
-		struct FLocal
-		{
-			FLocal(void* InInterp)
-			{
-				StoreInterp = Cpp::GetInterpreter();
-				Cpp::ActivateInterpreter(InInterp);
-			}
-			~FLocal()
-			{
-				Cpp::ActivateInterpreter(StoreInterp);
-			}
-			void* StoreInterp;
-		};
-		FLocal Guard{Interp};
-		
-		static thread_local FString AsyncErrors;
-		AsyncErrors.Reset();
-		
-		Cpp::BeginStdStreamCapture(Cpp::kStdErr);
-		
-		int32 CompilationResult = Cpp::Process(TCHAR_TO_ANSI(*Code));
-		
-		Cpp::EndStdStreamCapture([](const char* Result)
-		{
-			AsyncErrors = UTF8_TO_TCHAR(Result);
-		});
-
-		FString OutErrors = AsyncErrors;
-
-		AsyncTask(ENamedThreads::GameThread, [this, InIndex, CompilationResult, OutErrors]()
-		{
-			if (NotebookAsset && NotebookAsset->Cells.IsValidIndex(InIndex))
-			{
-				FClingNotebookCellData& CellData = NotebookAsset->Cells[InIndex];
-				CellData.Output = OutErrors;
-				CellData.bHasOutput = true;
-				CellData.bIsCompiling = false;
-				
-				if (CompilationResult == 0)
-				{
-					CellData.bIsCompleted = true;
-					if (CellData.Output.IsEmpty())
-					{
-						CellData.Output = FString::Printf(TEXT("Success (Executed at %s)"), *FDateTime::Now().ToString());
-					}
-				}
-				else
-				{
-					CellData.bIsCompleted = false;
-				}
-				
-				NotebookAsset->MarkPackageDirty();
-			}
-
-			CompilingCells.Remove(InIndex);
-			bIsCompiling = (CompilingCells.Num() > 0);
-			bIsProcessingQueue = false;
-			ProcessNextInQueue();
-		});
-	};
-
-	if (bExecuteInGameThread)
-	{
-		ExecuteTask();
-	}
-	else
-	{
-		AsyncTask(ENamedThreads::AnyBackgroundHiPriTask, ExecuteTask);
-	}
-}
-
-void SNumericNotebook::RunToHere(int32 InIndex)
-{
-	if (!NotebookAsset || !NotebookAsset->Cells.IsValidIndex(InIndex)) return;
-
-	for (int32 i = 0; i <= InIndex; ++i)
-	{
-		if (!ExecutionQueue.Contains(i) && !CompilingCells.Contains(i))
-		{
-			ExecutionQueue.Add(i);
-			NotebookAsset->Cells[i].bIsCompiling = true;
-			CompilingCells.Add(i);
-		}
-	}
-	
-	if (CompilingCells.Num() > 0)
-	{
-		bIsCompiling = true;
-		ProcessNextInQueue();
+		NotebookAsset->SetSelectedCell(Index);
+		UpdateDocumentUI();
 	}
 }
 
 void SNumericNotebook::UpdateDocumentUI()
 {
-	if (!IsInGameThread())
-	{
-		AsyncTask(ENamedThreads::GameThread, [this]() { UpdateDocumentUI(); });
-		return;
-	}
-
 	if (!ScrollBox.IsValid() || !NotebookAsset) return;
 
 	ScrollBox->ClearChildren();
@@ -540,25 +576,90 @@ void SNumericNotebook::UpdateDocumentUI()
 		[
 			SNew(SClingNotebookCell)
 			.CellData(&NotebookAsset->Cells[i])
-			.OnRunCode_Lambda([this, CurrentIndex]() { RunCell(CurrentIndex); })
-			.OnRunToHere_Lambda([this, CurrentIndex]() { RunToHere(CurrentIndex); })
-			.OnDeleteCell_Lambda([this, CurrentIndex]() { DeleteCell(CurrentIndex); })
-			.OnAddCellAbove_Lambda([this, CurrentIndex]() { AddNewCell(CurrentIndex); })
-			.OnAddCellBelow_Lambda([this, CurrentIndex]() { AddNewCell(CurrentIndex + 1); })
+			.NotebookAsset(NotebookAsset)
+			.CellIndex(CurrentIndex)
+			.OnRunToHere_Lambda([this, CurrentIndex]() { 
+				if (NotebookAsset) 
+				{
+					NotebookAsset->RunToHere(CurrentIndex);
+					UpdateDocumentUI();
+				}
+			})
+			.OnUndoToHere_Lambda([this, CurrentIndex]() { 
+				if (NotebookAsset)
+				{
+					NotebookAsset->UndoToHere(CurrentIndex);
+					UpdateDocumentUI();
+				}
+			})
+			.OnDeleteCell_Lambda([this, CurrentIndex]() { 
+				if (NotebookAsset)
+				{
+					NotebookAsset->DeleteCell(CurrentIndex);
+					UpdateDocumentUI();
+				}
+			})
+			.OnAddCellBelow_Lambda([this, CurrentIndex]() { 
+				if (NotebookAsset)
+				{
+					NotebookAsset->AddNewCell(CurrentIndex + 1);
+					UpdateDocumentUI();
+				}
+			})
 			.OnContentChanged_Lambda([this](const FText&) { if (NotebookAsset) NotebookAsset->MarkPackageDirty(); })
-			.IsEnabled_Lambda([this, CurrentIndex]() { return !CompilingCells.Contains(CurrentIndex); })
+			.IsEnabled_Lambda([this, CurrentIndex]() { 
+				return NotebookAsset ? !NotebookAsset->CompilingCells.Contains(CurrentIndex) : true; 
+			})
+			.OnSelected_Lambda([this, CurrentIndex]() { SetSelectedCell(CurrentIndex); })
+			.IsSelected_Lambda([this, CurrentIndex]() { 
+				return NotebookAsset ? NotebookAsset->SelectedCellIndex == CurrentIndex : false; 
+			})
 		];
 	}
 }
 
 FReply SNumericNotebook::OnAddNewCellButtonClicked()
 {
-	AddNewCell();
+	if (NotebookAsset)
+	{
+		NotebookAsset->AddNewCell();
+		UpdateDocumentUI();
+	}
 	return FReply::Handled();
 }
 
 FReply SNumericNotebook::OnRestartInterpButtonClicked()
 {
-	RestartInterp();
+	if (NotebookAsset)
+	{
+		NotebookAsset->RestartInterpreter();
+		UpdateDocumentUI();
+	}
+	return FReply::Handled();
+}
+
+FReply SNumericNotebook::OnFoldAllButtonClicked()
+{
+	if (NotebookAsset)
+	{
+		for (auto& Cell : NotebookAsset->Cells)
+		{
+			Cell.bIsExpanded = false;
+		}
+		UpdateDocumentUI();
+	}
+	return FReply::Handled();
+}
+
+FReply SNumericNotebook::OnUnfoldAllButtonClicked()
+{
+	if (NotebookAsset)
+	{
+		for (auto& Cell : NotebookAsset->Cells)
+		{
+			Cell.bIsExpanded = true;
+		}
+		UpdateDocumentUI();
+	}
 	return FReply::Handled();
 }

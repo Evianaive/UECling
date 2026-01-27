@@ -45,9 +45,19 @@ static const FVector2D Icon170x50(170.0f, 50.0f);
 static const FVector2D Icon267x140(170.0f, 50.0f);
  
 FString ContentRoot = FPaths::EnginePluginsDir() / TEXT("Experimental/FClingCodeEditorStyle/Resources");
-FSlateFontInfo Consolas10  = DEFAULT_FONT("Mono", 9);
+FSlateFontInfo Consolas9  = DEFAULT_FONT("Regular", 9);
 FTextBlockStyle FClingCodeEditorStyle::NormalText = FTextBlockStyle()
-	.SetFont(Consolas10)
+	.SetFont(Consolas9)
+	.SetColorAndOpacity(FLinearColor::White)
+	.SetShadowOffset(FVector2D::ZeroVector)
+	.SetShadowColorAndOpacity(FLinearColor::Black)
+	.SetHighlightColor(FLinearColor(0.02f, 0.3f, 0.0f))
+	.SetHighlightShape(FSlateBoxBrush( ContentRoot /"UI/TextBlockHighlightShape"/TEXT(".png") , FMargin(3.f / 8.f) ))
+	;
+
+FSlateFontInfo ConsolasBold  = DEFAULT_FONT("Bold", 9);
+FTextBlockStyle FClingCodeEditorStyle::BoldText = FTextBlockStyle()
+	.SetFont(ConsolasBold)
 	.SetColorAndOpacity(FLinearColor::White)
 	.SetShadowOffset(FVector2D::ZeroVector)
 	.SetShadowColorAndOpacity(FLinearColor::Black)

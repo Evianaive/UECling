@@ -12,6 +12,8 @@
 
 #include "ClingNotebook.h"
 
+class SNumericNotebook;
+
 /**
  * Notebook Cell Widget
  */
@@ -20,42 +22,70 @@ class CLINGEDITOR_API SClingNotebookCell : public SCompoundWidget
 public:
 	SLATE_BEGIN_ARGS(SClingNotebookCell) {}
 		SLATE_ARGUMENT(FClingNotebookCellData*, CellData)
-		SLATE_EVENT(FSimpleDelegate, OnRunCode)
+		SLATE_ARGUMENT(UClingNotebook*, NotebookAsset)
+		SLATE_ARGUMENT(int32, CellIndex)
 		SLATE_EVENT(FSimpleDelegate, OnRunToHere)
+		SLATE_EVENT(FSimpleDelegate, OnUndoToHere)
 		SLATE_EVENT(FSimpleDelegate, OnDeleteCell)
-		SLATE_EVENT(FSimpleDelegate, OnAddCellAbove)
 		SLATE_EVENT(FSimpleDelegate, OnAddCellBelow)
 		SLATE_EVENT(FOnTextChanged, OnContentChanged)
+		SLATE_EVENT(FSimpleDelegate, OnSelected)
+		SLATE_ATTRIBUTE(bool, IsSelected)
 	SLATE_END_ARGS()
 
 	void Construct(const FArguments& InArgs);
 
+	virtual FReply OnMouseButtonDown(const FGeometry& MyGeometry, const FPointerEvent& MouseEvent) override;
+
 private:
 	FClingNotebookCellData* CellData = nullptr;
+	UClingNotebook* NotebookAsset = nullptr;
+	int32 CellIndex = -1;
+	TAttribute<bool> IsSelected;
 
 	// Cell UI
 	TSharedPtr<SMultiLineEditableTextBox> CodeTextBox;
 
 	// Delegate
-	FSimpleDelegate OnRunCodeDelegate;
 	FSimpleDelegate OnRunToHereDelegate;
+	FSimpleDelegate OnUndoToHereDelegate;
 	FSimpleDelegate OnDeleteCellDelegate;
-	FSimpleDelegate OnAddCellAboveDelegate;
 	FSimpleDelegate OnAddCellBelowDelegate;
 	FOnTextChanged OnContentChangedDelegate;
+	FSimpleDelegate OnSelectedDelegate;
 	
 	void UpdateCellUI();
 
 	// Button press event
-	FReply OnRunButtonClicked();
 	FReply OnRunToHereButtonClicked();
+	FReply OnUndoToHereButtonClicked();
 	FReply OnDeleteButtonClicked();
-	FReply OnAddAboveButtonClicked();
 	FReply OnAddBelowButtonClicked();
 	FReply OnToggleExpandClicked();
 
 	// Content Change Event
 	void OnCodeTextChanged(const FText& InText);
+};
+
+/**
+ * Details Panel for a single cell
+ */
+class CLINGEDITOR_API SClingNotebookDetailsPanel : public SCompoundWidget
+{
+public:
+	SLATE_BEGIN_ARGS(SClingNotebookDetailsPanel) {}
+		SLATE_ARGUMENT(UClingNotebook*, NotebookAsset)
+	SLATE_END_ARGS()
+
+	void Construct(const FArguments& InArgs);
+
+private:
+	UClingNotebook* NotebookAsset = nullptr;
+	
+	void OnSelectionChanged(int32 NewIndex);
+	void Refresh();
+
+	TSharedPtr<SMultiLineEditableTextBox> DetailCodeTextBox;
 };
 
 /**
@@ -69,37 +99,24 @@ public:
 	SLATE_END_ARGS()
 
 	void Construct(const FArguments& InArgs);
-	// static TSharedPtr<SNumericNotebook> CreateTestWidget();
 
-private:
+public:
 	// Related Asset
 	UClingNotebook* NotebookAsset;
 
+private:
 	// ScrollBox
 	TSharedPtr<SScrollBox> ScrollBox;
 
-	// Interpreter used by this asset
-	void* GetOrStartInterp();
+public:
+	void SetSelectedCell(int32 Index);
 
-	// Restart Interpreter
-	void RestartInterp();
-	
-	void AddNewCell(int32 InIndex = -1);
-	void DeleteCell(int32 InIndex);
-	void RunCell(int32 InIndex);
-	void RunToHere(int32 InIndex);
-
-	// Compilation state
-	bool bIsCompiling = false;
-	TSet<int32> CompilingCells;
-	
-	TArray<int32> ExecutionQueue;
-	bool bIsProcessingQueue = false;
-	void ProcessNextInQueue();
-
+private:
 	// UI Update
 	void UpdateDocumentUI();
 	
 	FReply OnAddNewCellButtonClicked();
 	FReply OnRestartInterpButtonClicked();
+	FReply OnFoldAllButtonClicked();
+	FReply OnUnfoldAllButtonClicked();
 };

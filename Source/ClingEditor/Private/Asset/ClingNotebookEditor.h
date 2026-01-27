@@ -21,6 +21,8 @@ public:
 
 private:
 	TSharedRef<SDockTab> SpawnTab_Notebook(const FSpawnTabArgs& Args);
+	TSharedRef<SDockTab> SpawnTab_Details(const FSpawnTabArgs& Args);
 
 	UClingNotebook* NotebookAsset;
+	TSharedPtr<class SNumericNotebook> NotebookWidget;
 };
