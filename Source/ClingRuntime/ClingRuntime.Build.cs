@@ -65,6 +65,16 @@ public class ClingRuntime : ModuleRules
 			}
 			);
 		
+		if (Target.bBuildEditor)
+		{
+			PrivateDependencyModuleNames.AddRange(
+				new string[]
+				{
+					"SourceCodeAccess"
+				}
+			);
+		}
+		
 		
 		DynamicallyLoadedModuleNames.AddRange(
 			new string[]

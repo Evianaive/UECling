@@ -81,6 +81,11 @@ public:
 	bool IsCellDeletable(int32 Index) const;
 	bool IsCellAddableBelow(int32 Index) const;
 
+#if WITH_EDITOR
+	void OpenInIDE();
+	void BackFromIDE();
+#endif
+
 private:
 	void* Interpreter = nullptr;
 };

@@ -533,6 +533,42 @@ void SNumericNotebook::Construct(const FArguments& InArgs)
 						.OnClicked(this, &SNumericNotebook::OnUnfoldAllButtonClicked)
 						.ButtonStyle(FAppStyle::Get(), "SimpleButton")
 					]
+
+					+SHorizontalBox::Slot()
+					.AutoWidth()
+					.Padding(5.0f, 0.0f)
+					[
+						SNew(SButton)
+						.Text(INVTEXT("Open in IDE"))
+						.OnClicked_Lambda([this]()
+						{
+							if (NotebookAsset)
+							{
+								NotebookAsset->OpenInIDE();
+							}
+							return FReply::Handled();
+						})
+						.ButtonStyle(FAppStyle::Get(), "SimpleButton")
+						.IsEnabled_Lambda([this]() { return NotebookAsset != nullptr; })
+					]
+
+					+SHorizontalBox::Slot()
+					.AutoWidth()
+					.Padding(5.0f, 0.0f)
+					[
+						SNew(SButton)
+						.Text(INVTEXT("Read from IDE"))
+						.OnClicked_Lambda([this]()
+						{
+							if (NotebookAsset)
+							{
+								NotebookAsset->BackFromIDE();
+							}
+							return FReply::Handled();
+						})
+						.ButtonStyle(FAppStyle::Get(), "SimpleButton")
+						.IsEnabled_Lambda([this]() { return NotebookAsset != nullptr; })
+					]
 					
 					+SHorizontalBox::Slot()
 					.FillWidth(1.0f)

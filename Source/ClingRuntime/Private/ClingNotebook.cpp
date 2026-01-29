@@ -4,6 +4,72 @@
 #include "Modules/ModuleManager.h"
 #include "Async/Async.h"
 
+#if WITH_EDITOR
+#include "ClingSetting.h"
+#include "HAL/FileManager.h"
+#include "ISourceCodeAccessModule.h"
+#include "ISourceCodeAccessor.h"
+#include "Misc/FileHelper.h"
+#include "Misc/MessageDialog.h"
+#include "Misc/Paths.h"
+#endif
+
+#if WITH_EDITOR
+namespace ClingNotebookIDE
+{
+	bool TryParseSectionIndex(const FString& Line, int32& OutIndex)
+	{
+		FString Trimmed = Line;
+		Trimmed.TrimStartAndEndInline();
+		if (!Trimmed.StartsWith(TEXT("#if")))
+		{
+			return false;
+		}
+		if (!Trimmed.Contains(TEXT("COMPILE")))
+		{
+			return false;
+		}
+		const int32 EqPos = Trimmed.Find(TEXT("=="));
+		if (EqPos == INDEX_NONE)
+		{
+			return false;
+		}
+		FString Right = Trimmed.Mid(EqPos + 2);
+		Right.TrimStartAndEndInline();
+
+		FString Digits;
+		for (const TCHAR Ch : Right)
+		{
+			if (!FChar::IsDigit(Ch))
+			{
+				break;
+			}
+			Digits.AppendChar(Ch);
+		}
+		if (Digits.IsEmpty())
+		{
+			return false;
+		}
+		OutIndex = FCString::Atoi(*Digits);
+		return true;
+	}
+
+	bool IsIfLine(const FString& Line)
+	{
+		FString Trimmed = Line;
+		Trimmed.TrimStartAndEndInline();
+		return Trimmed.StartsWith(TEXT("#if"));
+	}
+
+	bool IsEndifLine(const FString& Line)
+	{
+		FString Trimmed = Line;
+		Trimmed.TrimStartAndEndInline();
+		return Trimmed.StartsWith(TEXT("#endif"));
+	}
+}
+#endif
+
 void UClingNotebook::FinishDestroy()
 {
 	if (Interpreter)
@@ -327,3 +393,214 @@ bool UClingNotebook::IsCellAddableBelow(int32 Index) const
 	if (NextIndex >= Cells.Num()) return true;
 	return !IsCellReadOnly(NextIndex);
 }
+
+#if WITH_EDITOR
+void UClingNotebook::OpenInIDE()
+{
+	struct FEnsureOpenInIDE
+	{
+		~FEnsureOpenInIDE()
+		{
+			if (FilePath.IsEmpty())
+			{
+				return;
+			}
+
+			ISourceCodeAccessModule& SourceCodeAccessModule = FModuleManager::LoadModuleChecked<ISourceCodeAccessModule>("SourceCodeAccess");
+			ISourceCodeAccessor& SourceCodeAccessor = SourceCodeAccessModule.GetAccessor();
+			if (FPaths::FileExists(FilePath))
+			{
+				SourceCodeAccessor.OpenFileAtLine(FilePath, Line);
+			}
+			else
+			{
+				SourceCodeAccessModule.OnOpenFileFailed().Broadcast(FilePath);
+			}
+		}
+
+		FString FilePath;
+		int32 Line = 1;
+	};
+
+	FEnsureOpenInIDE EnsureOpenInIDE;
+
+	const FString PCHPath = UClingSetting::GetPCHSourceFilePath();
+	const FString PluginDir = FPaths::GetPath(PCHPath);
+	const FString NotebookDir = PluginDir / TEXT("Source/ClingScript/Private/Notebook");
+	IFileManager::Get().MakeDirectory(*NotebookDir, true);
+
+	EnsureOpenInIDE.FilePath = NotebookDir / (GetName() + TEXT(".h"));
+
+	FString FileContent;
+	int32 CurrentLine = 1;
+	int32 SelectedLine = 1;
+
+	auto AppendWithLineCount = [&FileContent, &CurrentLine](const FString& Text)
+	{
+		FileContent += Text;
+		for (TCHAR Ch : Text)
+		{
+			if (Ch == TEXT('\n'))
+			{
+				++CurrentLine;
+			}
+		}
+	};
+
+	FString PCHIncludePath = PCHPath;
+	PCHIncludePath.ReplaceCharInline(TEXT('\\'), TEXT('/'));
+	AppendWithLineCount(FString::Printf(TEXT("#include \"%s\"\n\n"), *PCHIncludePath));
+
+	for (int32 Index = 0; Index < Cells.Num(); ++Index)
+	{
+		AppendWithLineCount(FString::Printf(TEXT("#if !defined(COMPILE) || COMPILE == %d\n"), Index));
+		if (Index == SelectedCellIndex)
+		{
+			SelectedLine = CurrentLine;
+		}
+
+		FString CellContent = Cells[Index].Content;
+		CellContent.ReplaceInline(TEXT("\r\n"), TEXT("\n"));
+		if (!CellContent.EndsWith(TEXT("\n")))
+		{
+			CellContent += TEXT("\n");
+		}
+		AppendWithLineCount(CellContent);
+		AppendWithLineCount(TEXT("#endif\n\n"));
+	}
+
+	EnsureOpenInIDE.Line = SelectedLine;
+	FFileHelper::SaveStringToFile(FileContent, *EnsureOpenInIDE.FilePath);
+}
+
+void UClingNotebook::BackFromIDE()
+{
+	if (bIsCompiling)
+	{
+		FMessageDialog::Open(EAppMsgType::Ok, INVTEXT("Notebook is compiling. Please wait before reading from IDE."));
+		return;
+	}
+
+	const FString PCHPath = UClingSetting::GetPCHSourceFilePath();
+	const FString PluginDir = FPaths::GetPath(PCHPath);
+	const FString NotebookDir = PluginDir / TEXT("Source/ClingScript/Private/Notebook");
+	const FString FilePath = NotebookDir / (GetName() + TEXT(".h"));
+
+	TArray<FString> Lines;
+	if (!FFileHelper::LoadFileToStringArray(Lines, *FilePath))
+	{
+		FMessageDialog::Open(EAppMsgType::Ok, INVTEXT("Notebook IDE file not found."));
+		return;
+	}
+
+	TMap<int32, FString> ParsedSections;
+	bool bInSection = false;
+	int32 CurrentIndex = INDEX_NONE;
+	int32 Depth = 0;
+	TArray<FString> CurrentLines;
+
+	for (const FString& Line : Lines)
+	{
+		if (!bInSection)
+		{
+			int32 SectionIndex = INDEX_NONE;
+			if (ClingNotebookIDE::TryParseSectionIndex(Line, SectionIndex))
+			{
+				bInSection = true;
+				CurrentIndex = SectionIndex;
+				Depth = 1;
+				CurrentLines.Reset();
+			}
+			continue;
+		}
+
+		if (ClingNotebookIDE::IsIfLine(Line))
+		{
+			++Depth;
+			CurrentLines.Add(Line);
+			continue;
+		}
+
+		if (ClingNotebookIDE::IsEndifLine(Line))
+		{
+			--Depth;
+			if (Depth == 0)
+			{
+				ParsedSections.Add(CurrentIndex, FString::Join(CurrentLines, TEXT("\n")));
+				bInSection = false;
+				CurrentIndex = INDEX_NONE;
+				continue;
+			}
+			CurrentLines.Add(Line);
+			continue;
+		}
+
+		CurrentLines.Add(Line);
+	}
+
+	if (bInSection)
+	{
+		ParsedSections.Add(CurrentIndex, FString::Join(CurrentLines, TEXT("\n")));
+	}
+
+	if (ParsedSections.Num() == 0)
+	{
+		FMessageDialog::Open(EAppMsgType::Ok, INVTEXT("No notebook sections found in the IDE file."));
+		return;
+	}
+
+	auto NormalizeContent = [](const FString& Text)
+	{
+		FString Normalized = Text;
+		Normalized.ReplaceInline(TEXT("\r\n"), TEXT("\n"));
+		return Normalized;
+	};
+
+	TArray<int32> ChangedIndices;
+	int32 FirstCompiledChanged = INDEX_NONE;
+
+	for (int32 Index = 0; Index < Cells.Num(); ++Index)
+	{
+		const FString* Parsed = ParsedSections.Find(Index);
+		if (!Parsed)
+		{
+			continue;
+		}
+		if (!NormalizeContent(*Parsed).Equals(NormalizeContent(Cells[Index].Content), ESearchCase::CaseSensitive))
+		{
+			ChangedIndices.Add(Index);
+			if (Cells[Index].bIsCompleted && FirstCompiledChanged == INDEX_NONE)
+			{
+				FirstCompiledChanged = Index;
+			}
+		}
+	}
+
+	if (ChangedIndices.Num() == 0)
+	{
+		return;
+	}
+
+	if (FirstCompiledChanged != INDEX_NONE)
+	{
+		const FText Message = FText::Format(INVTEXT("Cell #{0} was already compiled but has changed in the IDE file. Undo to this cell and apply changes?"), FText::AsNumber(FirstCompiledChanged));
+		const EAppReturnType::Type Response = FMessageDialog::Open(EAppMsgType::YesNo, Message);
+		if (Response != EAppReturnType::Yes)
+		{
+			return;
+		}
+		UndoToHere(FirstCompiledChanged);
+	}
+
+	for (int32 Index : ChangedIndices)
+	{
+		const FString* Parsed = ParsedSections.Find(Index);
+		if (Parsed)
+		{
+			Cells[Index].Content = *Parsed;
+		}
+	}
+
+	MarkPackageDirty();
+}
+#endif
