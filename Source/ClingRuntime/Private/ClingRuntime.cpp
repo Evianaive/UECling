@@ -117,12 +117,16 @@ Cpp::TInterp_t FClingRuntimeModule::StartInterpreterInternal()
 	// the abi of debug build of std::vector is different between unreal and clang! use raw input
 	Cpp::TInterp_t Interp;
 	{
+		SCOPED_NAMED_EVENT(TrueStart, FColor::Red)
 		FScopeLock Lock(&CppInterOpLock);
 		Interp = Cpp::CreateInterpreter(&Argv[0], Argv.Num(),nullptr,0);
 		UE_LOG(LogCling,Log,TEXT("CreateInterpreter %p"),Interp);
 	}
-	// Cling-safe UE_LOG wrapper (CLING_LOG macro and ClingLog:: namespace)
-	Cpp::Declare("#include \"ClingScript/Private/UEClingCoreScript/ClingLogWrapper.h\"");
+	{
+		SCOPED_NAMED_EVENT(DeclareOverride, FColor::Red)
+		// Cling-safe UE_LOG wrapper (CLING_LOG macro and ClingLog:: namespace)
+		Cpp::Declare("#include \"ClingScript/Private/UEClingCoreScript/ClingLogWrapper.h\"");
+	}
 // #else
 	// auto Interp = Cpp::CreateInterpreter(Argv, {});
 // #endif
