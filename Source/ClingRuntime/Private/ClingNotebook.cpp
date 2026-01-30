@@ -1,18 +1,101 @@
 ﻿#include "ClingNotebook.h"
 #include "ClingRuntime.h"
+#include "ClingSetting.h"
 #include "CppInterOp/CppInterOp.h"
 #include "Modules/ModuleManager.h"
 #include "Async/Async.h"
+#include "HAL/FileManager.h"
+#include "Misc/FileHelper.h"
+#include "Misc/Paths.h"
 
 #if WITH_EDITOR
-#include "ClingSetting.h"
-#include "HAL/FileManager.h"
 #include "ISourceCodeAccessModule.h"
 #include "ISourceCodeAccessor.h"
-#include "Misc/FileHelper.h"
 #include "Misc/MessageDialog.h"
-#include "Misc/Paths.h"
 #endif
+
+namespace ClingNotebookFile
+{
+	FString NormalizeIncludePath(FString Path)
+	{
+		Path.ReplaceCharInline(TEXT('\\'), TEXT('/'));
+		return Path;
+	}
+
+	FString GetNotebookDir()
+	{
+		const FString PCHPath = UClingSetting::GetPCHSourceFilePath();
+		const FString PluginDir = FPaths::GetPath(PCHPath);
+		return PluginDir / TEXT("Source/ClingScript/Private/Notebook");
+	}
+
+	FString GetNotebookFilePath(const UClingNotebook* Notebook)
+	{
+		return GetNotebookDir() / (Notebook->GetName() + TEXT(".h"));
+	}
+
+	bool BuildNotebookFileContent(const UClingNotebook* Notebook, FString& OutContent, int32* OutSelectedLine)
+	{
+		int32 CurrentLine = 1;
+		int32 SelectedLine = 1;
+
+		auto AppendWithLineCount = [&OutContent, &CurrentLine](const FString& Text)
+		{
+			OutContent += Text;
+			for (TCHAR Ch : Text)
+			{
+				if (Ch == TEXT('\n'))
+				{
+					++CurrentLine;
+				}
+			}
+		};
+
+		FString PCHIncludePath = NormalizeIncludePath(UClingSetting::GetPCHSourceFilePath());
+		AppendWithLineCount(TEXT("#if !defined(COMPILE)\n"));
+		AppendWithLineCount(FString::Printf(TEXT("#include \"%s\"\n"), *PCHIncludePath));
+		AppendWithLineCount(TEXT("#endif\n\n"));
+
+		for (int32 Index = 0; Index < Notebook->Cells.Num(); ++Index)
+		{
+			AppendWithLineCount(FString::Printf(TEXT("#if !defined(COMPILE) || COMPILE == %d\n"), Index));
+			if (OutSelectedLine && Index == Notebook->SelectedCellIndex)
+			{
+				SelectedLine = CurrentLine;
+			}
+
+			FString CellContent = Notebook->Cells[Index].Content;
+			CellContent.ReplaceInline(TEXT("\r\n"), TEXT("\n"));
+			if (!CellContent.EndsWith(TEXT("\n")))
+			{
+				CellContent += TEXT("\n");
+			}
+			AppendWithLineCount(CellContent);
+			AppendWithLineCount(TEXT("#endif\n\n"));
+		}
+
+		if (OutSelectedLine)
+		{
+			*OutSelectedLine = SelectedLine;
+		}
+		return true;
+	}
+
+	bool WriteNotebookFile(const UClingNotebook* Notebook, FString& OutFilePath, int32* OutSelectedLine)
+	{
+		const FString NotebookDir = GetNotebookDir();
+		if (!IFileManager::Get().MakeDirectory(*NotebookDir, true))
+		{
+			return false;
+		}
+
+		OutFilePath = GetNotebookFilePath(Notebook);
+
+		FString FileContent;
+		BuildNotebookFileContent(Notebook, FileContent, OutSelectedLine);
+		return FFileHelper::SaveStringToFile(FileContent, *OutFilePath);
+	}
+}
 
 #if WITH_EDITOR
 namespace ClingNotebookIDE
@@ -66,6 +149,72 @@ namespace ClingNotebookIDE
 		FString Trimmed = Line;
 		Trimmed.TrimStartAndEndInline();
 		return Trimmed.StartsWith(TEXT("#endif"));
+	}
+
+	bool ParseSectionsFromLines(const TArray<FString>& Lines, TMap<int32, FString>& OutSections)
+	{
+		OutSections.Reset();
+
+		bool bInSection = false;
+		int32 CurrentIndex = INDEX_NONE;
+		int32 Depth = 0;
+		TArray<FString> CurrentLines;
+
+		for (const FString& Line : Lines)
+		{
+			if (!bInSection)
+			{
+				int32 SectionIndex = INDEX_NONE;
+				if (TryParseSectionIndex(Line, SectionIndex))
+				{
+					bInSection = true;
+					CurrentIndex = SectionIndex;
+					Depth = 1;
+					CurrentLines.Reset();
+				}
+				continue;
+			}
+
+			if (IsIfLine(Line))
+			{
+				++Depth;
+				CurrentLines.Add(Line);
+				continue;
+			}
+
+			if (IsEndifLine(Line))
+			{
+				--Depth;
+				if (Depth == 0)
+				{
+					OutSections.Add(CurrentIndex, FString::Join(CurrentLines, TEXT("\n")));
+					bInSection = false;
+					CurrentIndex = INDEX_NONE;
+					continue;
+				}
+				CurrentLines.Add(Line);
+				continue;
+			}
+
+			CurrentLines.Add(Line);
+		}
+
+		if (bInSection)
+		{
+			OutSections.Add(CurrentIndex, FString::Join(CurrentLines, TEXT("\n")));
+		}
+
+		return OutSections.Num() > 0;
+	}
+
+	bool LoadSectionsFromFile(const FString& FilePath, TMap<int32, FString>& OutSections)
+	{
+		TArray<FString> Lines;
+		if (!FFileHelper::LoadFileToStringArray(Lines, *FilePath))
+		{
+			return false;
+		}
+		return ParseSectionsFromLines(Lines, OutSections);
 	}
 }
 #endif
@@ -266,7 +415,6 @@ void UClingNotebook::ProcessNextInQueue()
 	}
 
 	FClingNotebookCellData& Cell = Cells[InIndex];
-	FString Code = Cell.Content;
 	bool bRunInGameThread = Cell.bExecuteInGameThread;
 
 	TWeakObjectPtr<UClingNotebook> WeakThis(this);
@@ -302,6 +450,16 @@ void UClingNotebook::ProcessNextInQueue()
 		Notebook->bIsCompiling = (Notebook->CompilingCells.Num() > 0);
 		Notebook->ProcessNextInQueue();
 	};
+
+	FString NotebookFilePath;
+	if (!ClingNotebookFile::WriteNotebookFile(this, NotebookFilePath, nullptr))
+	{
+		CompletionHandler(-1, TEXT("Failed to generate notebook file for compilation."));
+		return;
+	}
+
+	const FString IncludePath = ClingNotebookFile::NormalizeIncludePath(NotebookFilePath);
+	const FString Code = FString::Printf(TEXT("#undef COMPILE\n#define COMPILE %d\n#include \"%s\"\n"), InIndex, *IncludePath);
 
 	if (bRunInGameThread)
 	{
@@ -424,53 +582,7 @@ void UClingNotebook::OpenInIDE()
 
 	FEnsureOpenInIDE EnsureOpenInIDE;
 
-	const FString PCHPath = UClingSetting::GetPCHSourceFilePath();
-	const FString PluginDir = FPaths::GetPath(PCHPath);
-	const FString NotebookDir = PluginDir / TEXT("Source/ClingScript/Private/Notebook");
-	IFileManager::Get().MakeDirectory(*NotebookDir, true);
-
-	EnsureOpenInIDE.FilePath = NotebookDir / (GetName() + TEXT(".h"));
-
-	FString FileContent;
-	int32 CurrentLine = 1;
-	int32 SelectedLine = 1;
-
-	auto AppendWithLineCount = [&FileContent, &CurrentLine](const FString& Text)
-	{
-		FileContent += Text;
-		for (TCHAR Ch : Text)
-		{
-			if (Ch == TEXT('\n'))
-			{
-				++CurrentLine;
-			}
-		}
-	};
-
-	FString PCHIncludePath = PCHPath;
-	PCHIncludePath.ReplaceCharInline(TEXT('\\'), TEXT('/'));
-	AppendWithLineCount(FString::Printf(TEXT("#include \"%s\"\n\n"), *PCHIncludePath));
-
-	for (int32 Index = 0; Index < Cells.Num(); ++Index)
-	{
-		AppendWithLineCount(FString::Printf(TEXT("#if !defined(COMPILE) || COMPILE == %d\n"), Index));
-		if (Index == SelectedCellIndex)
-		{
-			SelectedLine = CurrentLine;
-		}
-
-		FString CellContent = Cells[Index].Content;
-		CellContent.ReplaceInline(TEXT("\r\n"), TEXT("\n"));
-		if (!CellContent.EndsWith(TEXT("\n")))
-		{
-			CellContent += TEXT("\n");
-		}
-		AppendWithLineCount(CellContent);
-		AppendWithLineCount(TEXT("#endif\n\n"));
-	}
-
-	EnsureOpenInIDE.Line = SelectedLine;
-	FFileHelper::SaveStringToFile(FileContent, *EnsureOpenInIDE.FilePath);
+	ClingNotebookFile::WriteNotebookFile(this, EnsureOpenInIDE.FilePath, &EnsureOpenInIDE.Line);
 }
 
 void UClingNotebook::BackFromIDE()
@@ -481,69 +593,15 @@ void UClingNotebook::BackFromIDE()
 		return;
 	}
 
-	const FString PCHPath = UClingSetting::GetPCHSourceFilePath();
-	const FString PluginDir = FPaths::GetPath(PCHPath);
-	const FString NotebookDir = PluginDir / TEXT("Source/ClingScript/Private/Notebook");
-	const FString FilePath = NotebookDir / (GetName() + TEXT(".h"));
-
-	TArray<FString> Lines;
-	if (!FFileHelper::LoadFileToStringArray(Lines, *FilePath))
+	const FString FilePath = ClingNotebookFile::GetNotebookFilePath(this);
+	if (!FPaths::FileExists(FilePath))
 	{
 		FMessageDialog::Open(EAppMsgType::Ok, INVTEXT("Notebook IDE file not found."));
 		return;
 	}
 
 	TMap<int32, FString> ParsedSections;
-	bool bInSection = false;
-	int32 CurrentIndex = INDEX_NONE;
-	int32 Depth = 0;
-	TArray<FString> CurrentLines;
-
-	for (const FString& Line : Lines)
-	{
-		if (!bInSection)
-		{
-			int32 SectionIndex = INDEX_NONE;
-			if (ClingNotebookIDE::TryParseSectionIndex(Line, SectionIndex))
-			{
-				bInSection = true;
-				CurrentIndex = SectionIndex;
-				Depth = 1;
-				CurrentLines.Reset();
-			}
-			continue;
-		}
-
-		if (ClingNotebookIDE::IsIfLine(Line))
-		{
-			++Depth;
-			CurrentLines.Add(Line);
-			continue;
-		}
-
-		if (ClingNotebookIDE::IsEndifLine(Line))
-		{
-			--Depth;
-			if (Depth == 0)
-			{
-				ParsedSections.Add(CurrentIndex, FString::Join(CurrentLines, TEXT("\n")));
-				bInSection = false;
-				CurrentIndex = INDEX_NONE;
-				continue;
-			}
-			CurrentLines.Add(Line);
-			continue;
-		}
-
-		CurrentLines.Add(Line);
-	}
-
-	if (bInSection)
-	{
-		ParsedSections.Add(CurrentIndex, FString::Join(CurrentLines, TEXT("\n")));
-	}
-
-	if (ParsedSections.Num() == 0)
+	if (!ClingNotebookIDE::LoadSectionsFromFile(FilePath, ParsedSections))
 	{
 		FMessageDialog::Open(EAppMsgType::Ok, INVTEXT("No notebook sections found in the IDE file."));
 		return;
@@ -602,5 +660,29 @@ void UClingNotebook::BackFromIDE()
 	}
 
 	MarkPackageDirty();
+}
+
+bool UClingNotebook::TryGetSectionContentFromFile(int32 SectionIndex, FString& OutContent) const
+{
+	const FString FilePath = ClingNotebookFile::GetNotebookFilePath(this);
+	if (!FPaths::FileExists(FilePath))
+	{
+		return false;
+	}
+
+	TMap<int32, FString> ParsedSections;
+	if (!ClingNotebookIDE::LoadSectionsFromFile(FilePath, ParsedSections))
+	{
+		return false;
+	}
+
+	const FString* Parsed = ParsedSections.Find(SectionIndex);
+	if (!Parsed)
+	{
+		return false;
+	}
+
+	OutContent = *Parsed;
+	return true;
 }
 #endif

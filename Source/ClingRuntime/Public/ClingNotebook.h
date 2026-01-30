@@ -84,6 +84,7 @@ public:
 #if WITH_EDITOR
 	void OpenInIDE();
 	void BackFromIDE();
+	bool TryGetSectionContentFromFile(int32 SectionIndex, FString& OutContent) const;
 #endif
 
 private:

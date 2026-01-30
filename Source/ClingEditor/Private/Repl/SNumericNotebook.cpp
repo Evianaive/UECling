@@ -393,9 +393,17 @@ void SClingNotebookDetailsPanel::Refresh()
 	];
 
 	// Detect void functions with no arguments and add buttons
-	FString Content = SelectedData->Content;
+	FString ContentForDetection = SelectedData->Content;
+	if (NotebookAsset)
+	{
+		FString FileContent;
+		if (NotebookAsset->TryGetSectionContentFromFile(NotebookAsset->SelectedCellIndex, FileContent))
+		{
+			ContentForDetection = FileContent;
+		}
+	}
 	FRegexPattern Pattern(TEXT("void\\s+([a-zA-Z_][a-zA-Z0-9_]*)\\s*\\(\\s*\\)"));
-	FRegexMatcher Matcher(Pattern, Content);
+	FRegexMatcher Matcher(Pattern, ContentForDetection);
 
 	TArray<FString> DetectedFunctions;
 	while (Matcher.FindNext())
