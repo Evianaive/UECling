@@ -21,7 +21,8 @@ public class ClingScript : ModuleRules
             new string[]
             {
                 "Slate",
-                "SlateCore"
+                "SlateCore", 
+                "StructUtilsEditor"
             }
         );
         Action<string> ensureDirectoryExists = path =>
