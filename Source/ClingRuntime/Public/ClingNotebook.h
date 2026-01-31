@@ -2,6 +2,10 @@
 
 #include "CoreMinimal.h"
 #include "UObject/NoExportTypes.h"
+#if WITH_EDITORONLY_DATA
+#include "StructUtils/PropertyBag.h"
+#endif
+
 #include "ClingNotebook.generated.h"
 
 /**
@@ -33,6 +37,72 @@ struct FClingNotebookCellData
 	UPROPERTY(Transient)
 	bool bIsCompiling = false;
 };
+
+#if WITH_EDITORONLY_DATA
+UENUM()
+enum class EClingNotebookSymbolKind : uint8
+{
+	Function,
+	Variable
+};
+
+USTRUCT()
+struct FClingNotebookTypeDesc
+{
+	GENERATED_BODY()
+
+	UPROPERTY(VisibleAnywhere, Category="Cling")
+	FString OriginalType;
+
+	UPROPERTY(VisibleAnywhere, Category="Cling")
+	EPropertyBagPropertyType ValueType = EPropertyBagPropertyType::None;
+
+	UPROPERTY(VisibleAnywhere, Category="Cling")
+	FPropertyBagContainerTypes ContainerTypes;
+
+	UPROPERTY(VisibleAnywhere, Category="Cling")
+	TObjectPtr<const UObject> ValueTypeObject = nullptr;
+
+	UPROPERTY(VisibleAnywhere, Category="Cling")
+	bool bSupported = false;
+
+	UPROPERTY(VisibleAnywhere, Category="Cling")
+	bool bIsVoid = false;
+};
+
+USTRUCT()
+struct FClingNotebookParamDesc
+{
+	GENERATED_BODY()
+
+	UPROPERTY(VisibleAnywhere, Category="Cling")
+	FName Name;
+
+	UPROPERTY(VisibleAnywhere, Category="Cling")
+	FClingNotebookTypeDesc Type;
+};
+
+USTRUCT()
+struct FClingNotebookSymbolDesc
+{
+	GENERATED_BODY()
+
+	UPROPERTY(VisibleAnywhere, Category="Cling")
+	EClingNotebookSymbolKind Kind = EClingNotebookSymbolKind::Function;
+
+	UPROPERTY(VisibleAnywhere, Category="Cling")
+	FName Name;
+
+	UPROPERTY(VisibleAnywhere, Category="Cling")
+	FClingNotebookTypeDesc ReturnType;
+
+	UPROPERTY(VisibleAnywhere, Category="Cling")
+	TArray<FClingNotebookParamDesc> Params;
+
+	UPROPERTY(VisibleAnywhere, Category="Cling")
+	FClingNotebookTypeDesc ValueType;
+};
+#endif
 
 /**
  * Cling Notebook Asset
@@ -85,6 +155,7 @@ public:
 	void OpenInIDE();
 	void BackFromIDE();
 	bool TryGetSectionContentFromFile(int32 SectionIndex, FString& OutContent) const;
+	bool TryGetSectionSymbolsFromFile(int32 SectionIndex, TArray<FClingNotebookSymbolDesc>& OutSymbols) const;
 #endif
 
 private:

@@ -6,12 +6,16 @@
 #include "Async/Async.h"
 #include "HAL/FileManager.h"
 #include "Misc/FileHelper.h"
+#include "Misc/Guid.h"
 #include "Misc/Paths.h"
 
 #if WITH_EDITOR
 #include "ISourceCodeAccessModule.h"
 #include "ISourceCodeAccessor.h"
+#include "Internationalization/Regex.h"
 #include "Misc/MessageDialog.h"
+#include "UObject/Class.h"
+#include "UObject/UObjectGlobals.h"
 #endif
 
 namespace ClingNotebookFile
@@ -94,6 +98,26 @@ namespace ClingNotebookFile
 		FString FileContent;
 		BuildNotebookFileContent(Notebook, FileContent, OutSelectedLine);
 		return FFileHelper::SaveStringToFile(FileContent, *OutFilePath);
+	}
+
+	bool WriteNotebookCompileFile(const UClingNotebook* Notebook, int32 SectionIndex, FString& OutFilePath)
+	{
+		FString BaseFilePath;
+		if (!WriteNotebookFile(Notebook, BaseFilePath, nullptr))
+		{
+			return false;
+		}
+
+		const FString Suffix = FString::Printf(TEXT("_Compile_%d_%s.h"), SectionIndex, *FGuid::NewGuid().ToString(EGuidFormats::Digits));
+		OutFilePath = GetNotebookDir() / (Notebook->GetName() + Suffix);
+
+		FString BaseContent;
+		if (!FFileHelper::LoadFileToString(BaseContent, *BaseFilePath))
+		{
+			return false;
+		}
+
+		return FFileHelper::SaveStringToFile(BaseContent, *OutFilePath);
 	}
 }
 
@@ -215,6 +239,610 @@ namespace ClingNotebookIDE
 			return false;
 		}
 		return ParseSectionsFromLines(Lines, OutSections);
+	}
+}
+
+namespace ClingNotebookSymbols
+{
+	FString StripComments(const FString& InText)
+	{
+		FString Out;
+		Out.Reserve(InText.Len());
+
+		bool bInLineComment = false;
+		bool bInBlockComment = false;
+		bool bInString = false;
+		bool bInChar = false;
+		bool bEscaped = false;
+
+		for (int32 Index = 0; Index < InText.Len(); ++Index)
+		{
+			const TCHAR Ch = InText[Index];
+			const TCHAR Next = (Index + 1 < InText.Len()) ? InText[Index + 1] : TEXT('\0');
+
+			if (bInLineComment)
+			{
+				if (Ch == TEXT('\n'))
+				{
+					bInLineComment = false;
+					Out.AppendChar(Ch);
+				}
+				continue;
+			}
+
+			if (bInBlockComment)
+			{
+				if (Ch == TEXT('*') && Next == TEXT('/'))
+				{
+					bInBlockComment = false;
+					++Index;
+				}
+				continue;
+			}
+
+			if (!bInString && !bInChar)
+			{
+				if (Ch == TEXT('/') && Next == TEXT('/'))
+				{
+					bInLineComment = true;
+					++Index;
+					continue;
+				}
+				if (Ch == TEXT('/') && Next == TEXT('*'))
+				{
+					bInBlockComment = true;
+					++Index;
+					continue;
+				}
+			}
+
+			if (bEscaped)
+			{
+				bEscaped = false;
+			}
+			else if (Ch == TEXT('\\'))
+			{
+				bEscaped = true;
+			}
+			else if (!bInChar && Ch == TEXT('\"'))
+			{
+				bInString = !bInString;
+			}
+			else if (!bInString && Ch == TEXT('\''))
+			{
+				bInChar = !bInChar;
+			}
+
+			Out.AppendChar(Ch);
+		}
+
+		return Out;
+	}
+
+	FString StripQualifiers(const FString& InText)
+	{
+		static const TSet<FString> Qualifiers = {
+			TEXT("const"),
+			TEXT("volatile"),
+			TEXT("static"),
+			TEXT("inline"),
+			TEXT("constexpr"),
+			TEXT("mutable"),
+			TEXT("typename"),
+			TEXT("class"),
+			TEXT("struct"),
+			TEXT("enum")
+		};
+
+		TArray<FString> Tokens;
+		InText.ParseIntoArrayWS(Tokens);
+
+		TArray<FString> Kept;
+		for (const FString& Token : Tokens)
+		{
+			if (!Qualifiers.Contains(Token))
+			{
+				Kept.Add(Token);
+			}
+		}
+		return FString::Join(Kept, TEXT(" "));
+	}
+
+	bool ExtractTemplateArg(const FString& InText, FString& OutInner)
+	{
+		const int32 Start = InText.Find(TEXT("<"));
+		if (Start == INDEX_NONE)
+		{
+			return false;
+		}
+
+		int32 Depth = 0;
+		for (int32 Index = Start; Index < InText.Len(); ++Index)
+		{
+			const TCHAR Ch = InText[Index];
+			if (Ch == TEXT('<'))
+			{
+				++Depth;
+			}
+			else if (Ch == TEXT('>'))
+			{
+				--Depth;
+				if (Depth == 0)
+				{
+					OutInner = InText.Mid(Start + 1, Index - Start - 1);
+					return true;
+				}
+			}
+		}
+		return false;
+	}
+
+	bool TryResolveClass(const FString& TypeName, UClass*& OutClass)
+	{
+		OutClass = FindObject<UClass>(ANY_PACKAGE, *TypeName);
+		if (!OutClass && TypeName == TEXT("UObject"))
+		{
+			OutClass = UObject::StaticClass();
+		}
+		return OutClass != nullptr;
+	}
+
+	bool TryResolveStruct(const FString& TypeName, UScriptStruct*& OutStruct)
+	{
+		OutStruct = FindObject<UScriptStruct>(ANY_PACKAGE, *TypeName);
+		return OutStruct != nullptr;
+	}
+
+	bool TryResolveEnum(const FString& TypeName, UEnum*& OutEnum)
+	{
+		OutEnum = FindObject<UEnum>(ANY_PACKAGE, *TypeName);
+		return OutEnum != nullptr;
+	}
+
+	bool ParseTypeRecursive(const FString& InType, FClingNotebookTypeDesc& OutDesc, FPropertyBagContainerTypes& InOutContainers)
+	{
+		FString Working = StripQualifiers(InType).TrimStartAndEnd();
+		Working.ReplaceInline(TEXT("\t"), TEXT(" "));
+		Working.TrimStartAndEndInline();
+
+		if (Working.IsEmpty())
+		{
+			return false;
+		}
+
+		const bool bIsVoid = Working.Equals(TEXT("void"), ESearchCase::IgnoreCase);
+		if (bIsVoid)
+		{
+			OutDesc.bIsVoid = true;
+			OutDesc.bSupported = false;
+			return true;
+		}
+
+		bool bPointer = Working.EndsWith(TEXT("*"));
+		bool bReference = Working.EndsWith(TEXT("&"));
+		while (Working.EndsWith(TEXT("*")) || Working.EndsWith(TEXT("&")))
+		{
+			Working.LeftChopInline(1);
+			Working.TrimEndInline();
+		}
+
+		if (Working.StartsWith(TEXT("TArray<")))
+		{
+			if (!InOutContainers.Add(EPropertyBagContainerType::Array))
+			{
+				return false;
+			}
+			FString Inner;
+			if (!ExtractTemplateArg(Working, Inner))
+			{
+				return false;
+			}
+			return ParseTypeRecursive(Inner, OutDesc, InOutContainers);
+		}
+
+		if (Working.StartsWith(TEXT("TSet<")))
+		{
+			if (!InOutContainers.Add(EPropertyBagContainerType::Set))
+			{
+				return false;
+			}
+			FString Inner;
+			if (!ExtractTemplateArg(Working, Inner))
+			{
+				return false;
+			}
+			return ParseTypeRecursive(Inner, OutDesc, InOutContainers);
+		}
+
+		if (Working.StartsWith(TEXT("TSubclassOf<")))
+		{
+			FString Inner;
+			if (!ExtractTemplateArg(Working, Inner))
+			{
+				return false;
+			}
+			UClass* ResolvedClass = nullptr;
+			if (!TryResolveClass(Inner.TrimStartAndEnd(), ResolvedClass))
+			{
+				return false;
+			}
+			OutDesc.ValueType = EPropertyBagPropertyType::Class;
+			OutDesc.ValueTypeObject = ResolvedClass;
+			OutDesc.ContainerTypes = InOutContainers;
+			OutDesc.bSupported = true;
+			return true;
+		}
+
+		if (Working.StartsWith(TEXT("TSoftObjectPtr<")))
+		{
+			FString Inner;
+			if (!ExtractTemplateArg(Working, Inner))
+			{
+				return false;
+			}
+			UClass* ResolvedClass = nullptr;
+			if (!TryResolveClass(Inner.TrimStartAndEnd(), ResolvedClass))
+			{
+				return false;
+			}
+			OutDesc.ValueType = EPropertyBagPropertyType::SoftObject;
+			OutDesc.ValueTypeObject = ResolvedClass;
+			OutDesc.ContainerTypes = InOutContainers;
+			OutDesc.bSupported = true;
+			return true;
+		}
+
+		if (Working.StartsWith(TEXT("TSoftClassPtr<")))
+		{
+			FString Inner;
+			if (!ExtractTemplateArg(Working, Inner))
+			{
+				return false;
+			}
+			UClass* ResolvedClass = nullptr;
+			if (!TryResolveClass(Inner.TrimStartAndEnd(), ResolvedClass))
+			{
+				return false;
+			}
+			OutDesc.ValueType = EPropertyBagPropertyType::SoftClass;
+			OutDesc.ValueTypeObject = ResolvedClass;
+			OutDesc.ContainerTypes = InOutContainers;
+			OutDesc.bSupported = true;
+			return true;
+		}
+
+		if (Working.StartsWith(TEXT("TObjectPtr<")))
+		{
+			FString Inner;
+			if (!ExtractTemplateArg(Working, Inner))
+			{
+				return false;
+			}
+			UClass* ResolvedClass = nullptr;
+			if (!TryResolveClass(Inner.TrimStartAndEnd(), ResolvedClass))
+			{
+				return false;
+			}
+			OutDesc.ValueType = EPropertyBagPropertyType::Object;
+			OutDesc.ValueTypeObject = ResolvedClass;
+			OutDesc.ContainerTypes = InOutContainers;
+			OutDesc.bSupported = true;
+			return true;
+		}
+
+		if (bPointer || bReference)
+		{
+			const FString BaseType = Working.TrimStartAndEnd();
+			UClass* ResolvedClass = nullptr;
+			if (TryResolveClass(BaseType, ResolvedClass))
+			{
+				OutDesc.ValueType = EPropertyBagPropertyType::Object;
+				OutDesc.ValueTypeObject = ResolvedClass;
+				OutDesc.ContainerTypes = InOutContainers;
+				OutDesc.bSupported = true;
+				return true;
+			}
+
+			if (BaseType == TEXT("UClass"))
+			{
+				OutDesc.ValueType = EPropertyBagPropertyType::Class;
+				OutDesc.ValueTypeObject = UObject::StaticClass();
+				OutDesc.ContainerTypes = InOutContainers;
+				OutDesc.bSupported = true;
+				return true;
+			}
+		}
+
+		const FString BaseType = Working.TrimStartAndEnd();
+		if (BaseType.Equals(TEXT("bool"), ESearchCase::IgnoreCase))
+		{
+			OutDesc.ValueType = EPropertyBagPropertyType::Bool;
+		}
+		else if (BaseType.Equals(TEXT("uint8"), ESearchCase::IgnoreCase) || BaseType.Equals(TEXT("uint8_t"), ESearchCase::IgnoreCase)
+			|| BaseType.Equals(TEXT("byte"), ESearchCase::IgnoreCase))
+		{
+			OutDesc.ValueType = EPropertyBagPropertyType::Byte;
+		}
+		else if (BaseType.Equals(TEXT("int32"), ESearchCase::IgnoreCase) || BaseType.Equals(TEXT("int"), ESearchCase::IgnoreCase))
+		{
+			OutDesc.ValueType = EPropertyBagPropertyType::Int32;
+		}
+		else if (BaseType.Equals(TEXT("int64"), ESearchCase::IgnoreCase) || BaseType.Equals(TEXT("long long"), ESearchCase::IgnoreCase))
+		{
+			OutDesc.ValueType = EPropertyBagPropertyType::Int64;
+		}
+		else if (BaseType.Equals(TEXT("uint32"), ESearchCase::IgnoreCase) || BaseType.Equals(TEXT("unsigned int"), ESearchCase::IgnoreCase))
+		{
+			OutDesc.ValueType = EPropertyBagPropertyType::UInt32;
+		}
+		else if (BaseType.Equals(TEXT("uint64"), ESearchCase::IgnoreCase) || BaseType.Equals(TEXT("unsigned long long"), ESearchCase::IgnoreCase))
+		{
+			OutDesc.ValueType = EPropertyBagPropertyType::UInt64;
+		}
+		else if (BaseType.Equals(TEXT("float"), ESearchCase::IgnoreCase))
+		{
+			OutDesc.ValueType = EPropertyBagPropertyType::Float;
+		}
+		else if (BaseType.Equals(TEXT("double"), ESearchCase::IgnoreCase))
+		{
+			OutDesc.ValueType = EPropertyBagPropertyType::Double;
+		}
+		else if (BaseType.Equals(TEXT("FName"), ESearchCase::IgnoreCase))
+		{
+			OutDesc.ValueType = EPropertyBagPropertyType::Name;
+		}
+		else if (BaseType.Equals(TEXT("FString"), ESearchCase::IgnoreCase))
+		{
+			OutDesc.ValueType = EPropertyBagPropertyType::String;
+		}
+		else if (BaseType.Equals(TEXT("FText"), ESearchCase::IgnoreCase))
+		{
+			OutDesc.ValueType = EPropertyBagPropertyType::Text;
+		}
+		else
+		{
+			UScriptStruct* Struct = nullptr;
+			if (TryResolveStruct(BaseType, Struct))
+			{
+				OutDesc.ValueType = EPropertyBagPropertyType::Struct;
+				OutDesc.ValueTypeObject = Struct;
+			}
+			else
+			{
+				UEnum* Enum = nullptr;
+				if (TryResolveEnum(BaseType, Enum))
+				{
+					OutDesc.ValueType = EPropertyBagPropertyType::Enum;
+					OutDesc.ValueTypeObject = Enum;
+				}
+				else
+				{
+					return false;
+				}
+			}
+		}
+
+		OutDesc.ContainerTypes = InOutContainers;
+		OutDesc.bSupported = OutDesc.ValueType != EPropertyBagPropertyType::None;
+		return OutDesc.bSupported;
+	}
+
+	bool TryBuildTypeDesc(const FString& InType, FClingNotebookTypeDesc& OutDesc)
+	{
+		OutDesc = FClingNotebookTypeDesc();
+		OutDesc.OriginalType = InType.TrimStartAndEnd();
+
+		FPropertyBagContainerTypes Containers;
+		return ParseTypeRecursive(OutDesc.OriginalType, OutDesc, Containers);
+	}
+
+	void SplitTopLevel(const FString& InText, TArray<FString>& OutParts)
+	{
+		OutParts.Reset();
+		FString Current;
+		int32 DepthAngle = 0;
+		int32 DepthParen = 0;
+		int32 DepthBracket = 0;
+
+		for (int32 Index = 0; Index < InText.Len(); ++Index)
+		{
+			const TCHAR Ch = InText[Index];
+			if (Ch == TEXT('<')) ++DepthAngle;
+			else if (Ch == TEXT('>')) --DepthAngle;
+			else if (Ch == TEXT('(')) ++DepthParen;
+			else if (Ch == TEXT(')')) --DepthParen;
+			else if (Ch == TEXT('[')) ++DepthBracket;
+			else if (Ch == TEXT(']')) --DepthBracket;
+
+			if (Ch == TEXT(',') && DepthAngle == 0 && DepthParen == 0 && DepthBracket == 0)
+			{
+				OutParts.Add(Current.TrimStartAndEnd());
+				Current.Reset();
+				continue;
+			}
+			Current.AppendChar(Ch);
+		}
+
+		if (!Current.IsEmpty())
+		{
+			OutParts.Add(Current.TrimStartAndEnd());
+		}
+	}
+
+	FString TrimDefaultValue(const FString& InParam)
+	{
+		int32 DepthAngle = 0;
+		for (int32 Index = 0; Index < InParam.Len(); ++Index)
+		{
+			const TCHAR Ch = InParam[Index];
+			if (Ch == TEXT('<')) ++DepthAngle;
+			else if (Ch == TEXT('>')) --DepthAngle;
+			else if (Ch == TEXT('=') && DepthAngle == 0)
+			{
+				return InParam.Left(Index).TrimStartAndEnd();
+			}
+		}
+		return InParam.TrimStartAndEnd();
+	}
+
+	bool TryParseParam(const FString& InParam, FClingNotebookParamDesc& OutParam, int32 ParamIndex)
+	{
+		FString Param = TrimDefaultValue(InParam);
+		if (Param.IsEmpty() || Param.Equals(TEXT("void"), ESearchCase::IgnoreCase))
+		{
+			return false;
+		}
+
+		int32 LastSpace = INDEX_NONE;
+		Param.FindLastChar(TEXT(' '), LastSpace);
+		if (LastSpace == INDEX_NONE)
+		{
+			OutParam.Name = *FString::Printf(TEXT("Param%d"), ParamIndex);
+			return TryBuildTypeDesc(Param, OutParam.Type);
+		}
+
+		FString TypeText = Param.Left(LastSpace).TrimStartAndEnd();
+		FString NameText = Param.Mid(LastSpace + 1).TrimStartAndEnd();
+
+		while (NameText.StartsWith(TEXT("*")) || NameText.StartsWith(TEXT("&")))
+		{
+			TypeText += NameText.Left(1);
+			NameText.RightChopInline(1);
+			NameText.TrimStartInline();
+		}
+
+		OutParam.Name = *NameText;
+		return TryBuildTypeDesc(TypeText, OutParam.Type);
+	}
+
+	bool ExtractFunctionSymbols(const FString& InText, TArray<FClingNotebookSymbolDesc>& OutSymbols)
+	{
+		bool bAny = false;
+		FRegexPattern Pattern(TEXT("(?m)^\\s*([\\w:<>&\\*\\s]+?)\\s+([A-Za-z_][A-Za-z0-9_]*)\\s*\\(([^\\)]*)\\)\\s*(?:const\\s*)?\\{"));
+		FRegexMatcher Matcher(Pattern, InText);
+
+		while (Matcher.FindNext())
+		{
+			const FString ReturnType = Matcher.GetCaptureGroup(1).TrimStartAndEnd();
+			const FString Name = Matcher.GetCaptureGroup(2).TrimStartAndEnd();
+			const FString Params = Matcher.GetCaptureGroup(3).TrimStartAndEnd();
+
+			FClingNotebookSymbolDesc Symbol;
+			Symbol.Kind = EClingNotebookSymbolKind::Function;
+			Symbol.Name = *Name;
+
+			if (!TryBuildTypeDesc(ReturnType, Symbol.ReturnType))
+			{
+				if (!Symbol.ReturnType.bIsVoid)
+				{
+					continue;
+				}
+			}
+
+			TArray<FString> ParamParts;
+			SplitTopLevel(Params, ParamParts);
+
+			bool bParamsOk = true;
+			for (int32 Index = 0; Index < ParamParts.Num(); ++Index)
+			{
+				FClingNotebookParamDesc ParamDesc;
+				if (!TryParseParam(ParamParts[Index], ParamDesc, Index))
+				{
+					continue;
+				}
+				if (!ParamDesc.Type.bSupported)
+				{
+					bParamsOk = false;
+					break;
+				}
+				Symbol.Params.Add(MoveTemp(ParamDesc));
+			}
+
+			if (!bParamsOk)
+			{
+				continue;
+			}
+
+			OutSymbols.Add(MoveTemp(Symbol));
+			bAny = true;
+		}
+
+		return bAny;
+	}
+
+	bool ExtractVariableSymbols(const FString& InText, TArray<FClingNotebookSymbolDesc>& OutSymbols)
+	{
+		bool bAny = false;
+		TArray<FString> Lines;
+		InText.ParseIntoArrayLines(Lines);
+
+		const TSet<FString> SkipStarts = {
+			TEXT("if"), TEXT("for"), TEXT("while"), TEXT("switch"), TEXT("case"), TEXT("return"),
+			TEXT("else"), TEXT("do"), TEXT("class"), TEXT("struct"), TEXT("enum"), TEXT("typedef"),
+			TEXT("using"), TEXT("namespace")
+		};
+
+		for (const FString& RawLine : Lines)
+		{
+			FString Line = RawLine.TrimStartAndEnd();
+			if (Line.IsEmpty())
+			{
+				continue;
+			}
+			if (!Line.EndsWith(TEXT(";")))
+			{
+				continue;
+			}
+			if (Line.Contains(TEXT("(")))
+			{
+				continue;
+			}
+
+			TArray<FString> LineTokens;
+			Line.ParseIntoArrayWS(LineTokens);
+			if (LineTokens.Num() > 0 && SkipStarts.Contains(LineTokens[0]))
+			{
+				continue;
+			}
+
+			FRegexPattern Pattern(TEXT("^\\s*([\\w:<>&\\*\\s]+?)\\s+([A-Za-z_][A-Za-z0-9_]*)\\s*(?:=|;)"));
+			FRegexMatcher Matcher(Pattern, Line);
+			if (!Matcher.FindNext())
+			{
+				continue;
+			}
+
+			const FString TypeText = Matcher.GetCaptureGroup(1).TrimStartAndEnd();
+			const FString NameText = Matcher.GetCaptureGroup(2).TrimStartAndEnd();
+
+			FClingNotebookTypeDesc TypeDesc;
+			if (!TryBuildTypeDesc(TypeText, TypeDesc))
+			{
+				continue;
+			}
+			if (!TypeDesc.bSupported)
+			{
+				continue;
+			}
+
+			FClingNotebookSymbolDesc Symbol;
+			Symbol.Kind = EClingNotebookSymbolKind::Variable;
+			Symbol.Name = *NameText;
+			Symbol.ValueType = MoveTemp(TypeDesc);
+			OutSymbols.Add(MoveTemp(Symbol));
+			bAny = true;
+		}
+
+		return bAny;
+	}
+
+	bool ExtractSymbolsFromContent(const FString& InContent, TArray<FClingNotebookSymbolDesc>& OutSymbols)
+	{
+		OutSymbols.Reset();
+		const FString Clean = StripComments(InContent);
+		ExtractFunctionSymbols(Clean, OutSymbols);
+		ExtractVariableSymbols(Clean, OutSymbols);
+		return OutSymbols.Num() > 0;
 	}
 }
 #endif
@@ -452,7 +1080,7 @@ void UClingNotebook::ProcessNextInQueue()
 	};
 
 	FString NotebookFilePath;
-	if (!ClingNotebookFile::WriteNotebookFile(this, NotebookFilePath, nullptr))
+	if (!ClingNotebookFile::WriteNotebookCompileFile(this, InIndex, NotebookFilePath))
 	{
 		CompletionHandler(-1, TEXT("Failed to generate notebook file for compilation."));
 		return;
@@ -684,5 +1312,16 @@ bool UClingNotebook::TryGetSectionContentFromFile(int32 SectionIndex, FString& O
 
 	OutContent = *Parsed;
 	return true;
+}
+
+bool UClingNotebook::TryGetSectionSymbolsFromFile(int32 SectionIndex, TArray<FClingNotebookSymbolDesc>& OutSymbols) const
+{
+	FString Content;
+	if (!TryGetSectionContentFromFile(SectionIndex, Content))
+	{
+		return false;
+	}
+
+	return ClingNotebookSymbols::ExtractSymbolsFromContent(Content, OutSymbols);
 }
 #endif

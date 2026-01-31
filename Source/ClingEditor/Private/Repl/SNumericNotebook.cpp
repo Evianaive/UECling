@@ -393,22 +393,40 @@ void SClingNotebookDetailsPanel::Refresh()
 	];
 
 	// Detect void functions with no arguments and add buttons
-	FString ContentForDetection = SelectedData->Content;
+	TArray<FString> DetectedFunctions;
 	if (NotebookAsset)
 	{
-		FString FileContent;
-		if (NotebookAsset->TryGetSectionContentFromFile(NotebookAsset->SelectedCellIndex, FileContent))
+		TArray<FClingNotebookSymbolDesc> Symbols;
+		if (NotebookAsset->TryGetSectionSymbolsFromFile(NotebookAsset->SelectedCellIndex, Symbols))
 		{
-			ContentForDetection = FileContent;
+			for (const FClingNotebookSymbolDesc& Symbol : Symbols)
+			{
+				if (Symbol.Kind != EClingNotebookSymbolKind::Function)
+				{
+					continue;
+				}
+				if (Symbol.Params.Num() != 0)
+				{
+					continue;
+				}
+				if (!Symbol.ReturnType.bIsVoid)
+				{
+					continue;
+				}
+				DetectedFunctions.Add(Symbol.Name.ToString());
+			}
 		}
 	}
-	FRegexPattern Pattern(TEXT("void\\s+([a-zA-Z_][a-zA-Z0-9_]*)\\s*\\(\\s*\\)"));
-	FRegexMatcher Matcher(Pattern, ContentForDetection);
 
-	TArray<FString> DetectedFunctions;
-	while (Matcher.FindNext())
+	if (DetectedFunctions.Num() == 0)
 	{
-		DetectedFunctions.Add(Matcher.GetCaptureGroup(1));
+		const FString ContentForDetection = SelectedData->Content;
+		FRegexPattern Pattern(TEXT("void\\s+([a-zA-Z_][a-zA-Z0-9_]*)\\s*\\(\\s*\\)"));
+		FRegexMatcher Matcher(Pattern, ContentForDetection);
+		while (Matcher.FindNext())
+		{
+			DetectedFunctions.Add(Matcher.GetCaptureGroup(1));
+		}
 	}
 
 	if (DetectedFunctions.Num() > 0)
