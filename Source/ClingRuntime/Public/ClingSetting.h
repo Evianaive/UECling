@@ -74,7 +74,7 @@ struct FModuleCompileInfo
 	TArray<FRuntimeDependencies> RuntimeDependencies;
 };
 
-UCLASS(Config=Cling)
+UCLASS(Config=Cling, DefaultConfig)
 class CLINGRUNTIME_API UClingSetting : public UDeveloperSettings
 {
 	GENERATED_BODY()
@@ -107,16 +107,10 @@ public:
 	UPROPERTY(EditAnywhere,Config,DisplayName="Allow Redefine")
 	bool bAllowRedefine{true};
 	
-	UPROPERTY(EditAnywhere)
+	UPROPERTY(VisibleAnywhere)
 	TMap<FName,FModuleCompileInfo> ModuleBuildInfos;
 	UPROPERTY(VisibleAnywhere)
 	TArray<FString> GeneratedHeaderIncludePaths;
-	UPROPERTY(EditAnywhere,Config)
-	TArray<FString> PCHAdditionalIncludeFiles;
-	UPROPERTY(EditAnywhere)
-	TArray<FString> RuntimeArgs;
-	// temporary for holding char* for args
-	TArray<FAnsiString> RuntimeArgsForConvert; 
 
 	static FString GetPCHSourceFilePath();
 	static FString GetRspSavePath();
@@ -125,6 +119,13 @@ public:
 	
 	void AppendCompileArgs(TArray<FString>& InOutCompileArgs);
 	void AppendCompileArgs(TArray<const char*>& InOutCompileArgs);
+	
+	UPROPERTY(EditAnywhere,Config)
+	TArray<FString> PCHAdditionalIncludeFiles;
+	UPROPERTY(EditAnywhere,Config)
+	TArray<FString> RuntimeArgs;
+	// temporary for holding char* for args
+	TArray<FAnsiString> RuntimeArgsForConvert; 
 	void AppendRuntimeArgs(TArray<FString>& InOutRuntimeArgs);
 	void AppendRuntimeArgs(TArray<const char*>& Argv);
 	
