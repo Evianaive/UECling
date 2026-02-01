@@ -1,4 +1,4 @@
-﻿#include "ClingNotebook.h"
+#include "ClingNotebook.h"
 #include "ClingRuntime.h"
 #include "ClingSetting.h"
 #include "CppInterOp/CppInterOp.h"
@@ -875,6 +875,60 @@ void* UClingNotebook::GetInterpreter()
 	return Interpreter;
 }
 
+void UClingNotebook::EnsureInterpreterAsync(TFunction<void(void*)> OnReady)
+{
+	if (Interpreter)
+	{
+		// Interpreter already exists, call callback immediately
+		OnReady(Interpreter);
+		return;
+	}
+
+	if (bIsInitializingInterpreter)
+	{
+		// Already initializing, the ProcessNextInQueue will be called after init
+		return;
+	}
+
+	bIsInitializingInterpreter = true;
+
+	// Create interpreter asynchronously on background thread
+	TWeakObjectPtr<UClingNotebook> WeakThis(this);
+	AsyncTask(ENamedThreads::AnyBackgroundThreadNormalTask, [WeakThis, OnReady]()
+	{
+		void* NewInterpreter = FClingRuntimeModule::Get().StartNewInterp();
+
+		// Return to game thread to set the interpreter
+		AsyncTask(ENamedThreads::GameThread, [WeakThis, OnReady, NewInterpreter]()
+		{
+			if (!WeakThis.IsValid())
+			{
+				// Notebook was destroyed during init, clean up interpreter
+				if (NewInterpreter)
+				{
+					FClingRuntimeModule::Get().DeleteInterp(NewInterpreter);
+				}
+				return;
+			}
+
+			UClingNotebook* Notebook = WeakThis.Get();
+			Notebook->Interpreter = NewInterpreter;
+			Notebook->bIsInitializingInterpreter = false;
+
+			// Call the ready callback
+			if (NewInterpreter)
+			{
+				OnReady(NewInterpreter);
+			}
+			else
+			{
+				// Failed to create interpreter, process queue to clear pending items
+				Notebook->ProcessNextInQueue();
+			}
+		});
+	});
+}
+
 void UClingNotebook::RestartInterpreter()
 {
 	if (Interpreter)
@@ -1032,94 +1086,75 @@ void UClingNotebook::ProcessNextInQueue()
 		return;
 	}
 
-	void* Interp = GetInterpreter();
-	if (!Interp)
-	{
-		Cells[InIndex].bIsCompiling = false;
-		CompilingCells.Remove(InIndex);
-		bIsProcessingQueue = false;
-		ProcessNextInQueue();
-		return;
-	}
-
-	FClingNotebookCellData& Cell = Cells[InIndex];
-	bool bRunInGameThread = Cell.bExecuteInGameThread;
-
+	// Ensure interpreter is ready asynchronously
 	TWeakObjectPtr<UClingNotebook> WeakThis(this);
-
-	auto CompletionHandler = [WeakThis, InIndex](int32 CompilationResult, FString OutErrors)
+	EnsureInterpreterAsync([WeakThis, InIndex](void* Interp)
 	{
-		if (!WeakThis.IsValid()) return;
+		if (!WeakThis.IsValid())
+		{
+			return;
+		}
+
 		UClingNotebook* Notebook = WeakThis.Get();
 
-		if (Notebook->Cells.IsValidIndex(InIndex))
+		if (!Interp)
 		{
-			FClingNotebookCellData& CellDataAt = Notebook->Cells[InIndex];
-			CellDataAt.Output = OutErrors;
-			CellDataAt.bHasOutput = true;
-			CellDataAt.bIsCompiling = false;
+			Notebook->Cells[InIndex].bIsCompiling = false;
+			Notebook->CompilingCells.Remove(InIndex);
+			Notebook->bIsProcessingQueue = false;
+			Notebook->ProcessNextInQueue();
+			return;
+		}
 
-			if (CompilationResult == 0)
+		FClingNotebookCellData& Cell = Notebook->Cells[InIndex];
+		bool bRunInGameThread = Cell.bExecuteInGameThread;
+
+		auto CompletionHandler = [WeakThis, InIndex](int32 CompilationResult, FString OutErrors)
+		{
+			if (!WeakThis.IsValid()) return;
+			UClingNotebook* Notebook = WeakThis.Get();
+
+			if (Notebook->Cells.IsValidIndex(InIndex))
 			{
-				CellDataAt.bIsCompleted = true;
-				if (CellDataAt.Output.IsEmpty())
+				FClingNotebookCellData& CellDataAt = Notebook->Cells[InIndex];
+				CellDataAt.Output = OutErrors;
+				CellDataAt.bHasOutput = true;
+				CellDataAt.bIsCompiling = false;
+
+				if (CompilationResult == 0)
 				{
-					CellDataAt.Output = FString::Printf(TEXT("Success (Executed at %s)"), *FDateTime::Now().ToString());
+					CellDataAt.bIsCompleted = true;
+					if (CellDataAt.Output.IsEmpty())
+					{
+						CellDataAt.Output = FString::Printf(TEXT("Success (Executed at %s)"), *FDateTime::Now().ToString());
+					}
 				}
+				else
+				{
+					CellDataAt.bIsCompleted = false;
+				}
+				Notebook->MarkPackageDirty();
 			}
-			else
-			{
-				CellDataAt.bIsCompleted = false;
-			}
-			Notebook->MarkPackageDirty();
-		}
-		Notebook->CompilingCells.Remove(InIndex);
-		Notebook->bIsProcessingQueue = false;
-		Notebook->bIsCompiling = (Notebook->CompilingCells.Num() > 0);
-		Notebook->ProcessNextInQueue();
-	};
+			Notebook->CompilingCells.Remove(InIndex);
+			Notebook->bIsProcessingQueue = false;
+			Notebook->bIsCompiling = (Notebook->CompilingCells.Num() > 0);
+			Notebook->ProcessNextInQueue();
+		};
 
-	FString NotebookFilePath;
-	if (!ClingNotebookFile::WriteNotebookCompileFile(this, InIndex, NotebookFilePath))
-	{
-		CompletionHandler(-1, TEXT("Failed to generate notebook file for compilation."));
-		return;
-	}
-
-	const FString IncludePath = ClingNotebookFile::NormalizeIncludePath(NotebookFilePath);
-	const FString Code = FString::Printf(TEXT("#undef COMPILE\n#define COMPILE %d\n#include \"%s\"\n"), InIndex, *IncludePath);
-
-	if (bRunInGameThread)
-	{
-		int32 CompilationResult = -1;
-		FString OutErrors;
+		FString NotebookFilePath;
+		if (!ClingNotebookFile::WriteNotebookCompileFile(Notebook, InIndex, NotebookFilePath))
 		{
-			FScopeLock Lock(&FClingRuntimeModule::Get().GetCppInterOpLock());
-			void* StoreInterp = Cpp::GetInterpreter();
-			Cpp::ActivateInterpreter(Interp);
-
-			static FString StaticErrors;
-			StaticErrors.Reset();
-
-			Cpp::BeginStdStreamCapture(Cpp::kStdErr);
-			CompilationResult = Cpp::Process(TCHAR_TO_ANSI(*Code));
-			Cpp::EndStdStreamCapture([](const char* Result)
-			{
-				StaticErrors = UTF8_TO_TCHAR(Result);
-			});
-
-			OutErrors = StaticErrors;
-			Cpp::ActivateInterpreter(StoreInterp);
+			CompletionHandler(-1, TEXT("Failed to generate notebook file for compilation."));
+			return;
 		}
-		CompletionHandler(CompilationResult, OutErrors);
-	}
-	else
-	{
-		AsyncTask(ENamedThreads::AnyBackgroundThreadNormalTask, [WeakThis, Interp, Code, InIndex, CompletionHandler]()
+
+		const FString IncludePath = ClingNotebookFile::NormalizeIncludePath(NotebookFilePath);
+		const FString Code = FString::Printf(TEXT("#undef COMPILE\n#define COMPILE %d\n#include \"%s\"\n"), InIndex, *IncludePath);
+
+		if (bRunInGameThread)
 		{
 			int32 CompilationResult = -1;
 			FString OutErrors;
-
 			{
 				FScopeLock Lock(&FClingRuntimeModule::Get().GetCppInterOpLock());
 				void* StoreInterp = Cpp::GetInterpreter();
@@ -1138,13 +1173,41 @@ void UClingNotebook::ProcessNextInQueue()
 				OutErrors = StaticErrors;
 				Cpp::ActivateInterpreter(StoreInterp);
 			}
-
-			AsyncTask(ENamedThreads::GameThread, [CompletionHandler, CompilationResult, OutErrors]()
+			CompletionHandler(CompilationResult, OutErrors);
+		}
+		else
+		{
+			AsyncTask(ENamedThreads::AnyBackgroundThreadNormalTask, [WeakThis, Interp, Code, InIndex, CompletionHandler]()
 			{
-				CompletionHandler(CompilationResult, OutErrors);
+				int32 CompilationResult = -1;
+				FString OutErrors;
+
+				{
+					FScopeLock Lock(&FClingRuntimeModule::Get().GetCppInterOpLock());
+					void* StoreInterp = Cpp::GetInterpreter();
+					Cpp::ActivateInterpreter(Interp);
+
+					static FString StaticErrors;
+					StaticErrors.Reset();
+
+					Cpp::BeginStdStreamCapture(Cpp::kStdErr);
+					CompilationResult = Cpp::Process(TCHAR_TO_ANSI(*Code));
+					Cpp::EndStdStreamCapture([](const char* Result)
+					{
+						StaticErrors = UTF8_TO_TCHAR(Result);
+					});
+
+					OutErrors = StaticErrors;
+					Cpp::ActivateInterpreter(StoreInterp);
+				}
+
+				AsyncTask(ENamedThreads::GameThread, [CompletionHandler, CompilationResult, OutErrors]()
+				{
+					CompletionHandler(CompilationResult, OutErrors);
+				});
 			});
-		});
-	}
+		}
+	});
 }
 
 FClingNotebookCellData* UClingNotebook::GetSelectedCellData()

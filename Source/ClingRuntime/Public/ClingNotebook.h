@@ -1,4 +1,4 @@
-﻿#pragma once
+#pragma once
 
 #include "CoreMinimal.h"
 #include "UObject/NoExportTypes.h"
@@ -131,8 +131,10 @@ public:
 	TSet<int32> CompilingCells;
 	TArray<int32> ExecutionQueue;
 	bool bIsProcessingQueue = false;
+	bool bIsInitializingInterpreter = false;
 
 	void* GetInterpreter();
+	void EnsureInterpreterAsync(TFunction<void(void*)> OnReady);
 	void RestartInterpreter();
 
 	// Cell Management
