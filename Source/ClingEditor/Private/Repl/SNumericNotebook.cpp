@@ -89,9 +89,9 @@ void SClingNotebookCell::UpdateCellUI()
 					SNew(STextBlock)
 					.Text(INVTEXT("[Completed]"))
 					.ColorAndOpacity(FLinearColor::Green)
-					.Visibility_Lambda([this]() { return (CellData->bIsCompleted && !CellData->bIsCompiling) ? EVisibility::Visible : EVisibility::Collapsed; })
+					.Visibility_Lambda([this]() { return (CellData->CompilationState == EClingCellCompilationState::Completed) ? EVisibility::Visible : EVisibility::Collapsed; })
 				]
-
+				
 				// 编译中标记
 				+SHorizontalBox::Slot()
 				.AutoWidth()
@@ -99,7 +99,7 @@ void SClingNotebookCell::UpdateCellUI()
 				.Padding(5, 0)
 				[
 					SNew(SHorizontalBox)
-					.Visibility_Lambda([this]() { return CellData->bIsCompiling ? EVisibility::Visible : EVisibility::Collapsed; })
+					.Visibility_Lambda([this]() { return (CellData->CompilationState == EClingCellCompilationState::Compiling) ? EVisibility::Visible : EVisibility::Collapsed; })
 					+SHorizontalBox::Slot()
 					.AutoWidth()
 					[
@@ -176,11 +176,11 @@ void SClingNotebookCell::UpdateCellUI()
 					.OnClicked(this, &SClingNotebookCell::OnUndoToHereButtonClicked)
 					.ButtonStyle(FAppStyle::Get(), "SimpleButton")
 					.IsEnabled_Lambda([this]() {
-						if (CellData->bIsCompiling) return false;
+						if (CellData->CompilationState == EClingCellCompilationState::Compiling) return false;
 						if (!NotebookAsset || !NotebookAsset->Cells.IsValidIndex(CellIndex)) return false;
 						for (int32 i = CellIndex; i < NotebookAsset->Cells.Num(); ++i)
 						{
-							if (NotebookAsset->Cells[i].bIsCompleted) return true;
+							if (NotebookAsset->Cells[i].CompilationState == EClingCellCompilationState::Completed) return true;
 						}
 						return CellData->bHasOutput;
 					})

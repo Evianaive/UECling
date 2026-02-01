@@ -2,11 +2,54 @@
 
 #include "CoreMinimal.h"
 #include "UObject/NoExportTypes.h"
+#include "Async/Future.h"
 #if WITH_EDITORONLY_DATA
 #include "StructUtils/PropertyBag.h"
 #endif
 
 #include "ClingNotebook.generated.h"
+
+/**
+ * Result of interpreter initialization
+ */
+struct FClingInterpreterResult
+{
+	void* Interpreter = nullptr;
+	bool bSuccess = false;
+	FString ErrorMessage;
+
+	FClingInterpreterResult() = default;
+	explicit FClingInterpreterResult(void* InInterpreter)
+		: Interpreter(InInterpreter), bSuccess(InInterpreter != nullptr) {}
+	FClingInterpreterResult(void* InInterpreter, const FString& InError)
+		: Interpreter(InInterpreter), bSuccess(InInterpreter != nullptr), ErrorMessage(InError) {}
+};
+
+/**
+ * Compilation state of a cell
+ */
+UENUM(BlueprintType)
+enum class EClingCellCompilationState : uint8
+{
+	Idle UMETA(DisplayName = "Idle"),
+	Compiling UMETA(DisplayName = "Compiling"),
+	Completed UMETA(DisplayName = "Completed")
+};
+
+/**
+ * Result of cell compilation
+ */
+USTRUCT(BlueprintType)
+struct FClingCellCompilationResult
+{
+	GENERATED_BODY()
+
+	UPROPERTY(VisibleAnywhere, Category = "Cling")
+	FString ErrorOutput;
+
+	UPROPERTY(VisibleAnywhere, Category = "Cling")
+	bool bSuccess = false;
+};
 
 /**
  * Notebook cell data for persistent storage
@@ -32,10 +75,10 @@ struct FClingNotebookCellData
 	bool bExecuteInGameThread = false;
 
 	UPROPERTY(Transient)
-	bool bIsCompleted = false;
+	EClingCellCompilationState CompilationState = EClingCellCompilationState::Idle;
 
 	UPROPERTY(Transient)
-	bool bIsCompiling = false;
+	FClingCellCompilationResult LastCompilationResult;
 };
 
 #if WITH_EDITORONLY_DATA
@@ -131,12 +174,24 @@ public:
 	TSet<int32> CompilingCells;
 	TArray<int32> ExecutionQueue;
 	bool bIsProcessingQueue = false;
-	bool bIsInitializingInterpreter = false;
 
+	// Interpreter management
 	void* GetInterpreter();
-	void EnsureInterpreterAsync(TFunction<void(void*)> OnReady);
+	TFuture<FClingInterpreterResult> GetInterpreterAsync();
 	void RestartInterpreter();
 
+private:
+	// Async operations using TPromise/TFuture
+	TFuture<FClingInterpreterResult> StartInterpreterAsync();
+	TFuture<FClingCellCompilationResult> CompileCellAsync(void* Interp, int32 CellIndex);
+	void OnCellCompilationComplete(int32 CellIndex, const FClingCellCompilationResult& Result);
+
+	// Compilation execution (extracted common logic)
+	FClingCellCompilationResult ExecuteCellCompilation(void* Interp, const FString& Code);
+
+	// Shared promise for interpreter initialization (allows multiple waiters)
+	TSharedPtr<TPromise<FClingInterpreterResult>> InterpreterPromise;
+public:
 	// Cell Management
 	void AddNewCell(int32 InIndex = -1);
 	void DeleteCell(int32 InIndex);
@@ -162,4 +217,5 @@ public:
 
 private:
 	void* Interpreter = nullptr;
+	bool bIsInitializingInterpreter = false;
 };
