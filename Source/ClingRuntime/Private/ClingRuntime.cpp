@@ -38,7 +38,7 @@ void FClingRuntimeModule::StartupModule()
 	UClingSetting* Setting = GetMutableDefault<UClingSetting>();	
 	// Load file contains all module build infos
 	Setting->RefreshIncludePaths();
-	Setting->GeneratePCH();	
+	Setting->GenerateAllPCHProfiles();	
 	// Cpp::EnableDebugOutput();
 	BaseInterp = StartInterpreterInternal();
 	
@@ -65,9 +65,9 @@ void* FClingRuntimeModule::GetInterp(int Version)
 	return Interps[Interps.Num()-1];
 }
 
-Cpp::TInterp_t FClingRuntimeModule::StartNewInterp()
+Cpp::TInterp_t FClingRuntimeModule::StartNewInterp(FName PCHProfile)
 {
-	return Interps.Add_GetRef(StartInterpreterInternal());
+	return Interps.Add_GetRef(StartInterpreterInternal(PCHProfile));
 }
 
 void FClingRuntimeModule::DeleteInterp(void* CurrentInterp)
@@ -82,7 +82,7 @@ FClingRuntimeModule& FClingRuntimeModule::Get()
 	return FModuleManager::LoadModuleChecked<FClingRuntimeModule>(TEXT("ClingRuntime"));
 }
 
-Cpp::TInterp_t FClingRuntimeModule::StartInterpreterInternal()
+Cpp::TInterp_t FClingRuntimeModule::StartInterpreterInternal(FName PCHProfile)
 {
 	SCOPED_NAMED_EVENT(StartInterpreterInternal, FColor::Red)
 	// FString LLVMDir = GetLLVMDir();
@@ -108,7 +108,8 @@ Cpp::TInterp_t FClingRuntimeModule::StartInterpreterInternal()
 	Setting->IterThroughIncludePaths(AddIncludePath);
 	
 	// include PCH source file to use PCH automatically
-	FAnsiString PCHHeaderFilePath{StringCast<ANSICHAR>(*UClingSetting::GetPCHSourceFilePath()).Get()};
+	const FClingPCHProfile& Profile = Setting->GetProfile(PCHProfile);
+	FAnsiString PCHHeaderFilePath{StringCast<ANSICHAR>(*Profile.GetPCHHeaderPath()).Get()};
 	Argv.Add("-include");
 	Argv.Add(*PCHHeaderFilePath);
 

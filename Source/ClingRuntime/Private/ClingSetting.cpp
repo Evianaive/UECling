@@ -17,6 +17,21 @@ FString GetPluginDir()
 	return PluginDir;
 }
 
+FString FClingPCHProfile::GetPCHHeaderPath() const
+{
+	return GetPluginDir() / FString::Printf(TEXT("ClingPCH_%s.h"), *ProfileName.ToString());
+}
+
+FString FClingPCHProfile::GetPCHBinaryPath() const
+{
+	return GetPCHHeaderPath() + TEXT(".pch");
+}
+
+FString FClingPCHProfile::GetRspFilePath() const
+{
+	return GetPluginDir() / FString::Printf(TEXT("ClingIncludePaths_%s.rsp"), *ProfileName.ToString());
+}
+
 UClingSetting::UClingSetting()
 {
 	CategoryName = TEXT("Plugins");
@@ -25,6 +40,10 @@ UClingSetting::UClingSetting()
 	FString Path = GetPluginDir()/TEXT("Source/ClingScript");
 	PathForLambdaScriptCompile.Path = Path/TEXT("Private/LambdaScript");
 	PathForFunctionLibrarySync.Path = Path/TEXT("Private/FunctionLibrary");
+
+	// Initialize default PCH profile
+	DefaultPCHProfile.ProfileName = TEXT("Default");
+	DefaultPCHProfile.bEnabled = true;
 }
 
 FName UClingSetting::GetCategoryName() const
@@ -42,19 +61,24 @@ FName UClingSetting::GetSectionName() const
 	return Super::GetSectionName();
 }
 
-FString UClingSetting::GetPCHSourceFilePath()
-{
-	return GetPluginDir()/TEXT("ClingPCH.h");
-}
-
-FString UClingSetting::GetRspSavePath()
-{
-	return GetPluginDir()/TEXT("ClingIncludePaths.rsp");
-}
-
 FString UClingSetting::GetGlobalBuildDefinsPath()
 {
 	return GetPluginDir()/TEXT("Source")/TEXT("BuildGlobalDefines.h");
+}
+
+const FClingPCHProfile& UClingSetting::GetProfile(FName ProfileName) const
+{
+	// Search in additional profiles
+	for (const FClingPCHProfile& Profile : PCHProfiles)
+	{
+		if (Profile.ProfileName == ProfileName)
+		{
+			return Profile;
+		}
+	}
+	
+	// Fallback to default profile if not found
+	return DefaultPCHProfile;
 }
 
 void UClingSetting::RefreshIncludePaths()
@@ -130,19 +154,22 @@ void UClingSetting::AppendCompileArgs(TArray<const char*>& InOutCompileArgs)
 	::AppendCompileArgs(InOutCompileArgs);
 }
 
-void UClingSetting::AppendRuntimeArgs(TArray<FString>& InOutRuntimeArgs)
+void UClingSetting::AppendRuntimeArgs(FName ProfileName, TArray<FString>& InOutRuntimeArgs)
 {
-	InOutRuntimeArgs.Append(RuntimeArgs);
+	const FClingPCHProfile& Profile = GetProfile(ProfileName);
+	InOutRuntimeArgs.Append(Profile.RuntimeArgs);
 }
 
-void UClingSetting::AppendRuntimeArgs(TArray<const char*>& Argv)
+void UClingSetting::AppendRuntimeArgs(FName ProfileName, TArray<const char*>& Argv)
 {
-	RuntimeArgsForConvert.SetNum(RuntimeArgs.Num());
-	for (int32 i = 0; i < RuntimeArgs.Num(); i++)
+	FClingPCHProfile& Profile = const_cast<FClingPCHProfile&>(GetProfile(ProfileName));
+	const TArray<FString>& TargetArgs = Profile.RuntimeArgs;
+	Profile.RuntimeArgsForConvert.SetNum(TargetArgs.Num());
+	for (int32 i = 0; i < TargetArgs.Num(); i++)
 	{
-		RuntimeArgsForConvert[i] = StringCast<ANSICHAR>(*RuntimeArgs[i]).Get();
-		Argv.Add(*RuntimeArgsForConvert[i]);
-	}	
+		Profile.RuntimeArgsForConvert[i] = StringCast<ANSICHAR>(*TargetArgs[i]).Get();
+		Argv.Add(*Profile.RuntimeArgsForConvert[i]);
+	}
 }
 
 template<typename T>
@@ -198,108 +225,100 @@ void UClingSetting::RefreshGeneratedHeaderIncludePaths()
 	::GetFileContent(TEXT("GeneratedHeaderPaths.txt"),GeneratedHeaderIncludePaths);
 }
 
+
+// Common PCH content generation (shared across all profiles)
+void GenerateCommonPCHContent(TArray<FString>& OutPCHLines, const TMap<FName, FModuleCompileInfo>& ModuleBuildInfos)
+{
+	OutPCHLines.Add(TEXT("#pragma once"));
+	OutPCHLines.Add(TEXT("#include \"") + UClingSetting::GetGlobalBuildDefinsPath() + TEXT("\""));
+
+	for (const auto& ModuleBuildInfo : ModuleBuildInfos)
+	{
+		// Begin Definitions
+		for (FString Define : ModuleBuildInfo.Value.PublicDefinitions)
+		{
+			Define.ReplaceCharInline('=',' ');
+			OutPCHLines.Add(TEXT("#define ") + Define);
+		}
+		FString MacroDefine = TEXT("#define ") + ModuleBuildInfo.Value.Name.ToString().ToUpper() + TEXT("_API ");
+		OutPCHLines.Add(MacroDefine);
+	}
+
+	// fix msvc
+#ifdef __clang__
+#else
+	OutPCHLines.Add(TEXT("#include \"Microsoft/MinimalWindowsApi.h\""));
+	OutPCHLines.Add(TEXT("#include \"Runtime/Core/Private/Microsoft/MinimalWindowsApi.cpp\""));
+#endif
+
+	// default pch includes
+	OutPCHLines.Add(TEXT("#include \"CoreMinimal.h\""));
+	OutPCHLines.Add(TEXT("#include \"UObject/Object.h\""));
+	OutPCHLines.Add(TEXT("#include \"Logging/LogMacros.h\""));
+}
+
+// Common RSP content generation (shared include paths)
+void GenerateCommonRspContent(TArray<FString>& OutRspLines, const UClingSetting* Settings)
+{
+	OutRspLines.Add(TEXT("D:/clang.exe"));
+	OutRspLines.Add(TEXT("-x c++-header"));
+
+	// Add include paths
+	auto AddInclude = [&OutRspLines](const FString& Include)
+	{
+		OutRspLines.Add(TEXT("-I \"") + Include.Replace(TEXT("\\"),TEXT("/")) + TEXT("\""));
+	};
+	const_cast<UClingSetting*>(Settings)->IterThroughIncludePaths(AddInclude);
+
+	// Add compile arguments
+	TArray<FString> CompileArgs;
+	const_cast<UClingSetting*>(Settings)->AppendCompileArgs(CompileArgs);
+	OutRspLines.Append(CompileArgs);
+
+	// align with clang-repl
+	OutRspLines.Add(TEXT("-Xclang"));
+	OutRspLines.Add(TEXT("-fincremental-extensions"));
+	OutRspLines.Add(TEXT("-v"));
+}
+
 void UClingSetting::GenerateRspFile()
 {
-	TArray<FString> RspLines={
-		"D:/clang.exe",
-		"-x c++-header",
-	};
-	
-	auto AddInclude = [&](const FString& Include)
-	{
-		RspLines.Add(TEXT("-I \"") + Include.Replace(TEXT("\\"),TEXT("/")) + TEXT("\""));
-	};
-	IterThroughIncludePaths(AddInclude);
-	
-	AppendCompileArgs(RspLines);
-	// align with clang-repl, these settings are added automatically by clang-repl
-	RspLines.Add(TEXT("-Xclang"));
-	RspLines.Add(TEXT("-fincremental-extensions"));
-	
-	// other debug settings
-	// RspLines.Add(TEXT("-Xclang"));
-	// RspLines.Add(TEXT("-femit-all-decls"));
-	// RspLines.Add(TEXT("-Xclang"));
-	// RspLines.Add(TEXT("-fkeep-static-consts"));
-	// RspLines.Add(TEXT("-Xclang"));
-	// RspLines.Add(TEXT("-detailed-preprocessing-record"));
-	// RspLines.Add(TEXT("-H"));
-	RspLines.Add(TEXT("-v"));
+	GenerateRspFileForProfile(TEXT("Default"));
+}
 
-	// output pch
-	RspLines.Add(TEXT("-o ") + GetPCHSourceFilePath() + TEXT(".pch"));
-	RspLines.Add(GetPCHSourceFilePath());	
-	
-	FFileHelper::SaveStringArrayToFile(RspLines, *GetRspSavePath());
+void UClingSetting::GenerateRspFileForProfile(FName ProfileName)
+{
+	TArray<FString> RspLines;
+	GenerateCommonRspContent(RspLines, this);
+
+	// Get profile and generate paths
+	const FClingPCHProfile& Profile = GetProfile(ProfileName);
+	FString PCHPath = Profile.GetPCHHeaderPath();
+	FString RspPath = Profile.GetRspFilePath();
+
+	RspLines.Add(TEXT("-o ") + PCHPath + TEXT(".pch"));
+	RspLines.Add(PCHPath);
+
+	FFileHelper::SaveStringArrayToFile(RspLines, *RspPath);
 }
 
 void UClingSetting::GeneratePCHHeaderFile(bool bForce)
 {
-	TArray<FString> PCHLines
-	={"#pragma once"}
-	;
-#if 0
-	#if 0
-		// Include the file of all global definitions of build context export by UnrealBuildTool
-		FString UE_Exec = FPlatformProcess::ExecutablePath();
-		UE_Exec.ReplaceCharInline('\\','/');
-		FString GlobalDefinesFilePath = UE_Exec/TEXT("../UECling/BuildGlobalDefines.h");
-		PCHLines.Add(TEXT("#include \"")+GlobalDefinesFilePath+TEXT("\""));
-	#else
-		// global defines
-		FString EngineDir = FPaths::ConvertRelativePathToFull(FPaths::EngineDir());
-		PCHLines.Add(TEXT("#include \"")+EngineDir+TEXT("/Binaries/Win64/UECling/BuildGlobalDefines.h\""));
-	#endif
-#else
-	PCHLines.Add(TEXT("#include \"")+GetGlobalBuildDefinsPath()+TEXT("\""));
-#endif
-	for (auto& ModuleBuildInfo : ModuleBuildInfos)
+	GeneratePCHHeaderFileForProfile(TEXT("Default"), bForce);
+}
+
+void UClingSetting::GeneratePCHHeaderFileForProfile(FName ProfileName, bool bForce)
+{
+	TArray<FString> PCHLines;
+	GenerateCommonPCHContent(PCHLines, ModuleBuildInfos);
+
+	// Add profile-specific includes
+	const FClingPCHProfile& Profile = GetProfile(ProfileName);
+	for (const FString& IncludeFile : Profile.AdditionalIncludeFiles)
 	{
-		// Begin Definitions			
-		for (FString& Define : ModuleBuildInfo.Value.PublicDefinitions)
-		{
-			// if (UNLIKELY(Define==TEXT("LAUNCH_API")))
-			// 	continue;
-			Define.ReplaceCharInline('=',' ');
-			PCHLines.Add(TEXT("#define ")+Define);
-		}		
-		// Ignore LAUNCH_API since it is defined in BuildGlobalDefines.h generated by us
-		FString MacroDefine = TEXT("#define ") + ModuleBuildInfo.Value.Name.ToString().ToUpper() + TEXT("_API ");
-		// if (UNLIKELY(MacroDefine == "#define LAUNCH_API"))
-		// 	continue;
-		PCHLines.Add(MacroDefine
-			// + TEXT(" __declspec(dllimport)")
-			);
-		// PCHLines.Add(MacroDefine);
-	}
-// #ifdef _MSC_VER
-// #define EVA_MACRO(_M) #_M
-// #define STR_MACRO(_M) "#define " #_M " " EVA_MACRO(_M)	
-// 	PCHLines.Add(TEXT(STR_MACRO(_MSC_VER)));
-// 	PCHLines.Add(TEXT(STR_MACRO(_WIN64)));
-// #undef EVA_MACRO
-// #undef STR_MACRO
-// #endif
-	
-	// fix msvc
-#ifdef __clang__
-#else
-	PCHLines.Add(TEXT("#include \"Microsoft/MinimalWindowsApi.h\""));
-	PCHLines.Add(TEXT("#include \"Runtime/Core/Private/Microsoft/MinimalWindowsApi.cpp\""));
-#endif
-	
-	// default pch includes
-	PCHLines.Add(TEXT("#include \"CoreMinimal.h\""));
-	PCHLines.Add(TEXT("#include \"UObject/Object.h\""));
-	PCHLines.Add(TEXT("#include \"Logging/LogMacros.h\""));
-	PCHLines.Add(TEXT("#include \"Framework/Application/SlateApplication.h\""));
-	// user-defined pch includes
-	for (auto& GeneratedIncludePath : PCHAdditionalIncludeFiles)
-	{
-		PCHLines.Add(TEXT("#include \""+GeneratedIncludePath+TEXT("\"")));
+		PCHLines.Add(TEXT("#include \"") + IncludeFile + TEXT("\""));
 	}
 
-		
 	using FHashBuffer = TTuple<uint32,uint32,uint32,uint32>;
 	auto HashFString = [](const FString& InString) -> FHashBuffer
 	{
@@ -309,51 +328,40 @@ void UClingSetting::GeneratePCHHeaderFile(bool bForce)
 		NewFileHash.Final(reinterpret_cast<uint8*>(&HashBuffer));
 		return HashBuffer;
 	};
+
 	FString NewPCHContent = FString::Join(PCHLines, TEXT("\n")) + TEXT("\n");
+	FString PCHPath = Profile.GetPCHHeaderPath();
+
 	// Check the current file status
 	FString ExistingContent;
-	FString PCHPath = GetPCHSourceFilePath();
 	if (FFileHelper::LoadFileToString(ExistingContent, *PCHPath))
 	{
 		auto NewMD5 = HashFString(NewPCHContent);
 		auto ExistingMD5 = HashFString(ExistingContent);
-		
-		// compare md5
+
 		if (NewMD5 != ExistingMD5)
 		{
 			FFileHelper::SaveStringToFile(NewPCHContent, *PCHPath);
-			UE_LOG(LogCling, Log, TEXT("PCH header file content needs to be updated (MD5 changed form: %i-%i-%i-%i to %i-%i-%i-%i )"),
-				ExistingMD5.Get<0>(),ExistingMD5.Get<1>(),ExistingMD5.Get<2>(),ExistingMD5.Get<3>(),
-				NewMD5.Get<0>(),NewMD5.Get<1>(),NewMD5.Get<2>(),NewMD5.Get<3>())
-			;
+			UE_LOG(LogCling, Log, TEXT("PCH header file [%s] content updated (MD5 changed)"), *ProfileName.ToString());
 		}
 		else
 		{
-			UE_LOG(LogCling, Log, TEXT("PCH header file unchanged, skipping save (MD5: %i-%i-%i-%i)"),
-				ExistingMD5.Get<0>(),ExistingMD5.Get<1>(),ExistingMD5.Get<2>(),ExistingMD5.Get<3>());
-			// Todo should we ask user whether force to generate pch header file?
+			UE_LOG(LogCling, Log, TEXT("PCH header file [%s] unchanged, skipping save"), *ProfileName.ToString());
 		}
 	}
 	else
 	{
 		FFileHelper::SaveStringToFile(NewPCHContent, *PCHPath);
-		UE_LOG(LogCling, Log, TEXT("PCH header file created"));
+		UE_LOG(LogCling, Log, TEXT("PCH header file [%s] created"), *ProfileName.ToString());
 	}
 }
 
 void UClingSetting::UpdateBuildGlobalDefinesFile(bool bForce)
 {
-#if 0
-	// Include the file of all global definitions of build context export by UnrealBuildTool
-	FString UE_Exec = FPlatformProcess::ExecutablePath();
-	UE_Exec.ReplaceCharInline('\\','/');
-	FString GlobalDefinesFilePath = UE_Exec/TEXT("../UECling/BuildGlobalDefines.h");
-	PCHLines.Add(TEXT("#include \"")+GlobalDefinesFilePath+TEXT("\""));
-#else
 	// global defines
 	FString EngineDir = FPaths::ConvertRelativePathToFull(FPaths::EngineDir());
 	FString FileSource = EngineDir/TEXT("Binaries/Win64/UECling/BuildGlobalDefines.h");
-#endif
+
 	FString CopyDest = GetGlobalBuildDefinsPath();
 	auto& FM = FFileManagerGeneric::Get();
 	if (!FM.FileExists(*FileSource))
@@ -372,27 +380,64 @@ void UClingSetting::UpdateBuildGlobalDefinesFile(bool bForce)
 
 void UClingSetting::GeneratePCH(bool bForce)
 {
+	GeneratePCHForProfile(TEXT("Default"), bForce);
+}
+
+void UClingSetting::GeneratePCHForProfile(FName ProfileName, bool bForce)
+{
 	SCOPED_NAMED_EVENT(GeneratePCH, FColor::Red)
 	UpdateBuildGlobalDefinesFile(false);
-	GeneratePCHHeaderFile(false);
-	GenerateRspFile();
+	GeneratePCHHeaderFileForProfile(ProfileName, false);
+	GenerateRspFileForProfile(ProfileName);
+
+	const FClingPCHProfile& Profile = GetProfile(ProfileName);
 	auto& FM = FFileManagerGeneric::Get();
-	auto PCHSourceFileTime = FM.GetTimeStamp(*GetPCHSourceFilePath());
+	FString PCHSourcePath = Profile.GetPCHHeaderPath();
+	FString PCHBinaryPath = Profile.GetPCHBinaryPath();
+	FString RspPath = Profile.GetRspFilePath();
+
+	auto PCHSourceFileTime = FM.GetTimeStamp(*PCHSourcePath);
 	auto BuildGlobalDefinesTime = FM.GetTimeStamp(*GetGlobalBuildDefinsPath());
-	auto PCHTime = FM.GetTimeStamp(*(GetPCHSourceFilePath()+TEXT(".pch")));
+	auto PCHTime = FM.GetTimeStamp(*PCHBinaryPath);
+
 	if (bForce)
 	{
-		UE_LOG(LogCling, Log, TEXT("Force generate ClingPCH.h.pch file, regenerating PCH"));
-		Cpp::CreatePCH(StringCast<ANSICHAR>(*(TEXT("@")+GetRspSavePath())).Get());
+		UE_LOG(LogCling, Log, TEXT("Force generate PCH [%s], regenerating"), *ProfileName.ToString());
+		Cpp::CreatePCH(StringCast<ANSICHAR>(*(TEXT("@") + RspPath)).Get());
 	}
 	else if (BuildGlobalDefinesTime > PCHTime || PCHSourceFileTime > PCHTime)
 	{
-		UE_LOG(LogCling, Log, TEXT("BuildGlobalDefines.h or ClingPCH.h is newer than ClingPCH.h.pch, regenerating PCH"));
-		Cpp::CreatePCH(StringCast<ANSICHAR>(*(TEXT("@")+GetRspSavePath())).Get());
+		UE_LOG(LogCling, Log, TEXT("PCH [%s] source files newer than binary, regenerating"), *ProfileName.ToString());
+		Cpp::CreatePCH(StringCast<ANSICHAR>(*(TEXT("@") + RspPath)).Get());
 	}
 	else
 	{
-		UE_LOG(LogCling, Log, TEXT("BuildGlobalDefines.h or ClingPCH.h is older than ClingPCH.h.pch, skip generate PCH"));
+		UE_LOG(LogCling, Log, TEXT("PCH [%s] is up-to-date, skip generation"), *ProfileName.ToString());
+	}
+}
+
+void UClingSetting::GenerateAllPCHProfiles(bool bForce)
+{
+	SCOPED_NAMED_EVENT(GenerateAllPCHProfiles, FColor::Orange)
+	// Generate default profile
+	if (DefaultPCHProfile.bEnabled)
+	{
+		UE_LOG(LogCling, Log, TEXT("Generating default PCH profile"));
+		GeneratePCHForProfile(TEXT("Default"), bForce);
+	}
+
+	// Generate additional profiles
+	for (const FClingPCHProfile& Profile : PCHProfiles)
+	{
+		if (Profile.bEnabled)
+		{
+			UE_LOG(LogCling, Log, TEXT("Generating PCH profile: %s"), *Profile.ProfileName.ToString());
+			GeneratePCHForProfile(Profile.ProfileName, bForce);
+		}
+		else
+		{
+			UE_LOG(LogCling, Log, TEXT("Skipping disabled PCH profile: %s"), *Profile.ProfileName.ToString());
+		}
 	}
 }
 

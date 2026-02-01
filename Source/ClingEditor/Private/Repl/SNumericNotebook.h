@@ -5,10 +5,12 @@
 #include "Widgets/DeclarativeSyntaxSupport.h"
 #include "Widgets/Input/SMultiLineEditableTextBox.h"
 #include "Widgets/Input/SButton.h"
+#include "Widgets/Input/SComboButton.h"
 #include "Widgets/Layout/SScrollBox.h"
 #include "Widgets/Layout/SBox.h"
 #include "Widgets/Text/STextBlock.h"
 #include "Widgets/Layout/SSeparator.h"
+#include "Framework/MultiBox/MultiBoxBuilder.h"
 
 #include "ClingNotebook.h"
 
@@ -110,13 +112,17 @@ private:
 
 public:
 	void SetSelectedCell(int32 Index);
-
-private:
-	// UI Update
 	void UpdateDocumentUI();
 	
-	FReply OnAddNewCellButtonClicked();
-	FReply OnRestartInterpButtonClicked();
+	// Exposed for toolbar
 	FReply OnFoldAllButtonClicked();
 	FReply OnUnfoldAllButtonClicked();
+
+private:
+	FReply OnAddNewCellButtonClicked();
+	FReply OnRestartInterpButtonClicked();
+	
+	// PCH Profile selection
+	TSharedRef<SWidget> GeneratePCHProfileMenu();
+	void OnPCHProfileSelected(FName ProfileName);
 };

@@ -1,5 +1,6 @@
 #include "SNumericNotebook.h"
 #include "ClingRuntime.h"
+#include "ClingSetting.h"
 #include "CppInterOp/CppInterOp.h"
 #include "Async/Async.h"
 
@@ -539,61 +540,34 @@ void SNumericNotebook::Construct(const FArguments& InArgs)
 						.ButtonStyle(FAppStyle::Get(), "FlatButton.Danger")
 						.IsEnabled_Lambda([this]() { return NotebookAsset ? !NotebookAsset->bIsCompiling : true; })
 					]
-
+					
+					// PCH Profile Selector
 					+SHorizontalBox::Slot()
 					.AutoWidth()
-					.Padding(5.0f, 0.0f)
+					.VAlign(EVerticalAlignment::VAlign_Center)
+					.Padding(15.0f, 0.0f, 5.0f, 0.0f)
 					[
-						SNew(SButton)
-						.Text(INVTEXT("Fold All"))
-						.OnClicked(this, &SNumericNotebook::OnFoldAllButtonClicked)
-						.ButtonStyle(FAppStyle::Get(), "SimpleButton")
+						SNew(STextBlock)
+						.Text(INVTEXT("PCH Profile:"))
 					]
-
+					
 					+SHorizontalBox::Slot()
 					.AutoWidth()
-					.Padding(5.0f, 0.0f)
 					[
-						SNew(SButton)
-						.Text(INVTEXT("Unfold All"))
-						.OnClicked(this, &SNumericNotebook::OnUnfoldAllButtonClicked)
-						.ButtonStyle(FAppStyle::Get(), "SimpleButton")
-					]
-
-					+SHorizontalBox::Slot()
-					.AutoWidth()
-					.Padding(5.0f, 0.0f)
-					[
-						SNew(SButton)
-						.Text(INVTEXT("Open in IDE"))
-						.OnClicked_Lambda([this]()
-						{
-							if (NotebookAsset)
+						SNew(SComboButton)
+						.OnGetMenuContent(this, &SNumericNotebook::GeneratePCHProfileMenu)
+						.ButtonContent()
+						[
+							SNew(STextBlock)
+							.Text_Lambda([this]()
 							{
-								NotebookAsset->OpenInIDE();
-							}
-							return FReply::Handled();
-						})
-						.ButtonStyle(FAppStyle::Get(), "SimpleButton")
-						.IsEnabled_Lambda([this]() { return NotebookAsset != nullptr; })
-					]
-
-					+SHorizontalBox::Slot()
-					.AutoWidth()
-					.Padding(5.0f, 0.0f)
-					[
-						SNew(SButton)
-						.Text(INVTEXT("Read from IDE"))
-						.OnClicked_Lambda([this]()
-						{
-							if (NotebookAsset)
-							{
-								NotebookAsset->BackFromIDE();
-							}
-							return FReply::Handled();
-						})
-						.ButtonStyle(FAppStyle::Get(), "SimpleButton")
-						.IsEnabled_Lambda([this]() { return NotebookAsset != nullptr; })
+								if (NotebookAsset && !NotebookAsset->PCHProfile.IsNone())
+								{
+									return FText::FromName(NotebookAsset->PCHProfile);
+								}
+								return INVTEXT("Default");
+							})
+						]
 					]
 					
 					+SHorizontalBox::Slot()
@@ -724,4 +698,56 @@ FReply SNumericNotebook::OnUnfoldAllButtonClicked()
 		UpdateDocumentUI();
 	}
 	return FReply::Handled();
+}
+
+TSharedRef<SWidget> SNumericNotebook::GeneratePCHProfileMenu()
+{
+	FMenuBuilder MenuBuilder(true, nullptr);
+
+	const UClingSetting* Settings = GetDefault<UClingSetting>();
+	if (!Settings)
+	{
+		return MenuBuilder.MakeWidget();
+	}
+
+	// Add Default profile
+	MenuBuilder.AddMenuEntry(
+		FText::FromName(Settings->DefaultPCHProfile.ProfileName),
+		INVTEXT("Use default PCH profile"),
+		FSlateIcon(),
+		FUIAction(
+			FExecuteAction::CreateSP(this, &SNumericNotebook::OnPCHProfileSelected, Settings->DefaultPCHProfile.ProfileName)
+		)
+	);
+
+	// Add custom profiles
+	for (const FClingPCHProfile& Profile : Settings->PCHProfiles)
+	{
+		if (Profile.bEnabled)
+		{
+			FText DisplayText = Profile.ProfileName.IsNone() 
+				? FText::FromString(TEXT("Unnamed Profile"))
+				: FText::FromName(Profile.ProfileName);
+
+			MenuBuilder.AddMenuEntry(
+				DisplayText,
+				FText::Format(INVTEXT("Use PCH profile: {0}"), DisplayText),
+				FSlateIcon(),
+				FUIAction(
+					FExecuteAction::CreateSP(this, &SNumericNotebook::OnPCHProfileSelected, Profile.ProfileName)
+				)
+			);
+		}
+	}
+
+	return MenuBuilder.MakeWidget();
+}
+
+void SNumericNotebook::OnPCHProfileSelected(FName ProfileName)
+{
+	if (NotebookAsset)
+	{
+		NotebookAsset->PCHProfile = ProfileName;
+		NotebookAsset->MarkPackageDirty();
+	}
 }

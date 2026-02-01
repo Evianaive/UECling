@@ -1,7 +1,10 @@
-﻿#include "ClingNotebookEditor.h"
+#include "ClingNotebookEditor.h"
 #include "ClingNotebook.h"
+#include "ClingSetting.h"
 #include "Repl/SNumericNotebook.h"
 #include "Widgets/Docking/SDockTab.h"
+#include "Framework/MultiBox/MultiBoxBuilder.h"
+#include "Widgets/Input/SComboButton.h"
 
 const FName ClingNotebookTabId(TEXT("ClingNotebook_Notebook"));
 const FName ClingNotebookDetailsTabId(TEXT("ClingNotebook_Details"));
@@ -32,6 +35,8 @@ void FClingNotebookEditor::InitEditor(const EToolkitMode::Type Mode, const TShar
 	);
 
 	FAssetEditorToolkit::InitAssetEditor(Mode, EditWithinLevelEditor, TEXT("ClingNotebookEditor"), StandaloneLayout, true, true, InNotebook);
+	
+	ExtendToolbar();
 }
 
 FName FClingNotebookEditor::GetToolkitFName() const
@@ -94,4 +99,102 @@ TSharedRef<SDockTab> FClingNotebookEditor::SpawnTab_Details(const FSpawnTabArgs&
 		SNew(SClingNotebookDetailsPanel)
 		.NotebookAsset(NotebookAsset)
 	];
+}
+
+void FClingNotebookEditor::ExtendToolbar()
+{
+	TSharedPtr<FExtender> ToolbarExtender = MakeShareable(new FExtender);
+
+	ToolbarExtender->AddToolBarExtension(
+		"Asset",
+		EExtensionHook::After,
+		GetToolkitCommands(),
+		FToolBarExtensionDelegate::CreateSP(this, &FClingNotebookEditor::FillToolbar)
+	);
+
+	AddToolbarExtender(ToolbarExtender);
+	RegenerateMenusAndToolbars();
+}
+
+void FClingNotebookEditor::FillToolbar(FToolBarBuilder& ToolbarBuilder)
+{
+	ToolbarBuilder.BeginSection("ClingNotebookActions");
+	{
+		ToolbarBuilder.AddToolBarButton(
+			FUIAction(
+				FExecuteAction::CreateSP(this, &FClingNotebookEditor::OnFoldAll),
+				FCanExecuteAction::CreateLambda([this]() { return NotebookAsset != nullptr; })
+			),
+			NAME_None,
+			INVTEXT("Fold All"),
+			INVTEXT("Fold all cells"),
+			FSlateIcon()
+		);
+
+		ToolbarBuilder.AddToolBarButton(
+			FUIAction(
+				FExecuteAction::CreateSP(this, &FClingNotebookEditor::OnUnfoldAll),
+				FCanExecuteAction::CreateLambda([this]() { return NotebookAsset != nullptr; })
+			),
+			NAME_None,
+			INVTEXT("Unfold All"),
+			INVTEXT("Unfold all cells"),
+			FSlateIcon()
+		);
+
+		ToolbarBuilder.AddToolBarButton(
+			FUIAction(
+				FExecuteAction::CreateSP(this, &FClingNotebookEditor::OnOpenInIDE),
+				FCanExecuteAction::CreateLambda([this]() { return NotebookAsset != nullptr; })
+			),
+			NAME_None,
+			INVTEXT("Open in IDE"),
+			INVTEXT("Open notebook file in IDE"),
+			FSlateIcon()
+		);
+
+		ToolbarBuilder.AddToolBarButton(
+			FUIAction(
+				FExecuteAction::CreateSP(this, &FClingNotebookEditor::OnReadFromIDE),
+				FCanExecuteAction::CreateLambda([this]() { return NotebookAsset != nullptr; })
+			),
+			NAME_None,
+			INVTEXT("Read from IDE"),
+			INVTEXT("Read changes from IDE"),
+			FSlateIcon()
+		);
+	}
+	ToolbarBuilder.EndSection();
+}
+
+void FClingNotebookEditor::OnFoldAll()
+{
+	if (NotebookWidget.IsValid())
+	{
+		NotebookWidget->OnFoldAllButtonClicked();
+	}
+}
+
+void FClingNotebookEditor::OnUnfoldAll()
+{
+	if (NotebookWidget.IsValid())
+	{
+		NotebookWidget->OnUnfoldAllButtonClicked();
+	}
+}
+
+void FClingNotebookEditor::OnOpenInIDE()
+{
+	if (NotebookAsset)
+	{
+		NotebookAsset->OpenInIDE();
+	}
+}
+
+void FClingNotebookEditor::OnReadFromIDE()
+{
+	if (NotebookAsset)
+	{
+		NotebookAsset->BackFromIDE();
+	}
 }

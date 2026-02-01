@@ -164,6 +164,10 @@ public:
 	UPROPERTY(Transient)
 	int32 SelectedCellIndex = -1;
 
+	/** PCH Profile to use for this notebook's interpreter */
+	UPROPERTY(EditAnywhere, Category = "Cling")
+	FName PCHProfile{ TEXT("Default") };
+
 	DECLARE_MULTICAST_DELEGATE_OneParam(FOnCellSelectionChanged, int32);
 	FOnCellSelectionChanged OnCellSelectionChanged;
 

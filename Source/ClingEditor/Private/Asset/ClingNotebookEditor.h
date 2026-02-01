@@ -1,7 +1,8 @@
-﻿#pragma once
+#pragma once
 
 #include "CoreMinimal.h"
 #include "Toolkits/AssetEditorToolkit.h"
+#include "Framework/MultiBox/MultiBoxBuilder.h"
 
 class UClingNotebook;
 
@@ -22,6 +23,16 @@ public:
 private:
 	TSharedRef<SDockTab> SpawnTab_Notebook(const FSpawnTabArgs& Args);
 	TSharedRef<SDockTab> SpawnTab_Details(const FSpawnTabArgs& Args);
+
+	// Toolbar
+	void ExtendToolbar();
+	void FillToolbar(FToolBarBuilder& ToolbarBuilder);
+	
+	// Toolbar Actions
+	void OnFoldAll();
+	void OnUnfoldAll();
+	void OnOpenInIDE();
+	void OnReadFromIDE();
 
 	UClingNotebook* NotebookAsset;
 	TSharedPtr<class SNumericNotebook> NotebookWidget;

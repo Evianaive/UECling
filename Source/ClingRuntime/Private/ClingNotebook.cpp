@@ -5,6 +5,7 @@
 #include "Modules/ModuleManager.h"
 #include "Async/Async.h"
 #include "HAL/FileManager.h"
+#include "Interfaces/IPluginManager.h"
 #include "Misc/FileHelper.h"
 #include "Misc/Guid.h"
 #include "Misc/Paths.h"
@@ -20,6 +21,12 @@
 
 namespace ClingNotebookFile
 {
+	FString GetPluginDir()
+	{
+		static FString PluginDir = FPaths::ConvertRelativePathToFull(IPluginManager::Get().FindPlugin(UE_PLUGIN_NAME)->GetBaseDir());
+		return PluginDir;
+	}
+	
 	FString NormalizeIncludePath(FString Path)
 	{
 		Path.ReplaceCharInline(TEXT('\\'), TEXT('/'));
@@ -28,9 +35,7 @@ namespace ClingNotebookFile
 
 	FString GetNotebookDir()
 	{
-		const FString PCHPath = UClingSetting::GetPCHSourceFilePath();
-		const FString PluginDir = FPaths::GetPath(PCHPath);
-		return PluginDir / TEXT("Source/ClingScript/Private/Notebook");
+		return GetPluginDir() / TEXT("Source/ClingScript/Private/Notebook");
 	}
 
 	FString GetNotebookFilePath(const UClingNotebook* Notebook)
@@ -55,7 +60,12 @@ namespace ClingNotebookFile
 			}
 		};
 
-		FString PCHIncludePath = NormalizeIncludePath(UClingSetting::GetPCHSourceFilePath());
+		FString PCHIncludePath;
+		{
+			const UClingSetting* Setting = GetDefault<UClingSetting>();
+			const FClingPCHProfile& DefaultProfile = Setting->GetProfile(Notebook->PCHProfile);
+			PCHIncludePath = NormalizeIncludePath(DefaultProfile.GetPCHHeaderPath());
+		}
 		AppendWithLineCount(TEXT("#if !defined(COMPILE)\n"));
 		AppendWithLineCount(FString::Printf(TEXT("#include \"%s\"\n"), *PCHIncludePath));
 		AppendWithLineCount(TEXT("#endif\n\n"));
@@ -870,7 +880,7 @@ void* UClingNotebook::GetInterpreter()
 {
 	if (!Interpreter)
 	{
-		Interpreter = FClingRuntimeModule::Get().StartNewInterp();
+		Interpreter = FClingRuntimeModule::Get().StartNewInterp(PCHProfile);
 	}
 	return Interpreter;
 }
@@ -907,7 +917,10 @@ TFuture<FClingInterpreterResult> UClingNotebook::StartInterpreterAsync()
 	// Start interpreter creation on background thread
 	AsyncTask(ENamedThreads::AnyBackgroundThreadNormalTask, [WeakThis, PromiseCapture]()
 	{
-		void* NewInterpreter = FClingRuntimeModule::Get().StartNewInterp();
+		UClingNotebook* NotebookPtr = WeakThis.Get();
+		FName ProfileName = NotebookPtr ? NotebookPtr->PCHProfile : TEXT("Default");
+		
+		void* NewInterpreter = FClingRuntimeModule::Get().StartNewInterp(ProfileName);
 
 		// Return to game thread to set the interpreter and fulfill promise
 		AsyncTask(ENamedThreads::GameThread, [WeakThis, PromiseCapture, NewInterpreter]()
@@ -1061,7 +1074,7 @@ void UClingNotebook::RestartInterpreter()
 	{
 		FClingRuntimeModule::Get().DeleteInterp(Interpreter);
 	}
-	Interpreter = FClingRuntimeModule::Get().StartNewInterp();
+	Interpreter = FClingRuntimeModule::Get().StartNewInterp(PCHProfile);
 
 	// Reset status for all cells
 	for (auto& Cell : Cells)

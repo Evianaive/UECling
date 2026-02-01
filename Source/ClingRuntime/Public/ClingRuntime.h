@@ -24,7 +24,7 @@ public:
 	TArray<void*> Interps;
 
 	void* GetInterp(int Version=0);
-	void* StartNewInterp();
+	void* StartNewInterp(FName PCHProfile = TEXT("Default"));
 	void DeleteInterp(void* CurrentInterp);
 	static FClingRuntimeModule& Get();
 
@@ -32,7 +32,7 @@ public:
 	FCriticalSection& GetCppInterOpLock() { return CppInterOpLock; }
 
 private:
-	void* StartInterpreterInternal();
+	void* StartInterpreterInternal(FName PCHProfile = TEXT("Default"));
 
 	FCriticalSection CppInterOpLock;
 };
