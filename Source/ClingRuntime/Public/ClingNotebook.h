@@ -175,6 +175,7 @@ public:
 
 	// Compilation state
 	bool bIsCompiling = false;
+	bool bIsInitializingInterpreter = false;  // Exposed for UI
 	TSet<int32> CompilingCells;
 	TArray<int32> ExecutionQueue;
 	bool bIsProcessingQueue = false;
@@ -195,6 +196,7 @@ private:
 
 	// Shared promise for interpreter initialization (allows multiple waiters)
 	TSharedPtr<TPromise<FClingInterpreterResult>> InterpreterPromise;
+
 public:
 	// Cell Management
 	void AddNewCell(int32 InIndex = -1);
@@ -221,5 +223,4 @@ public:
 
 private:
 	void* Interpreter = nullptr;
-	bool bIsInitializingInterpreter = false;
 };

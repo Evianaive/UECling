@@ -77,20 +77,32 @@ void SClingNotebookCell::UpdateCellUI()
 				.Padding(5, 0)
 				[
 					SNew(STextBlock)
-					.Text(INVTEXT("Code"))
-					.ColorAndOpacity(FSlateColor(FLinearColor(0.7f, 0.7f, 1.0f, 1.0f)))
-				]
-				
-				// 完成标记
-				+SHorizontalBox::Slot()
-				.AutoWidth()
-				.VAlign(VAlign_Center)
-				.Padding(5, 0)
-				[
-					SNew(STextBlock)
-					.Text(INVTEXT("[Completed]"))
-					.ColorAndOpacity(FLinearColor::Green)
-					.Visibility_Lambda([this]() { return (CellData->CompilationState == EClingCellCompilationState::Completed) ? EVisibility::Visible : EVisibility::Collapsed; })
+					.Text_Lambda([this]() {
+						switch (CellData->CompilationState)
+						{
+						case EClingCellCompilationState::Idle:
+							return INVTEXT("[Idle]");
+						case EClingCellCompilationState::Compiling:
+							return INVTEXT("[Compiling]");
+						case EClingCellCompilationState::Completed:
+							return INVTEXT("[Completed]");
+						default:
+							return INVTEXT("[Unknown]");
+						}
+					})
+					.ColorAndOpacity_Lambda([this]() {
+						switch (CellData->CompilationState)
+						{
+						case EClingCellCompilationState::Idle:
+							return FSlateColor(FLinearColor(0.7f, 0.7f, 0.7f, 1.0f));
+						case EClingCellCompilationState::Compiling:
+							return FSlateColor(FLinearColor::Yellow);
+						case EClingCellCompilationState::Completed:
+							return FSlateColor(FLinearColor::Green);
+						default:
+							return FSlateColor(FLinearColor::White);
+						}
+					})
 				]
 				
 				// 编译中标记
@@ -567,6 +579,35 @@ void SNumericNotebook::Construct(const FArguments& InArgs)
 								}
 								return INVTEXT("Default");
 							})
+						]
+					]
+										
+					// Interpreter Initialization Status
+					+SHorizontalBox::Slot()
+					.AutoWidth()
+					.VAlign(EVerticalAlignment::VAlign_Center)
+					.Padding(15.0f, 0.0f, 0.0f, 0.0f)
+					[
+						SNew(SHorizontalBox)
+						.Visibility_Lambda([this]() { 
+							return (NotebookAsset && NotebookAsset->bIsInitializingInterpreter) 
+								? EVisibility::Visible 
+								: EVisibility::Collapsed; 
+						})
+						+SHorizontalBox::Slot()
+						.AutoWidth()
+						[
+							SNew(SThrobber)
+							.NumPieces(5)
+						]
+						+SHorizontalBox::Slot()
+						.AutoWidth()
+						.Padding(8.0f, 0.0f)
+						[
+							SNew(STextBlock)
+							.Text(INVTEXT("Initializing Interpreter..."))
+							.ColorAndOpacity(FLinearColor(0.5f, 0.8f, 1.0f, 1.0f))
+							.Font(FAppStyle::Get().GetFontStyle("NormalFontBold"))
 						]
 					]
 					
