@@ -29,7 +29,8 @@ public class ClingEditor : ModuleRules
                 "DeveloperSettings", 
                 "ClingKismet",
                 "ClingScript",
-                "InputCore"
+                "InputCore",
+                "ClingSourceAccess"
             }
         );
     }

@@ -39,6 +39,11 @@
 			"Name": "ClingLoadModule",
 			"Type": "Editor",
 			"LoadingPhase": "EarliestPossible"
+		},
+		{
+			"Name": "ClingSourceAccess",
+			"Type": "Developer",
+			"LoadingPhase": "Default"
 		}
 	]
 }

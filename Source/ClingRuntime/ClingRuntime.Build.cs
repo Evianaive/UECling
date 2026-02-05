@@ -70,7 +70,7 @@ public class ClingRuntime : ModuleRules
 			PrivateDependencyModuleNames.AddRange(
 				new string[]
 				{
-					"SourceCodeAccess"
+					"ClingSourceAccess"
 				}
 			);
 		}

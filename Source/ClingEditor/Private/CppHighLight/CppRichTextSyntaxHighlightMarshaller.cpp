@@ -11,7 +11,7 @@
 #include "Misc/Paths.h"
 #include "ClingSetting.h"
 #include "HAL/FileManager.h"
-#include "HAL/PlatformProcess.h"
+#include "ClingSourceAccess.h"
 
 // Initialize static cache
 TMap<FString, FString> FCppRichTextSyntaxHighlightMarshaller::IncludePathCache;
@@ -859,16 +859,7 @@ FString FCppRichTextSyntaxHighlightMarshaller::FindIncludeFilePath(const FString
 
 void FCppRichTextSyntaxHighlightMarshaller::OpenFileWithEditor(const FString& FilePath)
 {
-	// Open with default editor (typically notepad on Windows)
-	FString NormalizedPath = FilePath;
-	FPaths::NormalizeFilename(NormalizedPath);
-	
-#if PLATFORM_WINDOWS
-	FPlatformProcess::LaunchFileInDefaultExternalApplication(*NormalizedPath, nullptr, ELaunchVerb::Edit);
-#else
-	// On other platforms, try to open with default editor
-	FPlatformProcess::LaunchFileInDefaultExternalApplication(*NormalizedPath);
-#endif
-
-	UE_LOG(LogTemp, Log, TEXT("Opening include file: %s"), *NormalizedPath);
+	// Use ClingSourceAccess module's EnsureFileOpenInIDE
+	// It will check file existence, try IDE first, then fallback to notepad if needed
+	FClingSourceAccessModule::EnsureFileOpenInIDE(FilePath, 1);
 }

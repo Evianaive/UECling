@@ -1,4 +1,4 @@
-﻿// Fill out your copyright notice in the Description page of Project Settings.
+// Fill out your copyright notice in the Description page of Project Settings.
 
 
 #include "K2Node_ExecuteCppScript.h"
@@ -20,8 +20,7 @@
 
 #include "ClingScriptMarks.h"
 #include "ClingSetting.h"
-#include "ISourceCodeAccessModule.h"
-#include "ISourceCodeAccessor.h"
+#include "ClingSourceAccess.h"
 #include "Editor/BlueprintGraph/Private/CallFunctionHandler.cpp"
 #include "Editor/BlueprintGraph/Private/PushModelHelpers.cpp"
 #if ENGINE_MAJOR_VERSION==5 && ENGINE_MINOR_VERSION>2
@@ -337,91 +336,75 @@ bool UK2Node_ExecuteCppScript::IsCurrentGuidCompiled() const
 
 void UK2Node_ExecuteCppScript::OpenInIDE()
 {
-	struct FEnsureOpenInIDE
+	auto CountLinesInFString = [](const FString& InString)
 	{
-		FEnsureOpenInIDE(UK2Node_ExecuteCppScript* InSelf)
-			:Self(InSelf){}
-		~FEnsureOpenInIDE()
+		int32 LineCount = 1; 
+		for (TCHAR Ch : InString)
 		{
-			auto CountLinesInFString = [](const FString& InString)
+			if (Ch == TEXT('\n'))
 			{
-				int32 LineCount = 1; 
-				for (TCHAR Ch : InString)
-				{
-					if (Ch == TEXT('\n'))
-					{
-						LineCount++;
-					}
-				}
-				return LineCount;
-			};
-			FString File;
-			if(bRegenerated)
-			{
-				FString NewCode = Self->GenerateCode(true);
-				File = Self->GetTempFilePath();
-				FFileHelper::SaveStringToFile(NewCode,*File);
-			}
-			else
-			{
-				File = Self->GetTempFilePath();
-			}			
-			int32 Line = CountLinesInFString(Self->Includes)+1;
-			ISourceCodeAccessModule& SourceCodeAccessModule = FModuleManager::LoadModuleChecked<ISourceCodeAccessModule>("SourceCodeAccess");
-			ISourceCodeAccessor& SourceCodeAccessor = SourceCodeAccessModule.GetAccessor();
-			if (FPaths::FileExists(File))
-			{
-				// Todo IDE like rider will not include this file in solution automatically
-				SourceCodeAccessor.OpenFileAtLine(File, Line);
-				Self->bFileOpenedInIDE = true;
-				// Todo check if this is right
-				Self->Modify();
-#if ENGINE_MAJOR_VERSION==5 && ENGINE_MINOR_VERSION>2
-				Self->GetGraph()->NotifyNodeChanged(Self);
-#else
-				Self->GetGraph()->NotifyGraphChanged();
-#endif
-			}
-			else
-			{
-				if(bRegenerated)
-				{
-					// Todo tell user that file is not generated rightly!
-				}
-				// Todo change to display a model window
-				SourceCodeAccessModule.OnOpenFileFailed().Broadcast(File);
+				LineCount++;
 			}
 		}
-		UK2Node_ExecuteCppScript* Self;
-		bool bRegenerated{false};
-		TSharedPtr<SWidget> WidgetToShow;
+		return LineCount;
 	};
-	FEnsureOpenInIDE EnsureOpenInIDE{this};
+	
+	// Setup file opener that will open file when scope exits
+	FClingSourceFileOpener FileOpener;
+	bool bRegenerated = false;
+	
 	// We always need to create a new file if file is compiled(included)!
 	bool bFunctionCompiled = IsCurrentGuidCompiled();
 	bool bOpenedInIDE = IsOpenedInIDE();
 	
 	ensureMsgf(!(bFunctionCompiled&&bOpenedInIDE),TEXT("Function should be compiled when code is write back from IDE"));
 
-	FString NewCode;
 	if(bFunctionCompiled)
 	{
-		EnsureOpenInIDE.bRegenerated = true;
-		return;
+		bRegenerated = true;
 	}
-	// We dont need to check whether file exist
-	FString File = GetTempFilePath();
-	if(!FPaths::FileExists(File))
+	else
 	{
-		if(bOpenedInIDE)
+		// We dont need to check whether file exist
+		FString File = GetTempFilePath();
+		if(!FPaths::FileExists(File))
 		{
-			// Show UI to tell user the temp file should not be deleted
-			// EnsureOpenInIDE.WidgetToShow;
-			return;
+			if(bOpenedInIDE)
+			{
+				// Show UI to tell user the temp file should not be deleted
+				// Skip opening in this case
+				FileOpener.bSkipOpening = true;
+				return;
+			}
+			bRegenerated = true;
 		}
-		EnsureOpenInIDE.bRegenerated = true;
-		return;
 	}
+	
+	// Generate file if needed
+	if(bRegenerated)
+	{
+		FString NewCode = GenerateCode(true);
+		FileOpener.FilePath = GetTempFilePath();
+		FFileHelper::SaveStringToFile(NewCode, *FileOpener.FilePath);
+	}
+	else
+	{
+		FileOpener.FilePath = GetTempFilePath();
+	}
+	
+	// Calculate line number to open
+	FileOpener.LineNumber = CountLinesInFString(Includes) + 1;
+	
+	// Mark as opened in IDE
+	bFileOpenedInIDE = true;
+	Modify();
+#if ENGINE_MAJOR_VERSION==5 && ENGINE_MINOR_VERSION>2
+	GetGraph()->NotifyNodeChanged(this);
+#else
+	GetGraph()->NotifyGraphChanged();
+#endif
+	
+	// File will be opened automatically when FileOpener goes out of scope
 }
 
 void UK2Node_ExecuteCppScript::BackFromIDE()

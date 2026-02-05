@@ -11,8 +11,7 @@
 #include "Misc/Paths.h"
 
 #if WITH_EDITOR
-#include "ISourceCodeAccessModule.h"
-#include "ISourceCodeAccessor.h"
+#include "ClingSourceAccess.h"
 #include "Internationalization/Regex.h"
 #include "Misc/MessageDialog.h"
 #include "UObject/Class.h"
@@ -1335,34 +1334,8 @@ bool UClingNotebook::IsCellAddableBelow(int32 Index) const
 #if WITH_EDITOR
 void UClingNotebook::OpenInIDE()
 {
-	struct FEnsureOpenInIDE
-	{
-		~FEnsureOpenInIDE()
-		{
-			if (FilePath.IsEmpty())
-			{
-				return;
-			}
-
-			ISourceCodeAccessModule& SourceCodeAccessModule = FModuleManager::LoadModuleChecked<ISourceCodeAccessModule>("SourceCodeAccess");
-			ISourceCodeAccessor& SourceCodeAccessor = SourceCodeAccessModule.GetAccessor();
-			if (FPaths::FileExists(FilePath))
-			{
-				SourceCodeAccessor.OpenFileAtLine(FilePath, Line);
-			}
-			else
-			{
-				SourceCodeAccessModule.OnOpenFileFailed().Broadcast(FilePath);
-			}
-		}
-
-		FString FilePath;
-		int32 Line = 1;
-	};
-
-	FEnsureOpenInIDE EnsureOpenInIDE;
-
-	ClingNotebookFile::WriteNotebookFile(this, EnsureOpenInIDE.FilePath, &EnsureOpenInIDE.Line);
+	FClingSourceFileOpener FileOpener;
+	ClingNotebookFile::WriteNotebookFile(this, FileOpener.FilePath, &FileOpener.LineNumber);
 }
 
 void UClingNotebook::BackFromIDE()
