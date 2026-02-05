@@ -1,9 +1,10 @@
-﻿// Copyright Epic Games, Inc. All Rights Reserved.
+// Copyright Epic Games, Inc. All Rights Reserved.
 #pragma once
 
 #include "CodeEditorStyle.h"
 #include "SyntaxTextStyle.h"
 #include "Framework/Text/SyntaxHighlighterTextLayoutMarshaller.h"
+#include "Framework/Text/SlateHyperlinkRun.h"
 
 namespace Cpp {
 	typedef void* TInterp_t;
@@ -39,4 +40,37 @@ protected:
 	TSet<FString> KnownTypes;
 	TSet<FString> KnownEnums;
 	TSet<FString> KnownNamespaces;
+
+private:
+	/** Structure to hold include statement information */
+	struct FIncludeStatementInfo
+	{
+		FString FullIncludePath;      // The complete file path
+		FString DisplayIncludePath;   // The path as shown in code (without quotes/brackets)
+		bool bIsSystemInclude;        // True if using <>, false if using ""
+		
+		FIncludeStatementInfo() : bIsSystemInclude(false) {}
+	};
+	
+	/** Create hyperlink run for include file paths */
+	TSharedRef<FSlateHyperlinkRun> CreateIncludeHyperlinkRun(
+		const FRunInfo& InRunInfo,
+		const TSharedRef<const FString>& InText,
+		const FTextRange& InRange,
+		const FIncludeStatementInfo& IncludeInfo) const;
+	
+	/** Callback when include hyperlink is clicked */
+	static void OnIncludeClicked(const FSlateHyperlinkRun::FMetadata& Metadata, FString FullPath);
+	
+	/** Get tooltip text for include hyperlink */
+	static FText GetIncludeTooltip(const FSlateHyperlinkRun::FMetadata& Metadata, FString FullPath);
+	
+	/** Find the full path to an included file */
+	static FString FindIncludeFilePath(const FString& IncludePath);
+	
+	/** Open file with default editor */
+	static void OpenFileWithEditor(const FString& FilePath);
+	
+	/** Cache for found file paths to improve performance */
+	static TMap<FString, FString> IncludePathCache;
 };

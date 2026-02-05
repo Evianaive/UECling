@@ -1,15 +1,20 @@
-﻿// Copyright Epic Games, Inc. All Rights Reserved.
-
 #include "CppHighLight/CppRichTextSyntaxHighlightMarshaller.h"
 // #include "WhiteSpaceTextRun.h"
 
 #include "Framework/Text/SlateTextRun.h"
+#include "Framework/Text/SlateHyperlinkRun.h"
 #include "Fonts/FontMeasure.h"
 #include "ClingRuntime.h"
 #include "CppInterOp/CppInterOp.h"
 #include "UObject/UObjectIterator.h"
 #include "Internationalization/Regex.h"
 #include "Misc/Paths.h"
+#include "ClingSetting.h"
+#include "HAL/FileManager.h"
+#include "HAL/PlatformProcess.h"
+
+// Initialize static cache
+TMap<FString, FString> FCppRichTextSyntaxHighlightMarshaller::IncludePathCache;
 
 struct FRunInfo;
 
@@ -281,6 +286,7 @@ void FCppRichTextSyntaxHighlightMarshaller::ParseTokens(const FString& SourceStr
 		LookingForCharacter,
 		LookingForSingleLineComment,
 		LookingForMultiLineComment,
+		LookingForIncludePath,  // New state for #include path
 	};
 
 	TArray<FTextLayout::FNewLineData> LinesToAdd;
@@ -288,6 +294,10 @@ void FCppRichTextSyntaxHighlightMarshaller::ParseTokens(const FString& SourceStr
 
 	// Parse the tokens, generating the styled runs for each line
 	EParseState ParseState = EParseState::None;
+	bool bIsIncludeLine = false;  // Track if current line is #include
+	FString CurrentIncludePath;   // Buffer to collect include path during parsing
+	int32 IncludePathStartIndex = -1;  // Track where include path starts in ModelString
+	
 	for(const ISyntaxTokenizer::FTokenizedLine& TokenizedLine : TokenizedLines)
 	{
 		TSharedRef<FString> ModelString = MakeShareable(new FString());
@@ -298,6 +308,9 @@ void FCppRichTextSyntaxHighlightMarshaller::ParseTokens(const FString& SourceStr
 			ParseState = EParseState::None;
 		}
 
+		// Reset include line flag at start of each line
+		bIsIncludeLine = false;
+		
 		for(const ISyntaxTokenizer::FToken& Token : TokenizedLine.Tokens)
 		{
 			const FString TokenText = SourceString.Mid(Token.Range.BeginIndex, Token.Range.Len());
@@ -316,9 +329,21 @@ void FCppRichTextSyntaxHighlightMarshaller::ParseTokens(const FString& SourceStr
 				{
 					if(ParseState == EParseState::None && TokenText == TEXT("\""))
 					{
-						RunInfo.Name = TEXT("SyntaxHighlight.CPP.String");
-						TextBlockStyle = SyntaxTextStyle.StringTextStyle;
-						ParseState = EParseState::LookingForString;
+						// Check if this is an include path
+						if (bIsIncludeLine)
+						{
+							ParseState = EParseState::LookingForIncludePath;
+							CurrentIncludePath.Empty();
+							IncludePathStartIndex = ModelString->Len(); // Record start position
+							RunInfo.Name = TEXT("SyntaxHighlight.CPP.String");
+							TextBlockStyle = SyntaxTextStyle.StringTextStyle;
+						}
+						else
+						{
+							RunInfo.Name = TEXT("SyntaxHighlight.CPP.String");
+							TextBlockStyle = SyntaxTextStyle.StringTextStyle;
+							ParseState = EParseState::LookingForString;
+						}
 						bHasMatchedSyntax = true;
 					}
 					else if(ParseState == EParseState::LookingForString && TokenText == TEXT("\""))
@@ -327,14 +352,44 @@ void FCppRichTextSyntaxHighlightMarshaller::ParseTokens(const FString& SourceStr
 						TextBlockStyle = SyntaxTextStyle.StringTextStyle;
 						ParseState = EParseState::None;
 					}
-					else if(ParseState == EParseState::None && TokenText == TEXT("\'"))
+					else if(ParseState == EParseState::LookingForIncludePath && TokenText == TEXT("\""))
+					{
+						// End of include path - create hyperlink for the entire collected path
+						// Find the complete file path only once at the end
+						FString FullPath = FindIncludeFilePath(CurrentIncludePath);
+						
+						FIncludeStatementInfo IncludeInfo;
+						IncludeInfo.DisplayIncludePath = CurrentIncludePath;
+						IncludeInfo.FullIncludePath = FullPath;
+						IncludeInfo.bIsSystemInclude = false;
+						
+						UE_LOG(LogTemp, Log, TEXT("Creating hyperlink for complete include path: '%s' -> '%s'"), 
+							*CurrentIncludePath, *FullPath);
+						
+						// Create hyperlink run for the collected path range (not including quotes)
+						FTextRange PathRange(IncludePathStartIndex, ModelString->Len());
+						FRunInfo HyperlinkRunInfo(TEXT("SyntaxHighlight.CPP.IncludeHyperlink"));
+						TSharedRef<FSlateHyperlinkRun> HyperlinkRun = CreateIncludeHyperlinkRun(
+							HyperlinkRunInfo, ModelString, PathRange, IncludeInfo);
+						Runs.Add(HyperlinkRun);
+						
+						// Now add the closing quote as a regular string run
+						RunInfo.Name = TEXT("SyntaxHighlight.CPP.String");
+						TextBlockStyle = SyntaxTextStyle.StringTextStyle;
+						
+						// Reset for next include
+						CurrentIncludePath.Empty();
+						IncludePathStartIndex = -1;
+						ParseState = EParseState::None;
+					}
+					else if(ParseState == EParseState::None && TokenText == TEXT("'"))
 					{
 						RunInfo.Name = TEXT("SyntaxHighlight.CPP.String");
 						TextBlockStyle = SyntaxTextStyle.StringTextStyle;
 						ParseState = EParseState::LookingForCharacter;
 						bHasMatchedSyntax = true;
 					}
-					else if(ParseState == EParseState::LookingForCharacter && TokenText == TEXT("\'"))
+					else if(ParseState == EParseState::LookingForCharacter && TokenText == TEXT("'"))
 					{
 						RunInfo.Name = TEXT("SyntaxHighlight.CPP.Normal");
 						TextBlockStyle = SyntaxTextStyle.StringTextStyle;
@@ -342,8 +397,52 @@ void FCppRichTextSyntaxHighlightMarshaller::ParseTokens(const FString& SourceStr
 					}
 					else if(ParseState == EParseState::None && TokenText.StartsWith(TEXT("#")))
 					{
+						// Check if this is #include
+						if (TokenText == TEXT("#include"))
+						{
+							bIsIncludeLine = true;
+						}
 						RunInfo.Name = TEXT("SyntaxHighlight.CPP.PreProcessorKeyword");
 						TextBlockStyle = SyntaxTextStyle.PreProcessorKeywordTextStyle;
+						ParseState = EParseState::None;
+					}
+					else if(ParseState == EParseState::None && TokenText == TEXT("<") && bIsIncludeLine)
+					{
+						// Start of system include <...>
+						ParseState = EParseState::LookingForIncludePath;
+						CurrentIncludePath.Empty();
+						IncludePathStartIndex = ModelString->Len(); // Record start position
+						RunInfo.Name = TEXT("SyntaxHighlight.CPP.String");
+						TextBlockStyle = SyntaxTextStyle.StringTextStyle;
+					}
+					else if(ParseState == EParseState::LookingForIncludePath && TokenText == TEXT(">"))
+					{
+						// End of system include - create hyperlink for the entire collected path
+						// Find the complete file path only once at the end
+						FString FullPath = FindIncludeFilePath(CurrentIncludePath);
+											
+						FIncludeStatementInfo IncludeInfo;
+						IncludeInfo.DisplayIncludePath = CurrentIncludePath;
+						IncludeInfo.FullIncludePath = FullPath;
+						IncludeInfo.bIsSystemInclude = true;
+											
+						UE_LOG(LogTemp, Log, TEXT("Creating hyperlink for system include path: '%s' -> '%s'"), 
+							*CurrentIncludePath, *FullPath);
+											
+						// Create hyperlink run for the collected path range (not including brackets)
+						FTextRange PathRange(IncludePathStartIndex, ModelString->Len());
+						FRunInfo HyperlinkRunInfo(TEXT("SyntaxHighlight.CPP.IncludeHyperlink"));
+						TSharedRef<FSlateHyperlinkRun> HyperlinkRun = CreateIncludeHyperlinkRun(
+							HyperlinkRunInfo, ModelString, PathRange, IncludeInfo);
+						Runs.Add(HyperlinkRun);
+											
+						// Now add the closing bracket as a regular string run
+						RunInfo.Name = TEXT("SyntaxHighlight.CPP.String");
+						TextBlockStyle = SyntaxTextStyle.StringTextStyle;
+						
+						// Reset for next include
+						CurrentIncludePath.Empty();
+						IncludePathStartIndex = -1;
 						ParseState = EParseState::None;
 					}
 					else if(ParseState == EParseState::None && TokenText == TEXT("//"))
@@ -386,6 +485,13 @@ void FCppRichTextSyntaxHighlightMarshaller::ParseTokens(const FString& SourceStr
 					{
 						RunInfo.Name = TEXT("SyntaxHighlight.CPP.String");
 						TextBlockStyle = SyntaxTextStyle.StringTextStyle;
+					}
+					else if(ParseState == EParseState::LookingForIncludePath)
+					{
+						// Collect the path token into buffer, don't create run yet
+						CurrentIncludePath += TokenText;
+						// Skip creating run for this token, will be created at closing quote/bracket
+						continue;
 					}
 					else if(ParseState == EParseState::LookingForCharacter)
 					{
@@ -607,4 +713,162 @@ FString FCppRichTextSyntaxHighlightMarshaller::TryFixIncludes(const FString& InC
 	}
 
 	return FString::Join(Lines, TEXT("\n"));
+}
+
+TSharedRef<FSlateHyperlinkRun> FCppRichTextSyntaxHighlightMarshaller::CreateIncludeHyperlinkRun(
+	const FRunInfo& InRunInfo,
+	const TSharedRef<const FString>& InText,
+	const FTextRange& InRange,
+	const FIncludeStatementInfo& IncludeInfo) const
+{
+	// Create a custom hyperlink style with improved visual appearance
+	// Following UE's official pattern from TestStyle.cpp
+	
+	// Create transparent button style for hyperlink underline
+	FButtonStyle HyperlinkButtonStyle = FButtonStyle()
+		.SetNormal(FSlateNoResource())
+		.SetPressed(FSlateNoResource())
+		.SetHovered(FSlateNoResource());
+	
+	FHyperlinkStyle HyperlinkStyle = FHyperlinkStyle()
+		.SetUnderlineStyle(HyperlinkButtonStyle)  // Use transparent underline
+		.SetTextStyle(SyntaxTextStyle.StringTextStyle)
+		.SetPadding(FMargin(0.0f));
+	
+	// Enhance the hyperlink appearance
+	// Blue color with emphasis
+	HyperlinkStyle.TextStyle.ColorAndOpacity = FLinearColor(0.2f, 0.5f, 0.9f, 1.0f); // Richer blue
+	HyperlinkStyle.TextStyle.Font.Size += 1; // Slightly larger font
+	
+	// Create the navigate delegate - this will be called when user clicks the hyperlink
+	FSlateHyperlinkRun::FOnClick OnClickDelegate = FSlateHyperlinkRun::FOnClick::CreateStatic(
+		&FCppRichTextSyntaxHighlightMarshaller::OnIncludeClicked, IncludeInfo.FullIncludePath);
+	
+	// Create tooltip delegate
+	FSlateHyperlinkRun::FOnGetTooltipText TooltipTextDelegate = FSlateHyperlinkRun::FOnGetTooltipText::CreateStatic(
+		&FCppRichTextSyntaxHighlightMarshaller::GetIncludeTooltip, IncludeInfo.FullIncludePath);
+	
+	// Create the hyperlink run
+	return FSlateHyperlinkRun::Create(
+		InRunInfo,
+		InText,
+		HyperlinkStyle,
+		OnClickDelegate,
+		FSlateHyperlinkRun::FOnGenerateTooltip(), // No custom tooltip widget
+		TooltipTextDelegate,
+		InRange);
+}
+
+void FCppRichTextSyntaxHighlightMarshaller::OnIncludeClicked(const FSlateHyperlinkRun::FMetadata& Metadata, FString FullPath)
+{
+	
+	if (FullPath.IsEmpty())
+	{
+		// Show error message when file is not found
+		UE_LOG(LogTemp, Warning, TEXT("Include file not found: %s"), *FullPath);
+		
+		// TODO: Could show a notification to user instead of just logging
+		// FMessageDialog::Open(EAppMsgType::Ok, FText::Format(
+		// 	NSLOCTEXT("CppHighlight", "FileNotFound", "Could not find include file: {0}"), 
+		// 	FText::FromString(FullPath)));
+		return;
+	}
+	
+	OpenFileWithEditor(FullPath);
+}
+
+FText FCppRichTextSyntaxHighlightMarshaller::GetIncludeTooltip(const FSlateHyperlinkRun::FMetadata& Metadata, FString FullPath)
+{
+	// Don't check file existence here to avoid performance issues during editing
+	// Just show the include path - file validation will happen on click
+	return FText::Format(NSLOCTEXT("CppHighlight", "IncludeTooltip", "Click to open: {0}"),
+		FText::FromString(FullPath));
+}
+
+FString FCppRichTextSyntaxHighlightMarshaller::FindIncludeFilePath(const FString& IncludePath)
+{
+	UE_LOG(LogTemp, Log, TEXT("Searching for include file: '%s'"), *IncludePath);
+	
+	// Check cache first
+	if (FString* CachedPath = IncludePathCache.Find(IncludePath))
+	{
+		UE_LOG(LogTemp, Log, TEXT("Found in cache: '%s'"), **CachedPath);
+		// Verify cached file still exists
+		if (IFileManager::Get().FileExists(**CachedPath))
+		{
+			return *CachedPath;
+		}
+		else
+		{
+			// Remove invalid cache entry
+			UE_LOG(LogTemp, Warning, TEXT("Cached file no longer exists, removing from cache: '%s'"), **CachedPath);
+			IncludePathCache.Remove(IncludePath);
+		}
+	}
+
+	UClingSetting* ClingSetting = GetMutableDefault<UClingSetting>();
+	if (!ClingSetting)
+	{
+		UE_LOG(LogTemp, Error, TEXT("ClingSetting not available"));
+		return FString();
+	}
+
+	FString FoundPath;
+	int32 SearchCount = 0;
+
+	// Search through all include paths
+	ClingSetting->IterThroughIncludePaths([&](const FString& IncludePathDir)
+	{
+		if (!FoundPath.IsEmpty())
+		{
+			return; // Already found
+		}
+
+		SearchCount++;
+		
+		// Normalize the include path directory
+		FString NormalizedDir = IncludePathDir;
+		FPaths::NormalizeDirectoryName(NormalizedDir);
+		
+		// Construct the full path
+		FString TestPath = FPaths::Combine(NormalizedDir, IncludePath);
+		TestPath = FPaths::ConvertRelativePathToFull(TestPath);
+		FPaths::NormalizeFilename(TestPath);
+
+		UE_LOG(LogTemp, Verbose, TEXT("Checking path [%d]: '%s'"), SearchCount, *TestPath);
+
+		// Check if file exists
+		if (IFileManager::Get().FileExists(*TestPath))
+		{
+			FoundPath = TestPath;
+			UE_LOG(LogTemp, Log, TEXT("Found include file: '%s'"), *TestPath);
+		}
+	});
+
+	UE_LOG(LogTemp, Log, TEXT("Search completed. Total paths checked: %d, Found: %s"), 
+		SearchCount, FoundPath.IsEmpty() ? TEXT("No") : *FoundPath);
+
+	// Cache the result if found
+	if (!FoundPath.IsEmpty())
+	{
+		IncludePathCache.Add(IncludePath, FoundPath);
+	}
+
+	return FoundPath;
+}
+
+void FCppRichTextSyntaxHighlightMarshaller::OpenFileWithEditor(const FString& FilePath)
+{
+	// Open with default editor (typically notepad on Windows)
+	FString NormalizedPath = FilePath;
+	FPaths::NormalizeFilename(NormalizedPath);
+	
+#if PLATFORM_WINDOWS
+	FPlatformProcess::LaunchFileInDefaultExternalApplication(*NormalizedPath, nullptr, ELaunchVerb::Edit);
+#else
+	// On other platforms, try to open with default editor
+	FPlatformProcess::LaunchFileInDefaultExternalApplication(*NormalizedPath);
+#endif
+
+	UE_LOG(LogTemp, Log, TEXT("Opening include file: %s"), *NormalizedPath);
 }
