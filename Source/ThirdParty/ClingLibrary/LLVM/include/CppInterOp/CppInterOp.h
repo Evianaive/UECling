@@ -969,6 +969,18 @@ CPPINTEROP_API void CodeComplete(void (*Callback)(const char* const*, size_t),
 ///\returns 0 on success, non-zero on failure.
 CPPINTEROP_API int Undo(unsigned N = 1);
 
+CPPINTEROP_API void GetAllCppNamesWithType(TCppScope_t scope,
+  void (*Callback)(
+    const char* const*,
+    const int*,
+    size_t));
+
+CPPINTEROP_API void GetAllCppNamesWithTypeName(TCppScope_t scope,
+  void (*Callback)(
+    const char* const*,
+    const char* const*,
+    size_t));
+
 CPPINTEROP_API int CreatePCH(const char* rsp_file);
 
 CPPINTEROP_API void EnableDebug(bool Enable);

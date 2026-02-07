@@ -14,6 +14,12 @@ extern "C" void my_nop_impl() {
 #endif
 }
 #pragma comment(linker, "/EXPORT:__nop=my_nop_impl")
+#pragma comment(linker, "/EXPORT:??2@YAPEAX_K@Z")
+#pragma comment(linker, "/EXPORT:??3@YAXPEAX@Z")
+#pragma comment(linker, "/EXPORT:??_U@YAPEAX_K@Z")
+#pragma comment(linker, "/EXPORT:??_V@YAXPEAX@Z")
+#pragma comment(linker, "/EXPORT:??3@YAXPEAX_K@Z")
+
 #if defined(_MSC_VER)
 #if USE_THREADSAFE_STATICS
 //
@@ -24,8 +30,9 @@ extern "C" void my_nop_impl() {
 #pragma comment(linker, "/EXPORT:_Init_thread_epoch")
 #pragma comment(linker, "/EXPORT:_Init_thread_footer")
 #pragma comment(linker, "/EXPORT:_Init_thread_header")
-#pragma comment(linker, "/EXPORT:_tls_index")
 #endif
+#pragma comment(linker, "/EXPORT:_tls_index")
+#pragma comment(linker, "/EXPORT:__tlregdtor")
 #endif
 
 FString GetClingBinariesPath()

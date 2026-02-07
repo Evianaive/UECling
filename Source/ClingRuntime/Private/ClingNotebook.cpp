@@ -126,7 +126,7 @@ namespace ClingNotebookFile
 			return false;
 		}
 
-		return FFileHelper::SaveStringToFile(BaseContent, *OutFilePath);
+		return FFileHelper::SaveStringToFile(BaseContent, *OutFilePath,FFileHelper::EEncodingOptions::ForceUTF8);
 	}
 }
 
