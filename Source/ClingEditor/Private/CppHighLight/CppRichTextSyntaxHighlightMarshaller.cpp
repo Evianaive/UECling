@@ -16,6 +16,27 @@
 // Initialize static cache
 TMap<FString, FString> FCppRichTextSyntaxHighlightMarshaller::IncludePathCache;
 
+// Helper structures for two-phase parsing
+struct FTokenRunInfo
+{
+	FString TokenText;
+	FTextRange ModelRange;
+	bool bIsWhitespace;
+	ISyntaxTokenizer::ETokenType TokenType;
+	FString RunTypeName;
+	FTextBlockStyle Style;
+};
+
+struct FIncludeAnalysisResult
+{
+	bool bIsCompleteInclude = false;
+	int32 IncludeKeywordIndex = INDEX_NONE;
+	int32 PathStartIndex = INDEX_NONE;
+	int32 PathEndIndex = INDEX_NONE;
+	FString IncludePath;
+	bool bIsSystemInclude = false;  // true for <>, false for ""
+};
+
 struct FRunInfo;
 
 class FWhiteSpaceTextRun : public FSlateTextRun
@@ -277,285 +298,288 @@ FCppRichTextSyntaxHighlightMarshaller::~FCppRichTextSyntaxHighlightMarshaller()
 
 }
 
+FIncludeAnalysisResult AnalyzeIncludeStatement(const TArray<FTokenRunInfo>& TokenRunInfos, const FString& LineText)
+{
+	FIncludeAnalysisResult Result;
+	
+	// Look for #include pattern
+	for (int32 i = 0; i < TokenRunInfos.Num(); ++i)
+	{
+		const FTokenRunInfo& TokenInfo = TokenRunInfos[i];
+		
+		// Find #include keyword
+		if (TokenInfo.TokenText == TEXT("#include"))
+		{
+			Result.IncludeKeywordIndex = i;
+			
+			// Look for path after #include, skipping whitespace
+			for (int32 j = i + 1; j < TokenRunInfos.Num(); ++j)
+			{
+				const FTokenRunInfo& CurrentToken = TokenRunInfos[j];
+				
+				// Skip whitespace tokens
+				if (CurrentToken.bIsWhitespace)
+				{
+					continue;
+				}
+				
+				// Check for "path" or <path> format
+				if (CurrentToken.TokenText == TEXT("\""))
+				{
+					// Look for closing quote
+					for (int32 k = j + 1; k < TokenRunInfos.Num(); ++k)
+					{
+						if (TokenRunInfos[k].TokenText == TEXT("\""))
+						{
+							// Found complete quoted include
+							Result.bIsCompleteInclude = true;
+							Result.PathStartIndex = j + 1;
+							Result.PathEndIndex = k - 1;
+							Result.bIsSystemInclude = false;
+							
+							// Safety check: ensure valid range
+							if (Result.PathStartIndex <= Result.PathEndIndex && 
+								Result.PathStartIndex >= 0 && Result.PathEndIndex < TokenRunInfos.Num())
+							{
+								// Extract the path
+								FString Path;
+								for (int32 l = Result.PathStartIndex; l <= Result.PathEndIndex; ++l)
+								{
+									Path += TokenRunInfos[l].TokenText;
+								}
+								Result.IncludePath = Path;
+							}
+							break;
+						}
+					}
+					break; // Exit the search loop regardless of success
+				}
+				else if (CurrentToken.TokenText == TEXT("<"))
+				{
+					// Look for closing >
+					for (int32 k = j + 1; k < TokenRunInfos.Num(); ++k)
+					{
+						if (TokenRunInfos[k].TokenText == TEXT(">"))
+						{
+							// Found complete angle-bracket include
+							Result.bIsCompleteInclude = true;
+							Result.PathStartIndex = j + 1;
+							Result.PathEndIndex = k - 1;
+							Result.bIsSystemInclude = true;
+							
+							// Safety check: ensure valid range
+							if (Result.PathStartIndex <= Result.PathEndIndex && 
+								Result.PathStartIndex >= 0 && Result.PathEndIndex < TokenRunInfos.Num())
+							{
+								// Extract the path
+								FString Path;
+								for (int32 l = Result.PathStartIndex; l <= Result.PathEndIndex; ++l)
+								{
+									Path += TokenRunInfos[l].TokenText;
+								}
+								Result.IncludePath = Path;
+							}
+							break;
+						}
+					}
+					break; // Exit the search loop regardless of success
+				}
+				else
+				{
+					// Found non-whitespace token that's not " or <, this is not a valid include
+					break;
+				}
+			}
+			break;
+		}
+	}
+	
+	return Result;
+}
+
+void CreateNormalRuns(const TArray<FTokenRunInfo>& TokenRunInfos, const TSharedRef<const FString>& ModelString, TArray<TSharedRef<IRun>>& OutRuns)
+{
+	// Create runs using the original logic
+	for (const FTokenRunInfo& TokenInfo : TokenRunInfos)
+	{
+		if (TokenInfo.bIsWhitespace)
+		{
+			FRunInfo RunInfo(TEXT("SyntaxHighlight.CPP.WhiteSpace"));
+			TSharedRef<IRun> Run = FWhiteSpaceTextRun::Create(RunInfo, ModelString, TokenInfo.Style, TokenInfo.ModelRange, 4);
+			OutRuns.Add(Run);
+		}
+		else
+		{
+			FRunInfo RunInfo(*TokenInfo.RunTypeName);
+			TSharedRef<IRun> Run = FSlateTextRun::Create(RunInfo, ModelString, TokenInfo.Style, TokenInfo.ModelRange);
+			OutRuns.Add(Run);
+		}
+	}
+}
+
 void FCppRichTextSyntaxHighlightMarshaller::ParseTokens(const FString& SourceString, FTextLayout& TargetTextLayout, TArray<ISyntaxTokenizer::FTokenizedLine> TokenizedLines)
 {
-	enum class EParseState : uint8
-	{
-		None,
-		LookingForString,
-		LookingForCharacter,
-		LookingForSingleLineComment,
-		LookingForMultiLineComment,
-		LookingForIncludePath,  // New state for #include path
-	};
-
 	TArray<FTextLayout::FNewLineData> LinesToAdd;
 	LinesToAdd.Reserve(TokenizedLines.Num());
 
-	// Parse the tokens, generating the styled runs for each line
-	EParseState ParseState = EParseState::None;
-	bool bIsIncludeLine = false;  // Track if current line is #include
-	FString CurrentIncludePath;   // Buffer to collect include path during parsing
-	int32 IncludePathStartIndex = -1;  // Track where include path starts in ModelString
+	// Two-phase parsing approach:
+	// Phase 1: Collect token information without creating runs
+	// Phase 2: Analyze complete line and create appropriate runs
 	
 	for(const ISyntaxTokenizer::FTokenizedLine& TokenizedLine : TokenizedLines)
 	{
+		// Phase 1: Collect all token data first
 		TSharedRef<FString> ModelString = MakeShareable(new FString());
-		TArray< TSharedRef< IRun > > Runs;
-
-		if(ParseState == EParseState::LookingForSingleLineComment)
-		{
-			ParseState = EParseState::None;
-		}
-
-		// Reset include line flag at start of each line
-		bIsIncludeLine = false;
+		TArray<FTokenRunInfo> TokenRunInfos;  // Store run creation info
 		
+		// Parse all tokens in this line
 		for(const ISyntaxTokenizer::FToken& Token : TokenizedLine.Tokens)
 		{
 			const FString TokenText = SourceString.Mid(Token.Range.BeginIndex, Token.Range.Len());
-
 			const FTextRange ModelRange(ModelString->Len(), ModelString->Len() + TokenText.Len());
 			ModelString->Append(TokenText);
-
-			FRunInfo RunInfo(TEXT("SyntaxHighlight.CPP.Normal"));
-			FTextBlockStyle TextBlockStyle = SyntaxTextStyle.NormalTextStyle;
 			
-			const bool bIsWhitespace = FString(TokenText).TrimEnd().IsEmpty();
-			if(!bIsWhitespace)
+			// Determine what kind of run this token should become
+			FTokenRunInfo RunInfo;
+			RunInfo.TokenText = TokenText;
+			RunInfo.ModelRange = ModelRange;
+			RunInfo.bIsWhitespace = FString(TokenText).TrimEnd().IsEmpty();
+			RunInfo.TokenType = Token.Type;
+			
+			// Basic syntax classification (will be refined in phase 2)
+			if (!RunInfo.bIsWhitespace)
 			{
-				bool bHasMatchedSyntax = false;
-				if(Token.Type == ISyntaxTokenizer::ETokenType::Syntax)
+				if (TokenText == TEXT("#include"))
 				{
-					if(ParseState == EParseState::None && TokenText == TEXT("\""))
+					RunInfo.RunTypeName = TEXT("SyntaxHighlight.CPP.PreProcessorKeyword");
+					RunInfo.Style = SyntaxTextStyle.PreProcessorKeywordTextStyle;
+				}
+				else if (TokenText == TEXT("\""))
+				{
+					RunInfo.RunTypeName = TEXT("SyntaxHighlight.CPP.String");
+					RunInfo.Style = SyntaxTextStyle.StringTextStyle;
+				}
+				else if (!TokenText.IsEmpty() && TChar<WIDECHAR>::IsAlpha(TokenText[0]))
+				{
+					// Check if this is actually a keyword
+					bool bIsKeyword = false;
+					for (int32 k = 0; k < sizeof(Keywords)/sizeof(Keywords[0]); ++k)
 					{
-						// Check if this is an include path
-						if (bIsIncludeLine)
+						if (TokenText == Keywords[k])
 						{
-							ParseState = EParseState::LookingForIncludePath;
-							CurrentIncludePath.Empty();
-							IncludePathStartIndex = ModelString->Len(); // Record start position
-							RunInfo.Name = TEXT("SyntaxHighlight.CPP.String");
-							TextBlockStyle = SyntaxTextStyle.StringTextStyle;
+							bIsKeyword = true;
+							break;
 						}
-						else
-						{
-							RunInfo.Name = TEXT("SyntaxHighlight.CPP.String");
-							TextBlockStyle = SyntaxTextStyle.StringTextStyle;
-							ParseState = EParseState::LookingForString;
-						}
-						bHasMatchedSyntax = true;
 					}
-					else if(ParseState == EParseState::LookingForString && TokenText == TEXT("\""))
+					
+					if (bIsKeyword)
 					{
-						RunInfo.Name = TEXT("SyntaxHighlight.CPP.Normal");
-						TextBlockStyle = SyntaxTextStyle.StringTextStyle;
-						ParseState = EParseState::None;
+						RunInfo.RunTypeName = TEXT("SyntaxHighlight.CPP.Keyword");
+						RunInfo.Style = SyntaxTextStyle.KeywordTextStyle;
 					}
-					else if(ParseState == EParseState::LookingForIncludePath && TokenText == TEXT("\""))
+					else
 					{
-						// End of include path - create hyperlink for the entire collected path
-						// Find the complete file path only once at the end
-						FString FullPath = FindIncludeFilePath(CurrentIncludePath);
-						
-						FIncludeStatementInfo IncludeInfo;
-						IncludeInfo.DisplayIncludePath = CurrentIncludePath;
-						IncludeInfo.FullIncludePath = FullPath;
-						IncludeInfo.bIsSystemInclude = false;
-						
-						UE_LOG(LogTemp, Log, TEXT("Creating hyperlink for complete include path: '%s' -> '%s'"), 
-							*CurrentIncludePath, *FullPath);
-						
-						// Create hyperlink run for the collected path range (not including quotes)
-						FTextRange PathRange(IncludePathStartIndex, ModelString->Len());
-						FRunInfo HyperlinkRunInfo(TEXT("SyntaxHighlight.CPP.IncludeHyperlink"));
-						TSharedRef<FSlateHyperlinkRun> HyperlinkRun = CreateIncludeHyperlinkRun(
-							HyperlinkRunInfo, ModelString, PathRange, IncludeInfo);
-						Runs.Add(HyperlinkRun);
-						
-						// Now add the closing quote as a regular string run
-						RunInfo.Name = TEXT("SyntaxHighlight.CPP.String");
-						TextBlockStyle = SyntaxTextStyle.StringTextStyle;
-						
-						// Reset for next include
-						CurrentIncludePath.Empty();
-						IncludePathStartIndex = -1;
-						ParseState = EParseState::None;
-					}
-					else if(ParseState == EParseState::None && TokenText == TEXT("'"))
-					{
-						RunInfo.Name = TEXT("SyntaxHighlight.CPP.String");
-						TextBlockStyle = SyntaxTextStyle.StringTextStyle;
-						ParseState = EParseState::LookingForCharacter;
-						bHasMatchedSyntax = true;
-					}
-					else if(ParseState == EParseState::LookingForCharacter && TokenText == TEXT("'"))
-					{
-						RunInfo.Name = TEXT("SyntaxHighlight.CPP.Normal");
-						TextBlockStyle = SyntaxTextStyle.StringTextStyle;
-						ParseState = EParseState::None;
-					}
-					else if(ParseState == EParseState::None && TokenText.StartsWith(TEXT("#")))
-					{
-						// Check if this is #include
-						if (TokenText == TEXT("#include"))
-						{
-							bIsIncludeLine = true;
-						}
-						RunInfo.Name = TEXT("SyntaxHighlight.CPP.PreProcessorKeyword");
-						TextBlockStyle = SyntaxTextStyle.PreProcessorKeywordTextStyle;
-						ParseState = EParseState::None;
-					}
-					else if(ParseState == EParseState::None && TokenText == TEXT("<") && bIsIncludeLine)
-					{
-						// Start of system include <...>
-						ParseState = EParseState::LookingForIncludePath;
-						CurrentIncludePath.Empty();
-						IncludePathStartIndex = ModelString->Len(); // Record start position
-						RunInfo.Name = TEXT("SyntaxHighlight.CPP.String");
-						TextBlockStyle = SyntaxTextStyle.StringTextStyle;
-					}
-					else if(ParseState == EParseState::LookingForIncludePath && TokenText == TEXT(">"))
-					{
-						// End of system include - create hyperlink for the entire collected path
-						// Find the complete file path only once at the end
-						FString FullPath = FindIncludeFilePath(CurrentIncludePath);
-											
-						FIncludeStatementInfo IncludeInfo;
-						IncludeInfo.DisplayIncludePath = CurrentIncludePath;
-						IncludeInfo.FullIncludePath = FullPath;
-						IncludeInfo.bIsSystemInclude = true;
-											
-						UE_LOG(LogTemp, Log, TEXT("Creating hyperlink for system include path: '%s' -> '%s'"), 
-							*CurrentIncludePath, *FullPath);
-											
-						// Create hyperlink run for the collected path range (not including brackets)
-						FTextRange PathRange(IncludePathStartIndex, ModelString->Len());
-						FRunInfo HyperlinkRunInfo(TEXT("SyntaxHighlight.CPP.IncludeHyperlink"));
-						TSharedRef<FSlateHyperlinkRun> HyperlinkRun = CreateIncludeHyperlinkRun(
-							HyperlinkRunInfo, ModelString, PathRange, IncludeInfo);
-						Runs.Add(HyperlinkRun);
-											
-						// Now add the closing bracket as a regular string run
-						RunInfo.Name = TEXT("SyntaxHighlight.CPP.String");
-						TextBlockStyle = SyntaxTextStyle.StringTextStyle;
-						
-						// Reset for next include
-						CurrentIncludePath.Empty();
-						IncludePathStartIndex = -1;
-						ParseState = EParseState::None;
-					}
-					else if(ParseState == EParseState::None && TokenText == TEXT("//"))
-					{
-						RunInfo.Name = TEXT("SyntaxHighlight.CPP.Comment");
-						TextBlockStyle = SyntaxTextStyle.CommentTextStyle;
-						ParseState = EParseState::LookingForSingleLineComment;
-					}
-					else if(ParseState == EParseState::None && TokenText == TEXT("/*"))
-					{
-						RunInfo.Name = TEXT("SyntaxHighlight.CPP.Comment");
-						TextBlockStyle = SyntaxTextStyle.CommentTextStyle;
-						ParseState = EParseState::LookingForMultiLineComment;
-					}
-					else if(ParseState == EParseState::LookingForMultiLineComment && TokenText == TEXT("*/"))
-					{
-						RunInfo.Name = TEXT("SyntaxHighlight.CPP.Comment");
-						TextBlockStyle = SyntaxTextStyle.CommentTextStyle;
-						ParseState = EParseState::None;
-					}
-					else if(ParseState == EParseState::None && TChar<WIDECHAR>::IsAlpha(TokenText[0]))
-					{
-						RunInfo.Name = TEXT("SyntaxHighlight.CPP.Keyword");
-						TextBlockStyle = SyntaxTextStyle.KeywordTextStyle;
-						ParseState = EParseState::None;
-					}
-					else if(ParseState == EParseState::None && !TChar<WIDECHAR>::IsAlpha(TokenText[0]))
-					{
-						RunInfo.Name = TEXT("SyntaxHighlight.CPP.Operator");
-						TextBlockStyle = SyntaxTextStyle.OperatorTextStyle;
-						ParseState = EParseState::None;
+						RunInfo.RunTypeName = TEXT("SyntaxHighlight.CPP.Normal");
+						RunInfo.Style = SyntaxTextStyle.NormalTextStyle;
 					}
 				}
-				
-				// It's possible that we fail to match a syntax token if we're in a state where it isn't parsed
-				// In this case, we treat it as a literal token
-				if(Token.Type == ISyntaxTokenizer::ETokenType::Literal || !bHasMatchedSyntax)
+				else
 				{
-					if(ParseState == EParseState::LookingForString)
-					{
-						RunInfo.Name = TEXT("SyntaxHighlight.CPP.String");
-						TextBlockStyle = SyntaxTextStyle.StringTextStyle;
-					}
-					else if(ParseState == EParseState::LookingForIncludePath)
-					{
-						// Collect the path token into buffer, don't create run yet
-						CurrentIncludePath += TokenText;
-						// Skip creating run for this token, will be created at closing quote/bracket
-						continue;
-					}
-					else if(ParseState == EParseState::LookingForCharacter)
-					{
-						RunInfo.Name = TEXT("SyntaxHighlight.CPP.String");
-						TextBlockStyle = SyntaxTextStyle.StringTextStyle;
-					}
-					else if(ParseState == EParseState::LookingForSingleLineComment)
-					{
-						RunInfo.Name = TEXT("SyntaxHighlight.CPP.Comment");
-						TextBlockStyle = SyntaxTextStyle.CommentTextStyle;
-					}
-					else if(ParseState == EParseState::LookingForMultiLineComment)
-					{
-						RunInfo.Name = TEXT("SyntaxHighlight.CPP.Comment");
-						TextBlockStyle = SyntaxTextStyle.CommentTextStyle;
-					}
-					else if(ParseState == EParseState::None)
-					{
-						if (KnownEnums.Contains(TokenText))
-						{
-							// 使用语义着色
-							RunInfo.Name = TEXT("SyntaxHighlight.CPP.Enum");
-							TextBlockStyle = SyntaxTextStyle.EnumTextStyle;
-							// UE_LOG(LogTemp, Warning, TEXT("Enum token: %s"), *TokenText);
-						}
-						else if (KnownTypes.Contains(TokenText))
-						{
-							// 使用语义着色
-							RunInfo.Name = TEXT("SyntaxHighlight.CPP.Type");
-							TextBlockStyle = SyntaxTextStyle.TypeTextStyle;
-							// UE_LOG(LogTemp, Warning, TEXT("Type token: %s"), *TokenText);
-						}
-						else if (KnownNamespaces.Contains(TokenText))
-						{
-							// 使用语义着色
-							RunInfo.Name = TEXT("SyntaxHighlight.CPP.Namespace");
-							TextBlockStyle = SyntaxTextStyle.NamespaceTextStyle;
-							// UE_LOG(LogTemp, Warning, TEXT("Namespace token: %s"), *TokenText);
-						}
-						// else
-						// {
-						// 	RunInfo.Name = TEXT("SyntaxHighlight.CPP.Var");
-						// 	TextBlockStyle = SyntaxTextStyle.VarTextStyle;
-						// 	UE_LOG(LogTemp, Warning, TEXT("Var token: %s"), *TokenText);
-						// }
-						// else if (TChar<WIDECHAR>::IsDigit(TokenText[0]))
-						// {
-						// 	RunInfo.Name = TEXT("SyntaxHighlight.CPP.Number");
-						// 	TextBlockStyle = SyntaxTextStyle.NumberTextStyle;
-						// }
-					}
+					RunInfo.RunTypeName = TEXT("SyntaxHighlight.CPP.Normal");
+					RunInfo.Style = SyntaxTextStyle.NormalTextStyle;
 				}
-
-				TSharedRef< ISlateRun > Run = FSlateTextRun::Create(RunInfo, ModelString, TextBlockStyle, ModelRange);
-				Runs.Add(Run);
 			}
 			else
 			{
-				RunInfo.Name = TEXT("SyntaxHighlight.CPP.WhiteSpace");
-				TSharedRef< ISlateRun > Run = FWhiteSpaceTextRun::Create(RunInfo, ModelString, TextBlockStyle, ModelRange, 4);
-				Runs.Add(Run);
+				RunInfo.RunTypeName = TEXT("SyntaxHighlight.CPP.WhiteSpace");
+				RunInfo.Style = SyntaxTextStyle.NormalTextStyle;
 			}
+			
+			TokenRunInfos.Add(RunInfo);
 		}
+		
+		// Phase 2: Analyze the complete line and create runs
+		TArray<TSharedRef<IRun>> Runs;
+		
+		// Check if this is a complete #include statement
+		FIncludeAnalysisResult IncludeResult = AnalyzeIncludeStatement(TokenRunInfos, **ModelString);
+		
+		
 
+		auto CreateIncludeHyperlinkRuns = [this](const TArray<FTokenRunInfo>& TokenRunInfos, const FIncludeAnalysisResult& IncludeResult, const TSharedRef<const FString>& ModelString, TArray<TSharedRef<IRun>>& OutRuns)
+		{
+			// Create runs for the complete line
+			for (int32 i = 0; i < TokenRunInfos.Num(); ++i)
+			{
+				const FTokenRunInfo& TokenInfo = TokenRunInfos[i];
+				
+				if (TokenInfo.bIsWhitespace)
+				{
+					FRunInfo RunInfo(TEXT("SyntaxHighlight.CPP.WhiteSpace"));
+					TSharedRef<IRun> Run = FWhiteSpaceTextRun::Create(RunInfo, ModelString, TokenInfo.Style, TokenInfo.ModelRange, 4);
+					OutRuns.Add(Run);
+				}
+				else if (i == IncludeResult.PathStartIndex)
+				{
+					// Safety check: ensure indices are valid
+					if (IncludeResult.PathStartIndex >= 0 && IncludeResult.PathEndIndex < TokenRunInfos.Num() && 
+						IncludeResult.PathStartIndex <= IncludeResult.PathEndIndex)
+					{
+						// Create a single hyperlink run covering the entire include path
+						// Calculate the range that covers from first to last path token
+						FTextRange PathRange(TokenRunInfos[IncludeResult.PathStartIndex].ModelRange.BeginIndex,
+							TokenRunInfos[IncludeResult.PathEndIndex].ModelRange.EndIndex);
+						
+						// Note: We don't call FindIncludeFilePath here to avoid performance issues during typing
+						// File lookup will happen only when the hyperlink is clicked
+						FIncludeStatementInfo IncludeInfo;
+						IncludeInfo.DisplayIncludePath = IncludeResult.IncludePath;
+						IncludeInfo.FullIncludePath = FString();  // Will be resolved on click
+						IncludeInfo.bIsSystemInclude = IncludeResult.bIsSystemInclude;
+						
+						FRunInfo HyperlinkRunInfo(TEXT("SyntaxHighlight.CPP.IncludeHyperlink"));
+						TSharedRef<FSlateHyperlinkRun> HyperlinkRun = CreateIncludeHyperlinkRun(
+							HyperlinkRunInfo, ModelString, PathRange, IncludeInfo);
+						OutRuns.Add(HyperlinkRun);
+						
+						// Skip the remaining path tokens since they're covered by the hyperlink run
+						// Safety: ensure we don't go beyond array bounds
+						i = FMath::Min(IncludeResult.PathEndIndex, TokenRunInfos.Num() - 1);
+					}
+					else
+					{
+						// Invalid indices, treat as regular token
+						FRunInfo RunInfo(*TokenInfo.RunTypeName);
+						TSharedRef<IRun> Run = FSlateTextRun::Create(RunInfo, ModelString, TokenInfo.Style, TokenInfo.ModelRange);
+						OutRuns.Add(Run);
+					}
+				}
+				else if (i > IncludeResult.PathStartIndex && i <= IncludeResult.PathEndIndex)
+				{
+					// Skip path tokens that are already covered by the hyperlink run
+					continue;
+				}
+				else
+				{
+					// Regular token
+					FRunInfo RunInfo(*TokenInfo.RunTypeName);
+					TSharedRef<IRun> Run = FSlateTextRun::Create(RunInfo, ModelString, TokenInfo.Style, TokenInfo.ModelRange);
+					OutRuns.Add(Run);
+				}
+			}
+		};
+		
+		if (IncludeResult.bIsCompleteInclude)
+		{
+			// Create hyperlink for the include path
+			CreateIncludeHyperlinkRuns(TokenRunInfos, IncludeResult, ModelString, Runs);
+		}
+		else
+		{
+			// Create normal runs using original logic
+			CreateNormalRuns(TokenRunInfos, ModelString, Runs);
+		}
+		
 		LinesToAdd.Emplace(MoveTemp(ModelString), MoveTemp(Runs));
 	}
 
@@ -742,11 +766,11 @@ TSharedRef<FSlateHyperlinkRun> FCppRichTextSyntaxHighlightMarshaller::CreateIncl
 	
 	// Create the navigate delegate - this will be called when user clicks the hyperlink
 	FSlateHyperlinkRun::FOnClick OnClickDelegate = FSlateHyperlinkRun::FOnClick::CreateStatic(
-		&FCppRichTextSyntaxHighlightMarshaller::OnIncludeClicked, IncludeInfo.FullIncludePath);
+		&FCppRichTextSyntaxHighlightMarshaller::OnIncludeClicked, IncludeInfo.DisplayIncludePath);
 	
 	// Create tooltip delegate
 	FSlateHyperlinkRun::FOnGetTooltipText TooltipTextDelegate = FSlateHyperlinkRun::FOnGetTooltipText::CreateStatic(
-		&FCppRichTextSyntaxHighlightMarshaller::GetIncludeTooltip, IncludeInfo.FullIncludePath);
+		&FCppRichTextSyntaxHighlightMarshaller::GetIncludeTooltip, IncludeInfo.DisplayIncludePath);
 	
 	// Create the hyperlink run
 	return FSlateHyperlinkRun::Create(
@@ -759,18 +783,23 @@ TSharedRef<FSlateHyperlinkRun> FCppRichTextSyntaxHighlightMarshaller::CreateIncl
 		InRange);
 }
 
-void FCppRichTextSyntaxHighlightMarshaller::OnIncludeClicked(const FSlateHyperlinkRun::FMetadata& Metadata, FString FullPath)
+void FCppRichTextSyntaxHighlightMarshaller::OnIncludeClicked(const FSlateHyperlinkRun::FMetadata& Metadata, FString DisplayPath)
 {
+	// This is called when user clicks the hyperlink
+	// Now we perform the file lookup that was deferred during parsing
+	UE_LOG(LogTemp, Log, TEXT("Include hyperlink clicked: '%s'"), *DisplayPath);
+	
+	FString FullPath = FindIncludeFilePath(DisplayPath);
 	
 	if (FullPath.IsEmpty())
 	{
 		// Show error message when file is not found
-		UE_LOG(LogTemp, Warning, TEXT("Include file not found: %s"), *FullPath);
+		UE_LOG(LogTemp, Warning, TEXT("Include file not found: %s"), *DisplayPath);
 		
 		// TODO: Could show a notification to user instead of just logging
 		// FMessageDialog::Open(EAppMsgType::Ok, FText::Format(
 		// 	NSLOCTEXT("CppHighlight", "FileNotFound", "Could not find include file: {0}"), 
-		// 	FText::FromString(FullPath)));
+		// 	FText::FromString(DisplayPath)));
 		return;
 	}
 	
