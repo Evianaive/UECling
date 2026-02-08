@@ -1,4 +1,5 @@
 #include "CppHighLight/CppRichTextSyntaxHighlightMarshaller.h"
+#include "ClingIncludeUtils.h"
 // #include "WhiteSpaceTextRun.h"
 
 #include "Framework/Text/SlateTextRun.h"
@@ -12,9 +13,6 @@
 #include "ClingSetting.h"
 #include "HAL/FileManager.h"
 #include "ClingSourceAccess.h"
-
-// Initialize static cache
-TMap<FString, FString> FCppRichTextSyntaxHighlightMarshaller::IncludePathCache;
 
 // Helper structures for two-phase parsing
 
@@ -587,7 +585,7 @@ void FCppRichTextSyntaxHighlightMarshaller::ParseTokens(const FString& SourceStr
 						FTextRange PathRange(TokenRunInfos[IncludeResult.PathStartIndex].ModelRange.BeginIndex,
 							TokenRunInfos[IncludeResult.PathEndIndex].ModelRange.EndIndex);
 						
-						// Note: We don't call FindIncludeFilePath here to avoid performance issues during typing
+						// Note: We don't call FClingIncludeUtils::FindIncludeFilePath here to avoid performance issues during typing
 						// File lookup will happen only when the hyperlink is clicked
 						FIncludeStatementInfo IncludeInfo;
 						IncludeInfo.DisplayIncludePath = IncludeResult.IncludePath;
@@ -804,7 +802,7 @@ void FCppRichTextSyntaxHighlightMarshaller::OnIncludeClicked(const FSlateHyperli
 	// Now we perform the file lookup that was deferred during parsing
 	UE_LOG(LogTemp, Log, TEXT("Include hyperlink clicked: '%s'"), *DisplayPath);
 	
-	FString FullPath = FindIncludeFilePath(DisplayPath);
+	FString FullPath = FClingIncludeUtils::FindIncludeFilePath(DisplayPath);
 	
 	if (FullPath.IsEmpty())
 	{
@@ -818,7 +816,7 @@ void FCppRichTextSyntaxHighlightMarshaller::OnIncludeClicked(const FSlateHyperli
 		return;
 	}
 	
-	OpenFileWithEditor(FullPath);
+	FClingSourceAccessModule::EnsureFileOpenInIDE(FullPath, 1);
 }
 
 FText FCppRichTextSyntaxHighlightMarshaller::GetIncludeTooltip(const FSlateHyperlinkRun::FMetadata& Metadata, FString FullPath)
@@ -827,83 +825,4 @@ FText FCppRichTextSyntaxHighlightMarshaller::GetIncludeTooltip(const FSlateHyper
 	// Just show the include path - file validation will happen on click
 	return FText::Format(NSLOCTEXT("CppHighlight", "IncludeTooltip", "Click to open: {0}"),
 		FText::FromString(FullPath));
-}
-
-FString FCppRichTextSyntaxHighlightMarshaller::FindIncludeFilePath(const FString& IncludePath)
-{
-	UE_LOG(LogTemp, Log, TEXT("Searching for include file: '%s'"), *IncludePath);
-	
-	// Check cache first
-	if (FString* CachedPath = IncludePathCache.Find(IncludePath))
-	{
-		UE_LOG(LogTemp, Log, TEXT("Found in cache: '%s'"), **CachedPath);
-		// Verify cached file still exists
-		if (IFileManager::Get().FileExists(**CachedPath))
-		{
-			return *CachedPath;
-		}
-		else
-		{
-			// Remove invalid cache entry
-			UE_LOG(LogTemp, Warning, TEXT("Cached file no longer exists, removing from cache: '%s'"), **CachedPath);
-			IncludePathCache.Remove(IncludePath);
-		}
-	}
-
-	UClingSetting* ClingSetting = GetMutableDefault<UClingSetting>();
-	if (!ClingSetting)
-	{
-		UE_LOG(LogTemp, Error, TEXT("ClingSetting not available"));
-		return FString();
-	}
-
-	FString FoundPath;
-	int32 SearchCount = 0;
-
-	// Search through all include paths
-	ClingSetting->IterThroughIncludePaths([&](const FString& IncludePathDir)
-	{
-		if (!FoundPath.IsEmpty())
-		{
-			return; // Already found
-		}
-
-		SearchCount++;
-		
-		// Normalize the include path directory
-		FString NormalizedDir = IncludePathDir;
-		FPaths::NormalizeDirectoryName(NormalizedDir);
-		
-		// Construct the full path
-		FString TestPath = FPaths::Combine(NormalizedDir, IncludePath);
-		TestPath = FPaths::ConvertRelativePathToFull(TestPath);
-		FPaths::NormalizeFilename(TestPath);
-
-		UE_LOG(LogTemp, Verbose, TEXT("Checking path [%d]: '%s'"), SearchCount, *TestPath);
-
-		// Check if file exists
-		if (IFileManager::Get().FileExists(*TestPath))
-		{
-			FoundPath = TestPath;
-			UE_LOG(LogTemp, Log, TEXT("Found include file: '%s'"), *TestPath);
-		}
-	});
-
-	UE_LOG(LogTemp, Log, TEXT("Search completed. Total paths checked: %d, Found: %s"), 
-		SearchCount, FoundPath.IsEmpty() ? TEXT("No") : *FoundPath);
-
-	// Cache the result if found
-	if (!FoundPath.IsEmpty())
-	{
-		IncludePathCache.Add(IncludePath, FoundPath);
-	}
-
-	return FoundPath;
-}
-
-void FCppRichTextSyntaxHighlightMarshaller::OpenFileWithEditor(const FString& FilePath)
-{
-	// Use ClingSourceAccess module's EnsureFileOpenInIDE
-	// It will check file existence, try IDE first, then fallback to notepad if needed
-	FClingSourceAccessModule::EnsureFileOpenInIDE(FilePath, 1);
 }

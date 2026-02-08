@@ -47,13 +47,4 @@ private:
 	
 	/** Get tooltip text for include hyperlink */
 	static FText GetIncludeTooltip(const FSlateHyperlinkRun::FMetadata& Metadata, FString FullPath);
-	
-	/** Find the full path to an included file */
-	static FString FindIncludeFilePath(const FString& IncludePath);
-	
-	/** Open file with default editor */
-	static void OpenFileWithEditor(const FString& FilePath);
-	
-	/** Cache for found file paths to improve performance */
-	static TMap<FString, FString> IncludePathCache;
 };
