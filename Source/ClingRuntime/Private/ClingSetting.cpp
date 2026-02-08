@@ -103,6 +103,8 @@ void AppendCompileArgs(T& InOutCompileArgs)
 		"-Wno-switch",
 		"-Wno-tautological-undefined-compare",
 		"-Wno-gnu-string-literal-operator-template",
+		"-Wno-unused-value",
+		
 		"-fms-compatibility", "-fms-extensions",
 #if !USE_THREADSAFE_STATICS
 		"-fno-threadsafe-statics",
@@ -154,23 +156,53 @@ void UClingSetting::AppendCompileArgs(TArray<const char*>& InOutCompileArgs)
 	::AppendCompileArgs(InOutCompileArgs);
 }
 
+const char* RuntimeArgs[] = {"-v",
+"-Winvalid-offsetof" ,
+"-Winconsistent-missing-override", 
+"-Wdeprecated-enum-enum-conversion", 
+"-Wswitch",
+"-Wtautological-undefined-compare", 
+"-Wgnu-string-literal-operator-template", 
+"-Wunused-value"};
+
+#define CLING_ADD_RUNTIME_ARGS \
+if(bVerbose)\
+	InOutRuntimeArgs.Add(RuntimeArgs[0]);\
+if(bEnableInvalidOffsetOf)\
+	InOutRuntimeArgs.Add(RuntimeArgs[1]);\
+if(bEnableMissingOverride)\
+	InOutRuntimeArgs.Add(RuntimeArgs[2]);\
+if(bEnableDeprecatedEnumEnumConversion)\
+	InOutRuntimeArgs.Add(RuntimeArgs[3]);\
+if(bEnableInCompleteSwitch)\
+	InOutRuntimeArgs.Add(RuntimeArgs[4]);\
+if(bEnableAutoLogicalUndefinedCompare)\
+	InOutRuntimeArgs.Add(RuntimeArgs[5]);\
+if(bEnableStringLiteralOperatorTemplate)\
+	InOutRuntimeArgs.Add(RuntimeArgs[6]);\
+if(bEnableUnusedValue)\
+	InOutRuntimeArgs.Add(RuntimeArgs[7]);\
+
 void UClingSetting::AppendRuntimeArgs(FName ProfileName, TArray<FString>& InOutRuntimeArgs)
 {
+	CLING_ADD_RUNTIME_ARGS;
 	const FClingPCHProfile& Profile = GetProfile(ProfileName);
 	InOutRuntimeArgs.Append(Profile.RuntimeArgs);
 }
 
-void UClingSetting::AppendRuntimeArgs(FName ProfileName, TArray<const char*>& Argv)
+void UClingSetting::AppendRuntimeArgs(FName ProfileName, TArray<const char*>& InOutRuntimeArgs)
 {
+	CLING_ADD_RUNTIME_ARGS;
 	FClingPCHProfile& Profile = const_cast<FClingPCHProfile&>(GetProfile(ProfileName));
 	const TArray<FString>& TargetArgs = Profile.RuntimeArgs;
 	Profile.RuntimeArgsForConvert.SetNum(TargetArgs.Num());
 	for (int32 i = 0; i < TargetArgs.Num(); i++)
 	{
 		Profile.RuntimeArgsForConvert[i] = StringCast<ANSICHAR>(*TargetArgs[i]).Get();
-		Argv.Add(*Profile.RuntimeArgsForConvert[i]);
+		InOutRuntimeArgs.Add(*Profile.RuntimeArgsForConvert[i]);
 	}
 }
+#undef CLING_ADD_RUNTIME_ARGS
 
 template<typename T>
 void GetFileContent(const FString& FileName, T& Result)

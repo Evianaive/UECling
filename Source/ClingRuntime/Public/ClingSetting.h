@@ -128,21 +128,24 @@ public:
 	UPROPERTY(EditAnywhere,Config)
 	FDirectoryPath PathForFunctionLibrarySync;
 
-	UPROPERTY(EditAnywhere,Config)
-	bool bVerbose{true};
-	UPROPERTY(EditAnywhere,Config,DisplayName="-Wno-inconsistent-missing-override")
-	bool bIgnoreMissingOverride{true};
-	UPROPERTY(EditAnywhere,Config,DisplayName="-Wno-invalid-offsetof")
-	bool bIgnoreInvalidOffsetOf{true};
-	UPROPERTY(EditAnywhere,Config,DisplayName="-Wno-deprecated-enum-enum-conversion")
-	bool bIgnoreDeprecatedEnumEnumConversion{true};
-	UPROPERTY(EditAnywhere,Config,DisplayName="-Wno-switch")
-	bool bIgnoreInCompleteSwitch{true};
-	UPROPERTY(EditAnywhere,Config,DisplayName="-Wno-tautological-undefined-compare")
-	bool bIgnoreAutoLogicalUndefinedCompare{true};
-	UPROPERTY(EditAnywhere,Config,DisplayName="-Wno-gnu-string-literal-operator-template")
-	bool bIgnoreStringLiteralOperatorTemplate{true};
+	UPROPERTY(EditAnywhere,Config,DisplayName="Verbose (Enable verbose output)")
+	bool bVerbose{false};
+	UPROPERTY(EditAnywhere,Config,DisplayName="-Winvalid-offsetof (Enable warning when using offsetof macro on non-standard-layout (non-POD) types, which is undefined behavior per C++ standard)")
+	bool bEnableInvalidOffsetOf{false};
+	UPROPERTY(EditAnywhere,Config,DisplayName="-Winconsistent-missing-override (Enable warning when some overrides of a virtual function use override keyword while others omit it in the same inheritance hierarchy)")
+	bool bEnableMissingOverride{false};
+	UPROPERTY(EditAnywhere,Config,DisplayName="-Wdeprecated-enum-enum-conversion (Enable warning for deprecated arithmetic operations/comparisons between different enumeration types in C++20)")
+	bool bEnableDeprecatedEnumEnumConversion{false};
+	UPROPERTY(EditAnywhere,Config,DisplayName="-Wswitch (Enable warning for incomplete switch statements)")
+	bool bEnableInCompleteSwitch{false};
+	UPROPERTY(EditAnywhere,Config,DisplayName="-Wtautological-undefined-compare (Enable warning for comparisons that are always true/false due to undefined behavior)")
+	bool bEnableAutoLogicalUndefinedCompare{false};
+	UPROPERTY(EditAnywhere,Config,DisplayName="-Wgnu-string-literal-operator-template (Enable warning for GNU extension: string literal operator templates)")
+	bool bEnableStringLiteralOperatorTemplate{false};
+	UPROPERTY(EditAnywhere,Config,DisplayName="-Wunused-value (Enable warning when a value is not used)")
+	bool bEnableUnusedValue{false};
 	
+	// Todo Can't be use in clang-repl based
 	UPROPERTY(EditAnywhere,Config,DisplayName="Allow Redefine")
 	bool bAllowRedefine{true};
 	
