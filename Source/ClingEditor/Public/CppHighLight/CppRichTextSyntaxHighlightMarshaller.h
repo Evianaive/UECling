@@ -42,23 +42,6 @@ protected:
 	TSet<FString> KnownNamespaces;
 
 private:
-	/** Structure to hold include statement information */
-	struct FIncludeStatementInfo
-	{
-		FString FullIncludePath;      // The complete file path
-		FString DisplayIncludePath;   // The path as shown in code (without quotes/brackets)
-		bool bIsSystemInclude;        // True if using <>, false if using ""
-		
-		FIncludeStatementInfo() : bIsSystemInclude(false) {}
-	};
-	
-	/** Create hyperlink run for include file paths */
-	TSharedRef<FSlateHyperlinkRun> CreateIncludeHyperlinkRun(
-		const FRunInfo& InRunInfo,
-		const TSharedRef<const FString>& InText,
-		const FTextRange& InRange,
-		const FIncludeStatementInfo& IncludeInfo) const;
-	
 	/** Callback when include hyperlink is clicked */
 	static void OnIncludeClicked(const FSlateHyperlinkRun::FMetadata& Metadata, FString FullPath);
 	

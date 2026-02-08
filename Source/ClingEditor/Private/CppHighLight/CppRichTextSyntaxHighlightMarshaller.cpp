@@ -17,6 +17,17 @@
 TMap<FString, FString> FCppRichTextSyntaxHighlightMarshaller::IncludePathCache;
 
 // Helper structures for two-phase parsing
+
+/** Structure to hold include statement information */
+struct FIncludeStatementInfo
+{
+	FString FullIncludePath;      // The complete file path
+	FString DisplayIncludePath;   // The path as shown in code (without quotes/brackets)
+	bool bIsSystemInclude;        // True if using <>, false if using ""
+	
+	FIncludeStatementInfo() : bIsSystemInclude(false) {}
+};
+
 struct FTokenRunInfo
 {
 	FString TokenText;
@@ -504,9 +515,55 @@ void FCppRichTextSyntaxHighlightMarshaller::ParseTokens(const FString& SourceStr
 		// Check if this is a complete #include statement
 		FIncludeAnalysisResult IncludeResult = AnalyzeIncludeStatement(TokenRunInfos, **ModelString);
 		
-		
+		auto CreateIncludeHyperlinkRun = [this](
+			const FRunInfo& InRunInfo,
+			const TSharedRef<const FString>& InText,
+			const FTextRange& InRange,
+			const FIncludeStatementInfo& IncludeInfo)
+		{
+			// Create a custom hyperlink style with improved visual appearance
+			// Following UE's official pattern from TestStyle.cpp
+	
+			// Create transparent button style for hyperlink underline
+			FButtonStyle HyperlinkButtonStyle = FButtonStyle()
+				.SetNormal(FSlateNoResource())
+				.SetPressed(FSlateNoResource())
+				.SetHovered(FSlateNoResource());
+	
+			FHyperlinkStyle HyperlinkStyle = FHyperlinkStyle()
+				.SetUnderlineStyle(HyperlinkButtonStyle)  // Use transparent underline
+				.SetTextStyle(SyntaxTextStyle.StringTextStyle)
+				.SetPadding(FMargin(0.0f));
+	
+			// Enhance the hyperlink appearance
+			// Blue color with emphasis
+			// HyperlinkStyle.TextStyle.ColorAndOpacity = FLinearColor(0.2f, 0.5f, 0.9f, 1.0f); // Richer blue
+			// HyperlinkStyle.TextStyle.Font.Size += 1; // Slightly larger font
+	
+			// Create the navigating delegate - this will be called when user clicks the hyperlink
+			FSlateHyperlinkRun::FOnClick OnClickDelegate = FSlateHyperlinkRun::FOnClick::CreateStatic(
+				&FCppRichTextSyntaxHighlightMarshaller::OnIncludeClicked, IncludeInfo.DisplayIncludePath);
+	
+			// Create tooltip delegate
+			FSlateHyperlinkRun::FOnGetTooltipText TooltipTextDelegate = FSlateHyperlinkRun::FOnGetTooltipText::CreateStatic(
+				&FCppRichTextSyntaxHighlightMarshaller::GetIncludeTooltip, IncludeInfo.DisplayIncludePath);
+	
+			// Create the hyperlink run
+			return FSlateHyperlinkRun::Create(
+				InRunInfo,
+				InText,
+				HyperlinkStyle,
+				OnClickDelegate,
+				FSlateHyperlinkRun::FOnGenerateTooltip(), // No custom tooltip widget
+				TooltipTextDelegate,
+				InRange);
+		};
 
-		auto CreateIncludeHyperlinkRuns = [this](const TArray<FTokenRunInfo>& TokenRunInfos, const FIncludeAnalysisResult& IncludeResult, const TSharedRef<const FString>& ModelString, TArray<TSharedRef<IRun>>& OutRuns)
+		auto CreateIncludeHyperlinkRuns = [this, &CreateIncludeHyperlinkRun](
+			const TArray<FTokenRunInfo>& TokenRunInfos, 
+			const FIncludeAnalysisResult& IncludeResult, 
+			const TSharedRef<const FString>& ModelString, 
+			TArray<TSharedRef<IRun>>& OutRuns)
 		{
 			// Create runs for the complete line
 			for (int32 i = 0; i < TokenRunInfos.Num(); ++i)
@@ -602,38 +659,39 @@ void FCppRichTextSyntaxHighlightMarshaller::RefreshSemanticNames()
 		// Cpp::DumpScope(Cpp::GetGlobalScope());
 		// Cpp::EndStdStreamCapture([](const char* In){UE_LOG(LogTemp,Log,TEXT("%hs"),In)});
 		
-		// Cpp::ActivateInterpreter(Module->BaseInterp);
+		Cpp::ActivateInterpreter(Module->BaseInterp);
 		thread_local TSet<FString>* LocalKnownNames = nullptr;
 		
-		// TGuardValue Guard{LocalKnownNames,&KnownTypes};
-		// Cpp::GetAllCppNames(Cpp::GetGlobalScope(),[](const char* const* Names, size_t Size)
-		// {
-		// 	for (size_t i = 0; i < Size; ++i)
-		// 	{
-		// 		LocalKnownNames->Add(UTF8_TO_TCHAR(Names[i]));
-		// 	}
-		// });		
-		//
-		// LocalKnownNames = &KnownEnums;
-		// Cpp::GetEnums(Cpp::GetGlobalScope(),[](const char* const* Names, size_t Size)
-		// {
-		// 	for (size_t i = 0; i < Size; ++i)
-		// 	{
-		// 		LocalKnownNames->Add(UTF8_TO_TCHAR(Names[i]));
-		// 	}
-		// });
-		//
-		// LocalKnownNames = &KnownNamespaces;
-		// Cpp::GetUsingNamespaces(Cpp::GetGlobalScope(),[](const Cpp::TCppScope_t* Scopes, size_t Size)
-		// {
-		// 	for (size_t i = 0; i < Size; ++i)
-		// 	{
-		// 		Cpp::GetName(Scopes[i],[](const char* Name)
-		// 		{
-		// 			LocalKnownNames->Add(UTF8_TO_TCHAR(Name));
-		// 		});
-		// 	}
-		// });
+		TGuardValue Guard{LocalKnownNames,&KnownTypes};
+		Cpp::GetAllCppNames(Cpp::GetGlobalScope(),[](const char* const* Names, size_t Size)
+		{
+			for (size_t i = 0; i < Size; ++i)
+			{
+				LocalKnownNames->Add(UTF8_TO_TCHAR(Names[i]));
+			}
+		});		
+		
+		LocalKnownNames = &KnownEnums;
+		Cpp::GetEnums(Cpp::GetGlobalScope(),[](const char* const* Names, size_t Size)
+		{
+			for (size_t i = 0; i < Size; ++i)
+			{
+				LocalKnownNames->Add(UTF8_TO_TCHAR(Names[i]));
+			}
+		});
+		
+		LocalKnownNames = &KnownNamespaces;
+		Cpp::GetUsingNamespaces(Cpp::GetGlobalScope(),[](const Cpp::TCppScope_t* Scopes, size_t Size)
+		{
+			for (size_t i = 0; i < Size; ++i)
+			{
+				Cpp::GetName(Scopes[i],[](const char* Name)
+				{
+					LocalKnownNames->Add(UTF8_TO_TCHAR(Name));
+				});
+			}
+		});
+		Cpp::ActivateInterpreter(Module->BaseInterp);
 	}
 
 	// 补充 UE UObject 符号，这在处理 UE 专属代码时非常有用
@@ -739,49 +797,6 @@ FString FCppRichTextSyntaxHighlightMarshaller::TryFixIncludes(const FString& InC
 	return FString::Join(Lines, TEXT("\n"));
 }
 
-TSharedRef<FSlateHyperlinkRun> FCppRichTextSyntaxHighlightMarshaller::CreateIncludeHyperlinkRun(
-	const FRunInfo& InRunInfo,
-	const TSharedRef<const FString>& InText,
-	const FTextRange& InRange,
-	const FIncludeStatementInfo& IncludeInfo) const
-{
-	// Create a custom hyperlink style with improved visual appearance
-	// Following UE's official pattern from TestStyle.cpp
-	
-	// Create transparent button style for hyperlink underline
-	FButtonStyle HyperlinkButtonStyle = FButtonStyle()
-		.SetNormal(FSlateNoResource())
-		.SetPressed(FSlateNoResource())
-		.SetHovered(FSlateNoResource());
-	
-	FHyperlinkStyle HyperlinkStyle = FHyperlinkStyle()
-		.SetUnderlineStyle(HyperlinkButtonStyle)  // Use transparent underline
-		.SetTextStyle(SyntaxTextStyle.StringTextStyle)
-		.SetPadding(FMargin(0.0f));
-	
-	// Enhance the hyperlink appearance
-	// Blue color with emphasis
-	HyperlinkStyle.TextStyle.ColorAndOpacity = FLinearColor(0.2f, 0.5f, 0.9f, 1.0f); // Richer blue
-	HyperlinkStyle.TextStyle.Font.Size += 1; // Slightly larger font
-	
-	// Create the navigate delegate - this will be called when user clicks the hyperlink
-	FSlateHyperlinkRun::FOnClick OnClickDelegate = FSlateHyperlinkRun::FOnClick::CreateStatic(
-		&FCppRichTextSyntaxHighlightMarshaller::OnIncludeClicked, IncludeInfo.DisplayIncludePath);
-	
-	// Create tooltip delegate
-	FSlateHyperlinkRun::FOnGetTooltipText TooltipTextDelegate = FSlateHyperlinkRun::FOnGetTooltipText::CreateStatic(
-		&FCppRichTextSyntaxHighlightMarshaller::GetIncludeTooltip, IncludeInfo.DisplayIncludePath);
-	
-	// Create the hyperlink run
-	return FSlateHyperlinkRun::Create(
-		InRunInfo,
-		InText,
-		HyperlinkStyle,
-		OnClickDelegate,
-		FSlateHyperlinkRun::FOnGenerateTooltip(), // No custom tooltip widget
-		TooltipTextDelegate,
-		InRange);
-}
 
 void FCppRichTextSyntaxHighlightMarshaller::OnIncludeClicked(const FSlateHyperlinkRun::FMetadata& Metadata, FString DisplayPath)
 {
