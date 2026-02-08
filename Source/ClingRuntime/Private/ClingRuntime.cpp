@@ -53,6 +53,7 @@ void FClingRuntimeModule::ShutdownModule()
 	// we call this function before unloading the module.
 
 	FScopeLock Lock(&CppInterOpLock);
+	SemanticInfoProviders.Empty();
 	Cpp::DeleteInterpreter(BaseInterp);
 }
 
@@ -75,6 +76,7 @@ void FClingRuntimeModule::DeleteInterp(void* CurrentInterp)
 	FScopeLock Lock(&CppInterOpLock);
 	Cpp::DeleteInterpreter(CurrentInterp);
 	Interps.Remove(CurrentInterp);
+	SemanticInfoProviders.Remove(CurrentInterp);
 }
 
 FClingRuntimeModule& FClingRuntimeModule::Get()
@@ -82,9 +84,28 @@ FClingRuntimeModule& FClingRuntimeModule::Get()
 	return FModuleManager::LoadModuleChecked<FClingRuntimeModule>(TEXT("ClingRuntime"));
 }
 
+struct FClingSemanticInfoProvider* FClingRuntimeModule::GetDefaultSemanticInfoProvider()
+{
+	return GetSemanticInfoProvider(BaseInterp);
+}
+
+struct FClingSemanticInfoProvider* FClingRuntimeModule::GetSemanticInfoProvider(void* InInterp)
+{
+	if (!InInterp) return nullptr;
+
+	if (FClingSemanticInfoProvider* Found = SemanticInfoProviders.Find(InInterp))
+	{
+		return Found;
+	}
+
+	FClingSemanticInfoProvider& NewProvider = SemanticInfoProviders.Add(InInterp);
+	NewProvider.Refresh(InInterp);
+	return &NewProvider;
+}
+
 Cpp::TInterp_t FClingRuntimeModule::StartInterpreterInternal(FName PCHProfile)
 {
-	SCOPED_NAMED_EVENT(StartInterpreterInternal, FColor::Red)
+	SCOPED_NAMED_EVENT(StartInterpreterInternal, FColor::Red);
 	// FString LLVMDir = GetLLVMDir();
 	// FString LLVMInclude = GetLLVMInclude();
 	// FString UE_Exec = FPlatformProcess::ExecutablePath();
@@ -118,13 +139,13 @@ Cpp::TInterp_t FClingRuntimeModule::StartInterpreterInternal(FName PCHProfile)
 	// the abi of debug build of std::vector is different between unreal and clang! use raw input
 	Cpp::TInterp_t Interp;
 	{
-		SCOPED_NAMED_EVENT(TrueStart, FColor::Red)
+		SCOPED_NAMED_EVENT(TrueStart, FColor::Red);
 		FScopeLock Lock(&CppInterOpLock);
 		Interp = Cpp::CreateInterpreter(&Argv[0], Argv.Num(),nullptr,0);
 		UE_LOG(LogCling,Log,TEXT("CreateInterpreter %p"),Interp);
 	}
 	{
-		SCOPED_NAMED_EVENT(DeclareOverride, FColor::Red)
+		SCOPED_NAMED_EVENT(DeclareOverride, FColor::Red);
 		// Cling-safe UE_LOG wrapper (CLING_LOG macro and ClingLog:: namespace)
 		Cpp::Declare("#include \"ClingScript/Private/UEClingCoreScript/ClingLogWrapper.h\"");
 	}
@@ -136,4 +157,4 @@ Cpp::TInterp_t FClingRuntimeModule::StartInterpreterInternal(FName PCHProfile)
 
 #undef LOCTEXT_NAMESPACE
 	
-IMPLEMENT_MODULE(FClingRuntimeModule, ClingRuntime)
+IMPLEMENT_MODULE(FClingRuntimeModule, ClingRuntime);

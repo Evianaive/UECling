@@ -19,11 +19,10 @@ class CLINGEDITOR_API FCppRichTextSyntaxHighlightMarshaller : public FSyntaxHigh
 {
 public:
 
-	static TSharedRef< FCppRichTextSyntaxHighlightMarshaller > Create(const FSyntaxTextStyle& InSyntaxTextStyle);
+	static TSharedRef< FCppRichTextSyntaxHighlightMarshaller > Create(
+		const FSyntaxTextStyle& InSyntaxTextStyle, const struct FClingSemanticInfoProvider& InProvider);
 
 	virtual ~FCppRichTextSyntaxHighlightMarshaller();
-
-	void RefreshSemanticNames();
 
 	/** 尝试分析并修复缺失的 include */
 	FString TryFixIncludes(const FString& InCode);
@@ -32,14 +31,15 @@ protected:
 
 	virtual void ParseTokens(const FString& SourceString, FTextLayout& TargetTextLayout, TArray<ISyntaxTokenizer::FTokenizedLine> TokenizedLines) override;
 
-	FCppRichTextSyntaxHighlightMarshaller(TSharedPtr< ISyntaxTokenizer > InTokenizer, const FSyntaxTextStyle& InSyntaxTextStyle);
+	FCppRichTextSyntaxHighlightMarshaller(
+		TSharedPtr< ISyntaxTokenizer > InTokenizer, 
+		const FSyntaxTextStyle& InSyntaxTextStyle,
+		const FClingSemanticInfoProvider& InProvider);
 
 	/** Styles used to display the text */
 	const FSyntaxTextStyle& SyntaxTextStyle;
 
-	TSet<FString> KnownTypes;
-	TSet<FString> KnownEnums;
-	TSet<FString> KnownNamespaces;
+	const FClingSemanticInfoProvider& SemanticInfoProvider;
 
 private:
 	/** Callback when include hyperlink is clicked */

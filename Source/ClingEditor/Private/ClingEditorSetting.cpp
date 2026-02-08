@@ -1,4 +1,4 @@
-﻿// Fill out your copyright notice in the Description page of Project Settings.
+// Fill out your copyright notice in the Description page of Project Settings.
 
 
 #include "ClingEditorSetting.h"
@@ -27,9 +27,13 @@ UClingEditorSetting::UClingEditorSetting()
 		.CommentTextStyle=FTextBlockStyle(FClingCodeEditorStyle::NormalText).SetColorAndOpacity(FColor(0xff57a64a)),// green
 		.PreProcessorKeywordTextStyle=FTextBlockStyle(FClingCodeEditorStyle::NormalText).SetColorAndOpacity(FColor(0xff9f4fdf)),// light grey
 		.TypeTextStyle=FTextBlockStyle(FClingCodeEditorStyle::BoldText).SetColorAndOpacity(FColor(0xffd4c006)),// light grey
+		.ClassTextStyle=FTextBlockStyle(FClingCodeEditorStyle::BoldText).SetColorAndOpacity(FColor(0xff4169e1)),// royal blue
+		.StructTextStyle=FTextBlockStyle(FClingCodeEditorStyle::BoldText).SetColorAndOpacity(FColor(0xff20b2aa)),// light sea green
 		.VarTextStyle=FTextBlockStyle(FClingCodeEditorStyle::NormalText).SetColorAndOpacity(FColor(0xff8e4a3e)),// light grey
 		.EnumTextStyle=FTextBlockStyle(FClingCodeEditorStyle::NormalText).SetColorAndOpacity(FColor(0xff0fcf4f)),// light grey
-		.NamespaceTextStyle=FTextBlockStyle(FClingCodeEditorStyle::NormalText).SetColorAndOpacity(FColor(0xffcc7cfc))// light grey
+		.NamespaceTextStyle=FTextBlockStyle(FClingCodeEditorStyle::NormalText).SetColorAndOpacity(FColor(0xffcc7cfc)),// light grey
+		.FunctionTextStyle=FTextBlockStyle(FClingCodeEditorStyle::NormalText).SetColorAndOpacity(FColor(0xffff8c00)),// dark orange
+		.TemplateTextStyle=FTextBlockStyle(FClingCodeEditorStyle::NormalText).SetColorAndOpacity(FColor(0xff9370db))// medium purple
 	}
 {
 	CategoryName = TEXT("Plugins");

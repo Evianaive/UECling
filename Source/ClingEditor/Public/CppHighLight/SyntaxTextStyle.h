@@ -1,4 +1,5 @@
 ﻿#pragma once
+#include "CoreMinimal.h"
 #include "SyntaxTextStyle.generated.h"
 
 USTRUCT()
@@ -23,11 +24,19 @@ struct CLINGEDITOR_API FSyntaxTextStyle
 	UPROPERTY(EditAnywhere)
 	FTextBlockStyle TypeTextStyle;
 	UPROPERTY(EditAnywhere)
+	FTextBlockStyle ClassTextStyle;
+	UPROPERTY(EditAnywhere)
+	FTextBlockStyle StructTextStyle;
+	UPROPERTY(EditAnywhere)
 	FTextBlockStyle VarTextStyle;
 	UPROPERTY(EditAnywhere)
 	FTextBlockStyle EnumTextStyle;
 	UPROPERTY(EditAnywhere)
 	FTextBlockStyle NamespaceTextStyle;
+	UPROPERTY(EditAnywhere)
+	FTextBlockStyle FunctionTextStyle;
+	UPROPERTY(EditAnywhere)
+	FTextBlockStyle TemplateTextStyle;
 
 	static const FSyntaxTextStyle& GetSyntaxTextStyle();
 };

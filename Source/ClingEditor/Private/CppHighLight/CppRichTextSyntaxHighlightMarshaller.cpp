@@ -6,6 +6,7 @@
 #include "Framework/Text/SlateHyperlinkRun.h"
 #include "Fonts/FontMeasure.h"
 #include "ClingRuntime.h"
+#include "ClingSemanticInfoProvider.h"
 #include "CppInterOp/CppInterOp.h"
 #include "UObject/UObjectIterator.h"
 #include "Internationalization/Regex.h"
@@ -277,7 +278,8 @@ const TCHAR* PreProcessorKeywords[] =
 	TEXT("#undef"),
 };
 
-TSharedRef< FCppRichTextSyntaxHighlightMarshaller > FCppRichTextSyntaxHighlightMarshaller::Create(const FSyntaxTextStyle& InSyntaxTextStyle)
+TSharedRef< FCppRichTextSyntaxHighlightMarshaller > FCppRichTextSyntaxHighlightMarshaller::Create(
+	const FSyntaxTextStyle& InSyntaxTextStyle, const FClingSemanticInfoProvider& InProvider)
 {
 	TArray<FSyntaxTokenizer::FRule> TokenizerRules;
 
@@ -299,7 +301,7 @@ TSharedRef< FCppRichTextSyntaxHighlightMarshaller > FCppRichTextSyntaxHighlightM
 		TokenizerRules.Emplace(FSyntaxTokenizer::FRule(PreProcessorKeyword));
 	}
 
-	return MakeShareable(new FCppRichTextSyntaxHighlightMarshaller(FSyntaxTokenizer::Create(TokenizerRules), InSyntaxTextStyle));
+	return MakeShareable(new FCppRichTextSyntaxHighlightMarshaller(FSyntaxTokenizer::Create(TokenizerRules), InSyntaxTextStyle, InProvider));
 }
 
 FCppRichTextSyntaxHighlightMarshaller::~FCppRichTextSyntaxHighlightMarshaller()
@@ -430,6 +432,10 @@ void FCppRichTextSyntaxHighlightMarshaller::ParseTokens(const FString& SourceStr
 {
 	TArray<FTextLayout::FNewLineData> LinesToAdd;
 	LinesToAdd.Reserve(TokenizedLines.Num());
+	
+	const FClingSemanticInfoProvider& SemanticInfoProviderToUse = SemanticInfoProvider.IsReady() 
+		? SemanticInfoProvider:
+		*FClingRuntimeModule::Get().GetDefaultSemanticInfoProvider();
 
 	// Two-phase parsing approach:
 	// Phase 1: Collect token information without creating runs
@@ -485,6 +491,49 @@ void FCppRichTextSyntaxHighlightMarshaller::ParseTokens(const FString& SourceStr
 					{
 						RunInfo.RunTypeName = TEXT("SyntaxHighlight.CPP.Keyword");
 						RunInfo.Style = SyntaxTextStyle.KeywordTextStyle;
+					}
+					else if (SemanticInfoProviderToUse.IsReady())
+					{
+						if (SemanticInfoProviderToUse.GetNamespaces().Contains(TokenText))
+						{
+							RunInfo.RunTypeName = TEXT("SyntaxHighlight.CPP.Namespace");
+							RunInfo.Style = SyntaxTextStyle.NamespaceTextStyle;
+						}
+						else if (SemanticInfoProviderToUse.GetClasses().Contains(TokenText))
+						{
+							RunInfo.RunTypeName = TEXT("SyntaxHighlight.CPP.Class");
+							RunInfo.Style = SyntaxTextStyle.ClassTextStyle;
+						}
+						else if (SemanticInfoProviderToUse.GetStructs().Contains(TokenText))
+						{
+							RunInfo.RunTypeName = TEXT("SyntaxHighlight.CPP.Struct");
+							RunInfo.Style = SyntaxTextStyle.StructTextStyle;
+						}
+						else if (SemanticInfoProviderToUse.GetEnums().Contains(TokenText))
+						{
+							RunInfo.RunTypeName = TEXT("SyntaxHighlight.CPP.Enum");
+							RunInfo.Style = SyntaxTextStyle.EnumTextStyle;
+						}
+						else if (SemanticInfoProviderToUse.GetTypedefs().Contains(TokenText))
+						{
+							RunInfo.RunTypeName = TEXT("SyntaxHighlight.CPP.Type");
+							RunInfo.Style = SyntaxTextStyle.TypeTextStyle;
+						}
+						else if (SemanticInfoProviderToUse.GetFunctions().Contains(TokenText)) // Changed from GetFunctions
+						{
+							RunInfo.RunTypeName = TEXT("SyntaxHighlight.CPP.Function");
+							RunInfo.Style = SyntaxTextStyle.FunctionTextStyle;
+						}
+						else if (SemanticInfoProviderToUse.GetTemplates().Contains(TokenText))
+						{
+							RunInfo.RunTypeName = TEXT("SyntaxHighlight.CPP.Template");
+							RunInfo.Style = SyntaxTextStyle.TemplateTextStyle;
+						}
+						else
+						{
+							RunInfo.RunTypeName = TEXT("SyntaxHighlight.CPP.Normal");
+							RunInfo.Style = SyntaxTextStyle.NormalTextStyle;
+						}
 					}
 					else
 					{
@@ -641,62 +690,15 @@ void FCppRichTextSyntaxHighlightMarshaller::ParseTokens(const FString& SourceStr
 	TargetTextLayout.AddLines(LinesToAdd);
 }
 
-FCppRichTextSyntaxHighlightMarshaller::FCppRichTextSyntaxHighlightMarshaller(TSharedPtr< ISyntaxTokenizer > InTokenizer, const FSyntaxTextStyle& InSyntaxTextStyle)
+FCppRichTextSyntaxHighlightMarshaller::FCppRichTextSyntaxHighlightMarshaller(
+	TSharedPtr< ISyntaxTokenizer > InTokenizer, 
+	const FSyntaxTextStyle& InSyntaxTextStyle,
+	const FClingSemanticInfoProvider& InProvider)
 	: FSyntaxHighlighterTextLayoutMarshaller(MoveTemp(InTokenizer))
 	, SyntaxTextStyle(InSyntaxTextStyle)
+	, SemanticInfoProvider(InProvider)
 {
-	RefreshSemanticNames();
-}
 
-void FCppRichTextSyntaxHighlightMarshaller::RefreshSemanticNames()
-{
-	FClingRuntimeModule* Module = FModuleManager::GetModulePtr<FClingRuntimeModule>(TEXT("ClingRuntime"));
-	if (Module && Module->BaseInterp)
-	{
-		// Cpp::BeginStdStreamCapture(Cpp::kStdErr);
-		// Cpp::DumpScope(Cpp::GetGlobalScope());
-		// Cpp::EndStdStreamCapture([](const char* In){UE_LOG(LogTemp,Log,TEXT("%hs"),In)});
-		
-		Cpp::ActivateInterpreter(Module->BaseInterp);
-		thread_local TSet<FString>* LocalKnownNames = nullptr;
-		
-		TGuardValue Guard{LocalKnownNames,&KnownTypes};
-		Cpp::GetAllCppNames(Cpp::GetGlobalScope(),[](const char* const* Names, size_t Size)
-		{
-			for (size_t i = 0; i < Size; ++i)
-			{
-				LocalKnownNames->Add(UTF8_TO_TCHAR(Names[i]));
-			}
-		});		
-		
-		LocalKnownNames = &KnownEnums;
-		Cpp::GetEnums(Cpp::GetGlobalScope(),[](const char* const* Names, size_t Size)
-		{
-			for (size_t i = 0; i < Size; ++i)
-			{
-				LocalKnownNames->Add(UTF8_TO_TCHAR(Names[i]));
-			}
-		});
-		
-		LocalKnownNames = &KnownNamespaces;
-		Cpp::GetUsingNamespaces(Cpp::GetGlobalScope(),[](const Cpp::TCppScope_t* Scopes, size_t Size)
-		{
-			for (size_t i = 0; i < Size; ++i)
-			{
-				Cpp::GetName(Scopes[i],[](const char* Name)
-				{
-					LocalKnownNames->Add(UTF8_TO_TCHAR(Name));
-				});
-			}
-		});
-		Cpp::ActivateInterpreter(Module->BaseInterp);
-	}
-
-	// 补充 UE UObject 符号，这在处理 UE 专属代码时非常有用
-	// for (TObjectIterator<UStruct> It; It; ++It)
-	// {
-	// 	KnownNames.Add(It->GetName());
-	// }
 }
 
 FString FCppRichTextSyntaxHighlightMarshaller::TryFixIncludes(const FString& InCode)

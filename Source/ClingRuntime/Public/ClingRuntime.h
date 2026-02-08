@@ -4,6 +4,7 @@
 
 #include "Modules/ModuleManager.h"
 #include "HAL/CriticalSection.h"
+#include "ClingSemanticInfoProvider.h"
 
 namespace cling
 {
@@ -28,6 +29,9 @@ public:
 	void DeleteInterp(void* CurrentInterp);
 	static FClingRuntimeModule& Get();
 
+	struct FClingSemanticInfoProvider* GetSemanticInfoProvider(void* InInterp);
+	struct FClingSemanticInfoProvider* GetDefaultSemanticInfoProvider();
+
 	/** Get the global lock for CppInterOp calls */
 	FCriticalSection& GetCppInterOpLock() { return CppInterOpLock; }
 
@@ -35,4 +39,6 @@ private:
 	void* StartInterpreterInternal(FName PCHProfile = TEXT("Default"));
 
 	FCriticalSection CppInterOpLock;
+
+	TMap<void*, FClingSemanticInfoProvider> SemanticInfoProviders;
 };

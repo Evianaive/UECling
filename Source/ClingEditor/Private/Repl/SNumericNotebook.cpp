@@ -3,6 +3,8 @@
 #include "ClingSetting.h"
 #include "CppInterOp/CppInterOp.h"
 #include "Async/Async.h"
+#include "CppHighLight/CppRichTextSyntaxHighlightMarshaller.h"
+#include "ClingSemanticInfoProvider.h"
 
 #include "Styling/CoreStyle.h"
 #include "Framework/Application/SlateApplication.h"
@@ -219,6 +221,10 @@ void SClingNotebookCell::UpdateCellUI()
 			.Padding(0, 2)
 			[
 				SAssignNew(CodeTextBox, SCppMultiLineEditableTextBox)
+				.Marshaller(FCppRichTextSyntaxHighlightMarshaller::Create(
+					FSyntaxTextStyle::GetSyntaxTextStyle(),
+					NotebookAsset->GetUsableSemanticInfoProvider()						
+					))
 				.Text(FText::FromString(CellData->Content))
 				.OnTextChanged(this, &SClingNotebookCell::OnCodeTextChanged)
 				.Visibility_Lambda([this]() { return CellData->bIsExpanded ? EVisibility::Visible : EVisibility::Collapsed; })
@@ -367,6 +373,10 @@ void SClingNotebookDetailsPanel::Refresh()
 				.FillHeight(0.7f)
 				[
 					SAssignNew(DetailCodeTextBox, SCppMultiLineEditableTextBox)
+					.Marshaller(FCppRichTextSyntaxHighlightMarshaller::Create(
+						FSyntaxTextStyle::GetSyntaxTextStyle(),
+						NotebookAsset->GetUsableSemanticInfoProvider()							
+						))
 					.Text(FText::FromString(SelectedData->Content))
 					.OnTextChanged_Lambda([this, SelectedData](const FText& InText) {
 						SelectedData->Content = InText.ToString();
@@ -552,6 +562,18 @@ void SNumericNotebook::Construct(const FArguments& InArgs)
 						.ButtonStyle(FAppStyle::Get(), "FlatButton.Danger")
 						.IsEnabled_Lambda([this]() { return NotebookAsset ? !NotebookAsset->bIsCompiling : true; })
 					]
+
+					+SHorizontalBox::Slot()
+					.AutoWidth()
+					.Padding(5.0f, 0.0f)
+					[
+						SNew(SButton)
+						.Text(INVTEXT("Refresh Highlighting"))
+						.ToolTipText(INVTEXT("Manually refresh C++ semantic symbols for syntax highlighting"))
+						.OnClicked(this, &SNumericNotebook::OnRefreshHighlightingButtonClicked)
+						.ButtonStyle(FAppStyle::Get(), "SimpleButton")
+						.IsEnabled_Lambda([this]() { return NotebookAsset && !NotebookAsset->bIsCompiling; })
+					]
 					
 					// PCH Profile Selector
 					+SHorizontalBox::Slot()
@@ -710,6 +732,16 @@ FReply SNumericNotebook::OnRestartInterpButtonClicked()
 	if (NotebookAsset)
 	{
 		NotebookAsset->RestartInterpreter();
+		UpdateDocumentUI();
+	}
+	return FReply::Handled();
+}
+
+FReply SNumericNotebook::OnRefreshHighlightingButtonClicked()
+{
+	if (NotebookAsset)
+	{
+		NotebookAsset->SemanticInfoProvider.Refresh(NotebookAsset->GetInterpreter());
 		UpdateDocumentUI();
 	}
 	return FReply::Handled();

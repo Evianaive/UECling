@@ -3,6 +3,7 @@
 #include "CoreMinimal.h"
 #include "UObject/NoExportTypes.h"
 #include "Async/Future.h"
+#include "ClingSemanticInfoProvider.h"
 #if WITH_EDITORONLY_DATA
 #include "StructUtils/PropertyBag.h"
 #endif
@@ -160,6 +161,10 @@ public:
 
 	UPROPERTY(EditAnywhere, Category = "Cling")
 	TArray<FClingNotebookCellData> Cells;
+
+	UPROPERTY()
+	FClingSemanticInfoProvider SemanticInfoProvider;
+	const FClingSemanticInfoProvider& GetUsableSemanticInfoProvider() const;
 
 	UPROPERTY(Transient)
 	int32 SelectedCellIndex = -1;

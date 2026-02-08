@@ -121,6 +121,7 @@ public:
 private:
 	FReply OnAddNewCellButtonClicked();
 	FReply OnRestartInterpButtonClicked();
+	FReply OnRefreshHighlightingButtonClicked();
 	
 	// PCH Profile selection
 	TSharedRef<SWidget> GeneratePCHProfileMenu();

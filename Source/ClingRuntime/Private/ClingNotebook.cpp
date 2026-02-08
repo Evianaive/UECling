@@ -866,6 +866,13 @@ void UClingNotebook::FinishDestroy()
 	Super::FinishDestroy();
 }
 
+const FClingSemanticInfoProvider& UClingNotebook::GetUsableSemanticInfoProvider() const
+{
+	if (SemanticInfoProvider.IsReady())
+		return const_cast<FClingSemanticInfoProvider&>(SemanticInfoProvider);
+	return *FClingRuntimeModule::Get().GetDefaultSemanticInfoProvider();
+}
+
 void UClingNotebook::SetSelectedCell(int32 Index)
 {
 	if (SelectedCellIndex != Index)
@@ -938,6 +945,7 @@ TFuture<FClingInterpreterResult> UClingNotebook::StartInterpreterAsync()
 			UClingNotebook* Notebook = WeakThis.Get();
 			Notebook->Interpreter = NewInterpreter;
 			Notebook->bIsInitializingInterpreter = false;
+			Notebook->SemanticInfoProvider.Refresh(NewInterpreter);
 			Notebook->InterpreterPromise.Reset();
 
 			// Fulfill the promise - this triggers all waiting futures
@@ -1057,6 +1065,7 @@ void UClingNotebook::OnCellCompilationComplete(int32 CellIndex, const FClingCell
 	if (Result.bSuccess)
 	{
 		CellData.CompilationState = EClingCellCompilationState::Completed;
+		SemanticInfoProvider.Refresh(GetInterpreter());
 		if (CellData.Output.IsEmpty())
 		{
 			CellData.Output = FString::Printf(TEXT("Success (Executed at %s)"), *FDateTime::Now().ToString());
