@@ -22,7 +22,7 @@
 /**
  * 
  */
-UCLASS(Config=EditorPerProjectUserSettings)
+UCLASS(Config=EditorPerProjectUserSettings, DefaultConfig)
 class CLINGEDITOR_API UClingEditorSetting : public UDeveloperSettings
 {
 	GENERATED_BODY()
@@ -31,6 +31,6 @@ public:
 	virtual FName GetCategoryName() const override;
 	virtual FName GetContainerName() const override;
 	virtual FName GetSectionName() const override;
-	UPROPERTY(EditAnywhere)
+	UPROPERTY(EditAnywhere, Config)
 	FSyntaxTextStyle SyntaxTextStyle;
 };
