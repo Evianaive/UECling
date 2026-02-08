@@ -921,7 +921,7 @@ TFuture<FClingInterpreterResult> UClingNotebook::StartInterpreterAsync()
 	TSharedPtr<TPromise<FClingInterpreterResult>> PromiseCapture = InterpreterPromise;
 
 	// Start interpreter creation on background thread
-	AsyncTask(ENamedThreads::AnyBackgroundThreadNormalTask, [WeakThis, PromiseCapture]()
+	AsyncTask(ENamedThreads::AnyBackgroundHiPriTask, [WeakThis, PromiseCapture]()
 	{
 		UClingNotebook* NotebookPtr = WeakThis.Get();
 		FName ProfileName = NotebookPtr ? NotebookPtr->PCHProfile : TEXT("Default");
@@ -1021,7 +1021,7 @@ TFuture<FClingCellCompilationResult> UClingNotebook::CompileCellAsync(void* Inte
 	else
 	{
 		// Execute on background thread
-		AsyncTask(ENamedThreads::AnyBackgroundThreadNormalTask, [WeakThis, Interp, Code, CellIndex, CompilePromise]()
+		AsyncTask(ENamedThreads::AnyBackgroundHiPriTask, [WeakThis, Interp, Code, CellIndex, CompilePromise]()
 		{
 			FClingCellCompilationResult Result;
 			Result.ErrorOutput = TEXT("Compilation failed");
