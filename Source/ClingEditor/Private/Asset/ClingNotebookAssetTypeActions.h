@@ -12,4 +12,5 @@ public:
 	virtual UClass* GetSupportedClass() const override;
 	virtual uint32 GetCategories() override;
 	virtual void OpenAssetEditor(const TArray<UObject*>& InObjects, TSharedPtr<class IToolkitHost> EditWithinLevelEditor = TSharedPtr<IToolkitHost>()) override;
+	virtual const FSlateBrush* GetIconBrush(const FAssetData& InAssetData, const FName InClassName) const override;
 };

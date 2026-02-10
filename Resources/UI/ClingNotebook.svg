@@ -1,0 +1,99 @@
+<svg viewBox="0 0 128 128" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <!-- 左侧面板渐变：立体高光效果 -->
+    <linearGradient id="spineGrad" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" style="stop-color:#B0B0B0;stop-opacity:1" />
+      <stop offset="30%" style="stop-color:#D0D0D0;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#C5C5C5;stop-opacity:1" />
+    </linearGradient>
+
+    <!-- 右侧主面板渐变：从左到右的亮灰渐变 -->
+    <linearGradient id="pageGrad" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" style="stop-color:#D8D8D8;stop-opacity:1" />
+      <stop offset="20%" style="stop-color:#E8E8E8;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#F5F5F5;stop-opacity:1" />
+    </linearGradient>
+
+    <!-- 顶部高光：模拟UE图标的立体反光 -->
+    <linearGradient id="highlight" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#FFFFFF;stop-opacity:0.6" />
+      <stop offset="100%" style="stop-color:#FFFFFF;stop-opacity:0" />
+    </linearGradient>
+
+    <!-- C++蓝：与UE编辑器强调色一致 -->
+    <linearGradient id="cppBlue" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#6BB3E0;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#4A90C6;stop-opacity:1" />
+    </linearGradient>
+
+    <!-- 阴影滤镜 -->
+    <filter id="dropShadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur in="SourceAlpha" stdDeviation="2"/>
+      <feOffset dx="1.5" dy="1.5" result="offsetblur"/>
+      <feComponentTransfer>
+        <feFuncA type="linear" slope="0.3"/>
+      </feComponentTransfer>
+      <feMerge>
+        <feMergeNode/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+
+  <!-- 组：整体轻微投影（UE图标的悬浮感） -->
+  <g filter="url(#dropShadow)">
+
+    <!-- === 左侧面板（书脊/侧栏）=== -->
+    <!-- 位于底层，高度稍短，形成层次 -->
+    <rect x="20" y="16" width="22" height="96" rx="2" fill="url(#spineGrad)"/>
+    <!-- 左侧面板顶部高光 -->
+    <rect x="20" y="16" width="22" height="15" rx="2" fill="url(#highlight)"/>
+    <!-- 边缘线：增强立体感 -->
+    <rect x="20" y="16" width="22" height="96" rx="2" fill="none" stroke="#909090" stroke-width="1"/>
+
+    <!-- === 右侧主面板（文档主体）=== -->
+    <!-- 主体：位置偏右，覆盖左侧边缘 -->
+    <rect x="38" y="12" width="74" height="104" rx="3" fill="url(#pageGrad)"/>
+
+    <!-- 顶部高光条（UE风格的关键特征） -->
+    <rect x="40" y="12" width="70" height="20" rx="2" fill="url(#highlight)"/>
+
+    <!-- 主面板边缘：内阴影效果用描边模拟 -->
+    <rect x="38" y="12" width="74" height="104" rx="3" fill="none" stroke="#A0A0A0" stroke-width="1.5"/>
+
+    <!-- 左侧与左面板的分隔线（立体接缝） -->
+    <line x1="38" y1="12" x2="38" y2="116" stroke="#999" stroke-width="1"/>
+  </g>
+
+  <!-- === 代码行装饰（顶部区域）=== -->
+  <g opacity="0.5">
+    <line x1="50" y1="32" x2="88" y2="32" stroke="#888" stroke-width="2.5" stroke-linecap="round"/>
+    <line x1="50" y1="42" x2="100" y2="42" stroke="#888" stroke-width="2.5" stroke-linecap="round"/>
+    <line x1="50" y1="52" x2="78" y2="52" stroke="#888" stroke-width="2.5" stroke-linecap="round"/>
+  </g>
+
+  <!-- === C++ 标识（大号，横跨底部，突破边界）=== -->
+  <g transform="translate(24, 94)" fill="url(#cppBlue)" filter="url(#dropShadow)">
+    <!-- C 字母：大号，部分位于左面板区域上方 -->
+    <path d="M 14,-14   
+             C 6,-14 0,-8 0,0   
+             C 0,8 6,14 14,14   
+             C 19,14 23,11 25,7   
+             L 20,4   
+             C 19,7 16,9 14,9   
+             C 9,9 6,5 6,0   
+             C 6,-5 9,-9 14,-9   
+             C 16,-9 19,-7 20,-4   
+             L 25,-7   
+             C 23,-11 19,-14 14,-14 Z"/>
+
+    <!-- 第一个 + ：位于中部 -->
+    <rect x="32" y="-9" width="5" height="18" rx="1.2"/>
+    <rect x="25" y="-2" width="19" height="5" rx="1.2"/>
+
+    <!-- 第二个 + ：位于右侧 -->
+    <rect x="52" y="-9" width="5" height="18" rx="1.2"/>
+    <rect x="45" y="-2" width="19" height="5" rx="1.2"/>
+  </g>
+
+</svg>  

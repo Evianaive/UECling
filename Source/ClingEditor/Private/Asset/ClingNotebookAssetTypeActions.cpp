@@ -1,6 +1,7 @@
-﻿#include "ClingNotebookAssetTypeActions.h"
+#include "ClingNotebookAssetTypeActions.h"
 #include "ClingNotebook.h"
 #include "Asset/ClingNotebookEditor.h"
+#include "CppHighLight/CodeEditorStyle.h"
 
 FText FClingNotebookAssetTypeActions::GetName() const
 {
@@ -34,4 +35,10 @@ void FClingNotebookAssetTypeActions::OpenAssetEditor(const TArray<UObject*>& InO
 			NewEditor->InitEditor(Mode, EditWithinLevelEditor, Notebook);
 		}
 	}
+}
+
+const FSlateBrush* FClingNotebookAssetTypeActions::GetIconBrush(const FAssetData& InAssetData,
+	const FName InClassName) const
+{
+	return FClingCodeEditorStyle::Get().GetBrush("ClassIcon.ClingNotebook");
 }

@@ -23,6 +23,7 @@ TSharedPtr< FSlateStyleSet > FClingCodeEditorStyle::StyleSet = nullptr;
 #define IMAGE_BRUSH( RelativePath, ... ) FSlateImageBrush( StyleSet->RootToContentDir( RelativePath, TEXT(".png") ), __VA_ARGS__ )
 #define BOX_BRUSH( RelativePath, ... ) FSlateBoxBrush( StyleSet->RootToContentDir( RelativePath, TEXT(".png") ), __VA_ARGS__ )
 #define BORDER_BRUSH( RelativePath, ... ) FSlateBorderBrush( StyleSet->RootToContentDir( RelativePath, TEXT(".png") ), __VA_ARGS__ )
+#define SVG_BRUSH( RelativePath, ... ) FSlateVectorImageBrush( StyleSet->RootToContentDir( RelativePath, TEXT(".svg") ), __VA_ARGS__ )
 #define DEFAULT_FONT(...) FCoreStyle::GetDefaultFontStyle(__VA_ARGS__)
 
 // Const icon sizes
@@ -44,7 +45,7 @@ static const FVector2D Icon171x39(171.0f, 39.0f);
 static const FVector2D Icon170x50(170.0f, 50.0f);
 static const FVector2D Icon267x140(170.0f, 50.0f);
  
-FString ContentRoot = FPaths::EnginePluginsDir() / TEXT("Experimental/FClingCodeEditorStyle/Resources");
+FString ContentRoot = FPaths::ProjectPluginsDir() / TEXT("UECling/Resources");
 FSlateFontInfo Consolas9  = DEFAULT_FONT("Regular", 9);
 FTextBlockStyle FClingCodeEditorStyle::NormalText = FTextBlockStyle()
 	.SetFont(Consolas9)
@@ -82,6 +83,10 @@ void FClingCodeEditorStyle::Initialize()
 		StyleSet->Set("FClingCodeEditorStyle.Save.Small", new IMAGE_BRUSH("UI/Save_40x", Icon16x16));
 		StyleSet->Set("FClingCodeEditorStyle.SaveAll", new IMAGE_BRUSH("UI/SaveAll_40x", Icon40x40));
 		StyleSet->Set("FClingCodeEditorStyle.SaveAll.Small", new IMAGE_BRUSH("UI/SaveAll_40x", Icon16x16));
+		
+		// ClingNotebook Asset Icons
+		StyleSet->Set("ClassIcon.ClingNotebook", new SVG_BRUSH("UI/ClingNotebook", Icon16x16));
+		StyleSet->Set("ClassThumbnail.ClingNotebook", new SVG_BRUSH("UI/ClingNotebook", Icon16x16));
 	}
 	
 
@@ -136,6 +141,7 @@ void FClingCodeEditorStyle::Initialize()
 #undef IMAGE_BRUSH
 #undef BOX_BRUSH
 #undef BORDER_BRUSH
+#undef SVG_BRUSH
 #undef DEFAULT_FONT
 
 void FClingCodeEditorStyle::Shutdown()
