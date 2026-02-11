@@ -9,6 +9,7 @@
 #include "Misc/FileHelper.h"
 #include "Misc/Guid.h"
 #include "Misc/Paths.h"
+#include "StructUtils/PropertyBag.h"
 
 #if WITH_EDITOR
 #include "ClingSourceAccess.h"
@@ -250,7 +251,9 @@ namespace ClingNotebookIDE
 		return ParseSectionsFromLines(Lines, OutSections);
 	}
 }
+#endif
 
+#if WITH_EDITOR
 namespace ClingNotebookSymbols
 {
 	FString StripComments(const FString& InText)
@@ -853,6 +856,84 @@ namespace ClingNotebookSymbols
 		ExtractVariableSymbols(Clean, OutSymbols);
 		return OutSymbols.Num() > 0;
 	}
+
+	static FString GLastCppString;
+	static void CppStringCallback(const char* Str) { GLastCppString = UTF8_TO_TCHAR(Str); }
+
+	static TArray<Cpp::TCppFunction_t> GLastCppFunctions;
+	static void CppFunctionsCallback(const Cpp::TCppFunction_t* Funcs, size_t Num)
+	{
+		UE_LOG(LogTemp, Log, TEXT("ClingNotebook: CppFunctionsCallback called with %llu functions"), (uint64)Num);
+		GLastCppFunctions.Empty(Num);
+		for (size_t i = 0; i < Num; ++i) GLastCppFunctions.Add(const_cast<Cpp::TCppFunction_t>(Funcs[i]));
+	}
+
+	bool ExtractFunctionSignatures(void* Interp, const FString& InContent, TArray<FClingFunctionSignature>& OutSignatures)
+	{
+		if (!Interp) return false;
+
+		FScopeLock Lock(&FClingRuntimeModule::Get().GetCppInterOpLock());
+		void* OldInterp = Cpp::GetInterpreter();
+		Cpp::ActivateInterpreter(Interp);
+
+		FString Clean = StripComments(InContent);
+		FRegexPattern Pattern(TEXT("(?m)^\\s*(?:[\\w:<>&\\*\\s]+?)\\s+([A-Za-z_][A-Za-z0-9_]*)\\s*\\("));
+		FRegexMatcher Matcher(Pattern, Clean);
+
+		TSet<FString> FoundNames;
+		while (Matcher.FindNext())
+		{
+			FoundNames.Add(Matcher.GetCaptureGroup(1));
+		}
+
+		for (const FString& NameStr : FoundNames)
+		{
+			Cpp::GetFunctionsUsingName(Cpp::GetGlobalScope(), TCHAR_TO_ANSI(*NameStr), CppFunctionsCallback);
+
+			for (Cpp::TCppFunction_t Func : GLastCppFunctions)
+			{
+				FClingFunctionSignature Sig;
+				Sig.Name = *NameStr;
+
+				// Return Type
+				Cpp::TCppType_t RetType = Cpp::GetFunctionReturnType(Func);
+				Cpp::GetTypeAsString(RetType, CppStringCallback);
+				TryBuildTypeDesc(GLastCppString, Sig.ReturnType);
+
+				// Parameters
+				size_t NumArgs = (size_t)Cpp::GetFunctionNumArgs(Func);
+				Sig.OriginalNumArgs = (int32)NumArgs;
+				TArray<FPropertyBagPropertyDesc> PropDescs;
+				for (size_t i = 0; i < NumArgs; ++i)
+				{
+					Cpp::TCppType_t ArgType = Cpp::GetFunctionArgType(Func, (Cpp::TCppIndex_t)i);
+					Cpp::GetTypeAsString(ArgType, CppStringCallback);
+					FString ArgTypeStr = GLastCppString;
+
+					FString ArgNameStr;
+					Cpp::GetFunctionArgName(Func, (Cpp::TCppIndex_t)i, CppStringCallback);
+					ArgNameStr = GLastCppString;
+					if (ArgNameStr.IsEmpty()) ArgNameStr = FString::Printf(TEXT("Param%d"), (int32)i);
+
+					FClingNotebookTypeDesc ArgTypeDesc;
+					if (TryBuildTypeDesc(ArgTypeStr, ArgTypeDesc) && ArgTypeDesc.bSupported)
+					{
+						PropDescs.Add(FPropertyBagPropertyDesc(*ArgNameStr, ArgTypeDesc.ValueType, ArgTypeDesc.ValueTypeObject));
+						PropDescs.Last().ContainerTypes = ArgTypeDesc.ContainerTypes;
+					}
+				}
+
+				if (PropDescs.Num() > 0 || NumArgs == 0)
+				{
+					Sig.Parameters.AddProperties(PropDescs);
+					OutSignatures.Add(MoveTemp(Sig));
+				}
+			}
+		}
+
+		Cpp::ActivateInterpreter(OldInterp);
+		return OutSignatures.Num() > 0;
+	}
 }
 #endif
 
@@ -896,13 +977,18 @@ TFuture<FClingInterpreterResult> UClingNotebook::GetInterpreterAsync()
 	// If interpreter already exists, return completed future immediately
 	if (Interpreter)
 	{
-		return MakeFulfilledPromise<FClingInterpreterResult>(FClingInterpreterResult(Interpreter)).GetFuture();
+		TPromise<FClingInterpreterResult> Promise;
+		Promise.SetValue(FClingInterpreterResult(Interpreter));
+		return Promise.GetFuture();
 	}
 
 	// If already initializing, return a future that will be fulfilled when init completes
-	if (bIsInitializingInterpreter && InterpreterPromise.IsValid())
+	if (bIsInitializingInterpreter)
 	{
-		return InterpreterPromise->GetFuture();
+		if (InterpreterPromise.IsValid())
+		{
+			return InterpreterPromise->GetFuture();
+		}
 	}
 
 	// Start async initialization
@@ -1048,6 +1134,112 @@ TFuture<FClingCellCompilationResult> UClingNotebook::CompileCellAsync(void* Inte
 	return ResultFuture;
 }
 
+#if WITH_EDITOR
+void UClingNotebook::UpdateCellSignatures(int32 CellIndex)
+{
+	if (!Cells.IsValidIndex(CellIndex)) return;
+	FClingNotebookCellData& CellData = Cells[CellIndex];
+
+	TArray<FClingFunctionSignature> NewSignatures;
+	if (ClingNotebookSymbols::ExtractFunctionSignatures(GetInterpreter(), CellData.Content, NewSignatures))
+	{
+		for (FClingFunctionSignature& NewSig : NewSignatures)
+		{
+			NewSig.OnExecute.BindUObject(this, &UClingNotebook::ExecuteFunction);
+			for (const FClingFunctionSignature& OldSig : CellData.SavedSignatures.Signatures)
+			{
+				if (OldSig.Name == NewSig.Name)
+				{
+					NewSig.Parameters = OldSig.Parameters;
+					break;
+				}
+			}
+		}
+		CellData.SavedSignatures.Signatures = MoveTemp(NewSignatures);
+	}
+	else
+	{
+		CellData.SavedSignatures.Signatures.Empty();
+	}
+}
+
+void UClingNotebook::ExecuteFunction(const FClingFunctionSignature& Signature)
+{
+	void* Interp = GetInterpreter();
+	if (!Interp)
+	{
+		UE_LOG(LogTemp, Error, TEXT("ClingNotebook: Cannot execute function, interpreter is null"));
+		return;
+	}
+
+	FScopeLock Lock(&FClingRuntimeModule::Get().GetCppInterOpLock());
+	void* OldInterp = Cpp::GetInterpreter();
+	Cpp::ActivateInterpreter(Interp);
+
+	FString NameStr = Signature.Name.ToString();
+	UE_LOG(LogTemp, Log, TEXT("ClingNotebook: Executing function %s"), *NameStr);
+
+	Cpp::GetFunctionsUsingName(Cpp::GetGlobalScope(), TCHAR_TO_ANSI(*NameStr), ClingNotebookSymbols::CppFunctionsCallback);
+
+	const UPropertyBag* BagStruct = Signature.Parameters.GetPropertyBagStruct();
+	int32 ExpectedArgs = Signature.OriginalNumArgs;
+	// Fallback if OriginalNumArgs is not set
+	if (ExpectedArgs == 0 && BagStruct && BagStruct->GetPropertyDescs().Num() > 0)
+	{
+		ExpectedArgs = BagStruct->GetPropertyDescs().Num();
+	}
+
+	UE_LOG(LogTemp, Log, TEXT("ClingNotebook: Found %d candidates for %s, expecting %d args"), ClingNotebookSymbols::GLastCppFunctions.Num(), *NameStr, ExpectedArgs);
+
+	bool bExecuted = false;
+	for (Cpp::TCppFunction_t Func : ClingNotebookSymbols::GLastCppFunctions)
+	{
+		int32 FuncNumArgs = (int32)Cpp::GetFunctionNumArgs(Func);
+		if (FuncNumArgs == ExpectedArgs)
+		{
+			UE_LOG(LogTemp, Log, TEXT("ClingNotebook: Found candidate with matching args (%d), creating JitCall"), FuncNumArgs);
+			Cpp::JitCall Call = Cpp::MakeFunctionCallable(Interp, Func);
+			if (Call.isValid())
+			{
+				UE_LOG(LogTemp, Log, TEXT("ClingNotebook: JitCall is valid, invoking..."));
+				TArray<void*> ArgPointers;
+				if (BagStruct)
+				{
+					const uint8* BagMem = Signature.Parameters.GetValue().GetMemory();
+					for (const FPropertyBagPropertyDesc& Desc : BagStruct->GetPropertyDescs())
+					{
+						if (const FProperty* Prop = Desc.CachedProperty)
+						{
+							ArgPointers.Add((void*)Prop->ContainerPtrToValuePtr<void>(BagMem));
+						}
+					}
+				}
+
+				Cpp::JitCall::ArgList Args(ArgPointers.GetData(), ArgPointers.Num());
+				Call.Invoke(Args);
+				bExecuted = true;
+				break;
+			}
+			else
+			{
+				UE_LOG(LogTemp, Warning, TEXT("ClingNotebook: JitCall is invalid for candidate function %p"), Func);
+			}
+		}
+		else
+		{
+			UE_LOG(LogTemp, Log, TEXT("ClingNotebook: Candidate function %p has %d args, mismatch"), Func, FuncNumArgs);
+		}
+	}
+
+	if (!bExecuted)
+	{
+		UE_LOG(LogTemp, Error, TEXT("ClingNotebook: Failed to execute function %s - no matching valid function found"), *NameStr);
+	}
+
+	Cpp::ActivateInterpreter(OldInterp);
+}
+#endif
+
 void UClingNotebook::OnCellCompilationComplete(int32 CellIndex, const FClingCellCompilationResult& Result)
 {
 	if (!Cells.IsValidIndex(CellIndex))
@@ -1066,6 +1258,9 @@ void UClingNotebook::OnCellCompilationComplete(int32 CellIndex, const FClingCell
 	{
 		CellData.CompilationState = EClingCellCompilationState::Completed;
 		SemanticInfoProvider.Refresh(GetInterpreter());
+#if WITH_EDITOR
+		UpdateCellSignatures(CellIndex);
+#endif
 		if (CellData.Output.IsEmpty())
 		{
 			CellData.Output = FString::Printf(TEXT("Success (Executed at %s)"), *FDateTime::Now().ToString());

@@ -4,6 +4,7 @@
 #include "CppHighLight/CodeEditorStyle.h"
 #include "ClingEditor/Public/ClingCommandExecutor.h"
 #include "Customization/CodeStringCustomization.h"
+#include "Customization/ClingFunctionSignatureCustomization.h"
 
 #include "Asset/ClingNotebookAssetTypeActions.h"
 #include "Asset/ClingScriptBlueprintAssetTypeActions.h"
@@ -22,6 +23,7 @@ void FClingEditorModule::StartupModule()
 	
 	FPropertyEditorModule& PropertyModule = FModuleManager::LoadModuleChecked<FPropertyEditorModule>("PropertyEditor");
 	PropertyModule.RegisterCustomPropertyTypeLayout("CodeString", FOnGetPropertyTypeCustomizationInstance::CreateStatic(&FCodeStringCustomization::MakeInstance));
+	PropertyModule.RegisterCustomPropertyTypeLayout("ClingFunctionSignature", FOnGetPropertyTypeCustomizationInstance::CreateStatic(&FClingFunctionSignatureCustomization::MakeInstance));
 
 	RegisterAssetActions();
 }
@@ -31,7 +33,10 @@ void FClingEditorModule::ShutdownModule()
 	UnregisterAssetActions();
 	FPropertyEditorModule* PropertyModule = FModuleManager::GetModulePtr<FPropertyEditorModule>("PropertyEditor");
 	if (PropertyModule)
+	{
 		PropertyModule->UnregisterCustomPropertyTypeLayout("CodeString");
+		PropertyModule->UnregisterCustomPropertyTypeLayout("ClingFunctionSignature");
+	}
 	FClingCodeEditorStyle::Shutdown();
 	ShutdownCommandExecutor();
 }

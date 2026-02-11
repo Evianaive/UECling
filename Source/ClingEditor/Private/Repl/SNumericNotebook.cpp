@@ -1,4 +1,7 @@
 #include "SNumericNotebook.h"
+#include "IStructureDetailsView.h"
+#include "PropertyEditorModule.h"
+#include "Modules/ModuleManager.h"
 #include "ClingRuntime.h"
 #include "ClingSetting.h"
 #include "CppInterOp/CppInterOp.h"
@@ -226,6 +229,7 @@ void SClingNotebookCell::UpdateCellUI()
 					NotebookAsset->GetUsableSemanticInfoProvider()						
 					))
 				.Text(FText::FromString(CellData->Content))
+				//.HintText(INVTEXT("// Enter your code here...\n// void Function will reflect to a button automatically\n// Run in GameThread if create UI Directly!"))
 				.OnTextChanged(this, &SClingNotebookCell::OnCodeTextChanged)
 				.Visibility_Lambda([this]() { return CellData->bIsExpanded ? EVisibility::Visible : EVisibility::Collapsed; })
 				.IsReadOnly_Lambda([this]() {
@@ -247,8 +251,62 @@ void SClingNotebookCell::UpdateCellUI()
 					.Margin(5.0f)
 				]
 			]
+
+			// 函数签名区域
+			+SVerticalBox::Slot()
+			.AutoHeight()
+			[
+				SNew(SBorder)
+				.BorderImage(FAppStyle::Get().GetBrush("ToolPanel.DarkGroupBorder"))
+				.Visibility_Lambda([this]() { return (CellData->bIsExpanded && CellData->SavedSignatures.Signatures.Num() > 0) ? EVisibility::Visible : EVisibility::Collapsed; })
+				[
+					GetSignaturesWidget()
+				]
+			]
 		]
 	];
+}
+
+TSharedRef<SWidget> SClingNotebookCell::GetSignaturesWidget()
+{
+	if (!SignaturesDetailsView.IsValid())
+	{
+		FPropertyEditorModule& PropertyEditorModule = FModuleManager::LoadModuleChecked<FPropertyEditorModule>("PropertyEditor");
+
+		FDetailsViewArgs DetailsViewArgs;
+		DetailsViewArgs.bAllowSearch = false;
+		DetailsViewArgs.bHideSelectionTip = true;
+		DetailsViewArgs.bLockable = false;
+		DetailsViewArgs.bSearchInitialKeyFocus = false;
+		DetailsViewArgs.bUpdatesFromSelection = false;
+		DetailsViewArgs.bShowOptions = false;
+		DetailsViewArgs.bShowModifiedPropertiesOption = false;
+		DetailsViewArgs.bShowScrollBar = false;
+
+		FStructureDetailsViewArgs StructViewArgs;
+		StructViewArgs.bShowObjects = false;
+		StructViewArgs.bShowAssets = true;
+		StructViewArgs.bShowClasses = true;
+
+		TSharedPtr<FStructOnScope> StructOnScope = MakeShared<FStructOnScope>(FClingFunctionSignatures::StaticStruct(), (uint8*)&CellData->SavedSignatures);
+		if (NotebookAsset)
+		{
+			StructOnScope->SetPackage(NotebookAsset->GetOutermost());
+		}
+
+		SignaturesDetailsView = PropertyEditorModule.CreateStructureDetailView(DetailsViewArgs, StructViewArgs, StructOnScope);
+	}
+	else
+	{
+		TSharedPtr<FStructOnScope> StructOnScope = MakeShared<FStructOnScope>(FClingFunctionSignatures::StaticStruct(), (uint8*)&CellData->SavedSignatures);
+		if (NotebookAsset)
+		{
+			StructOnScope->SetPackage(NotebookAsset->GetOutermost());
+		}
+		SignaturesDetailsView->SetStructureData(StructOnScope);
+	}
+
+	return SignaturesDetailsView->GetWidget().ToSharedRef();
 }
 
 FReply SClingNotebookCell::OnRunToHereButtonClicked()
@@ -377,6 +435,7 @@ void SClingNotebookDetailsPanel::Refresh()
 						FSyntaxTextStyle::GetSyntaxTextStyle(),
 						NotebookAsset->GetUsableSemanticInfoProvider()							
 						))
+					//.HintText(INVTEXT("// Enter your code here...\n// void Function will reflect to a button automatically\n// Run in GameThread if create UI Directly!"))
 					.Text(FText::FromString(SelectedData->Content))
 					.OnTextChanged_Lambda([this, SelectedData](const FText& InText) {
 						SelectedData->Content = InText.ToString();

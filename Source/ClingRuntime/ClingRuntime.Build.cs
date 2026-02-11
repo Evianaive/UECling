@@ -49,7 +49,8 @@ public class ClingRuntime : ModuleRules
 				"ClingLibrary",
 				"Projects",
 				"Engine",
-				"CoreUObject"
+				"CoreUObject",
+				"StructUtils"
 				// ... add other public dependencies that you statically link with here ...
 			}
 			);

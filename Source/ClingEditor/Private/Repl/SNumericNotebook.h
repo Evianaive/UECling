@@ -47,6 +47,7 @@ private:
 
 	// Cell UI
 	TSharedPtr<SMultiLineEditableTextBox> CodeTextBox;
+	TSharedPtr<class IStructureDetailsView> SignaturesDetailsView;
 
 	// Delegate
 	FSimpleDelegate OnRunToHereDelegate;
@@ -57,6 +58,7 @@ private:
 	FSimpleDelegate OnSelectedDelegate;
 	
 	void UpdateCellUI();
+	TSharedRef<SWidget> GetSignaturesWidget();
 
 	// Button press event
 	FReply OnRunToHereButtonClicked();

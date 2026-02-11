@@ -52,35 +52,6 @@ struct FClingCellCompilationResult
 	bool bSuccess = false;
 };
 
-/**
- * Notebook cell data for persistent storage
- */
-USTRUCT(BlueprintType)
-struct FClingNotebookCellData
-{
-	GENERATED_BODY()
-
-	UPROPERTY(EditAnywhere, Category = "Cling")
-	FString Content;
-
-	UPROPERTY(EditAnywhere, Category = "Cling")
-	FString Output;
-
-	UPROPERTY(EditAnywhere, Category = "Cling")
-	bool bHasOutput = false;
-
-	UPROPERTY(EditAnywhere, Category = "Cling")
-	bool bIsExpanded = true;
-
-	UPROPERTY(EditAnywhere, Category = "Cling")
-	bool bExecuteInGameThread = false;
-
-	UPROPERTY(Transient)
-	EClingCellCompilationState CompilationState = EClingCellCompilationState::Idle;
-
-	UPROPERTY(Transient)
-	FClingCellCompilationResult LastCompilationResult;
-};
 
 #if WITH_EDITORONLY_DATA
 UENUM()
@@ -105,7 +76,7 @@ struct FClingNotebookTypeDesc
 	FPropertyBagContainerTypes ContainerTypes;
 
 	UPROPERTY(VisibleAnywhere, Category="Cling")
-	TObjectPtr<const UObject> ValueTypeObject = nullptr;
+	TObjectPtr<UObject> ValueTypeObject = nullptr;
 
 	UPROPERTY(VisibleAnywhere, Category="Cling")
 	bool bSupported = false;
@@ -146,7 +117,70 @@ struct FClingNotebookSymbolDesc
 	UPROPERTY(VisibleAnywhere, Category="Cling")
 	FClingNotebookTypeDesc ValueType;
 };
+
+USTRUCT(BlueprintType)
+struct FClingFunctionSignature
+{
+	GENERATED_BODY()
+
+	UPROPERTY(VisibleAnywhere, Category = "Cling")
+	FName Name;
+
+	UPROPERTY(VisibleAnywhere, Category = "Cling")
+	FClingNotebookTypeDesc ReturnType;
+
+	UPROPERTY(EditAnywhere, Category = "Cling")
+	FInstancedPropertyBag Parameters;
+
+	int32 OriginalNumArgs = 0;
+
+	TDelegate<void(const struct FClingFunctionSignature&)> OnExecute;
+};
+
+USTRUCT()
+struct FClingFunctionSignatures
+{
+	GENERATED_BODY()
+
+	UPROPERTY(EditAnywhere, Category = "Cling")
+	TArray<FClingFunctionSignature> Signatures;
+};
 #endif
+
+/**
+ * Notebook cell data for persistent storage
+ */
+USTRUCT(BlueprintType)
+struct FClingNotebookCellData
+{
+	GENERATED_BODY()
+
+	UPROPERTY(EditAnywhere, Category = "Cling")
+	FString Content;
+
+	UPROPERTY(EditAnywhere, Category = "Cling")
+	FString Output;
+
+	UPROPERTY(EditAnywhere, Category = "Cling")
+	bool bHasOutput = false;
+
+	UPROPERTY(EditAnywhere, Category = "Cling")
+	bool bIsExpanded = true;
+
+	UPROPERTY(EditAnywhere, Category = "Cling")
+	bool bExecuteInGameThread = false;
+
+	UPROPERTY(Transient)
+	EClingCellCompilationState CompilationState = EClingCellCompilationState::Idle;
+
+	UPROPERTY(Transient)
+	FClingCellCompilationResult LastCompilationResult;
+
+#if WITH_EDITORONLY_DATA
+	UPROPERTY(EditAnywhere, Category = "Cling")
+	FClingFunctionSignatures SavedSignatures;
+#endif
+};
 
 /**
  * Cling Notebook Asset
@@ -196,6 +230,10 @@ private:
 	TFuture<FClingCellCompilationResult> CompileCellAsync(void* Interp, int32 CellIndex);
 	void OnCellCompilationComplete(int32 CellIndex, const FClingCellCompilationResult& Result);
 
+#if WITH_EDITOR
+	void UpdateCellSignatures(int32 CellIndex);
+#endif
+
 	// Compilation execution (extracted common logic)
 	FClingCellCompilationResult ExecuteCellCompilation(void* Interp, const FString& Code);
 
@@ -212,6 +250,10 @@ public:
 	void RunToHere(int32 InIndex);
 	void UndoToHere(int32 InIndex);
 	void ProcessNextInQueue();
+	
+#if WITH_EDITOR
+	void ExecuteFunction(const FClingFunctionSignature& Signature);
+#endif
 
 	// State Queries
 	FClingNotebookCellData* GetSelectedCellData();
