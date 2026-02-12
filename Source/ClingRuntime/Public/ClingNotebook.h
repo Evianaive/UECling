@@ -10,36 +10,14 @@
 
 #include "ClingNotebook.generated.h"
 
-/**
- * Result of interpreter initialization
- */
-struct FClingInterpreterResult
-{
-	void* Interpreter = nullptr;
-	bool bSuccess = false;
-	FString ErrorMessage;
-
-	FClingInterpreterResult() = default;
-	explicit FClingInterpreterResult(void* InInterpreter)
-		: Interpreter(InInterpreter), bSuccess(InInterpreter != nullptr) {}
-	FClingInterpreterResult(void* InInterpreter, const FString& InError)
-		: Interpreter(InInterpreter), bSuccess(InInterpreter != nullptr), ErrorMessage(InError) {}
-};
-
-/**
- * Compilation state of a cell
- */
 UENUM(BlueprintType)
 enum class EClingCellCompilationState : uint8
 {
-	Idle UMETA(DisplayName = "Idle"),
-	Compiling UMETA(DisplayName = "Compiling"),
-	Completed UMETA(DisplayName = "Completed")
+	Idle,
+	Compiling,
+	Completed
 };
 
-/**
- * Result of cell compilation
- */
 USTRUCT(BlueprintType)
 struct FClingCellCompilationResult
 {
@@ -129,9 +107,10 @@ struct FClingFunctionSignature
 	UPROPERTY(VisibleAnywhere, Category = "Cling")
 	FClingNotebookTypeDesc ReturnType;
 
-	UPROPERTY(EditAnywhere, Category = "Cling")
+	UPROPERTY(EditAnywhere, Category = "Cling", meta = (FixedLayout))
 	FInstancedPropertyBag Parameters;
 
+	UPROPERTY(VisibleAnywhere, Category = "Cling")
 	int32 OriginalNumArgs = 0;
 
 	TDelegate<void(const struct FClingFunctionSignature&)> OnExecute;
@@ -182,6 +161,19 @@ struct FClingNotebookCellData
 #endif
 };
 
+struct FClingInterpreterResult
+{
+	void* Interpreter = nullptr;
+	bool bSuccess = false;
+	FString ErrorMessage;
+
+	FClingInterpreterResult() = default;
+	explicit FClingInterpreterResult(void* InInterpreter)
+		: Interpreter(InInterpreter), bSuccess(InInterpreter != nullptr) {}
+	FClingInterpreterResult(void* InInterpreter, const FString& InError)
+		: Interpreter(InInterpreter), bSuccess(InInterpreter != nullptr), ErrorMessage(InError) {}
+};
+
 /**
  * Cling Notebook Asset
  */
@@ -196,7 +188,9 @@ public:
 	UPROPERTY(EditAnywhere, Category = "Cling")
 	TArray<FClingNotebookCellData> Cells;
 
-	UPROPERTY()
+	UPROPERTY(EditAnywhere, Category = "Cling")
+	bool bShowCodeInline = false;
+
 	FClingSemanticInfoProvider SemanticInfoProvider;
 	const FClingSemanticInfoProvider& GetUsableSemanticInfoProvider() const;
 

@@ -231,7 +231,10 @@ void SClingNotebookCell::UpdateCellUI()
 				.Text(FText::FromString(CellData->Content))
 				//.HintText(INVTEXT("// Enter your code here...\n// void Function will reflect to a button automatically\n// Run in GameThread if create UI Directly!"))
 				.OnTextChanged(this, &SClingNotebookCell::OnCodeTextChanged)
-				.Visibility_Lambda([this]() { return CellData->bIsExpanded ? EVisibility::Visible : EVisibility::Collapsed; })
+				.Visibility_Lambda([this]() { 
+					const bool bShowInline = NotebookAsset ? NotebookAsset->bShowCodeInline : true;
+					return (bShowInline && CellData->bIsExpanded) ? EVisibility::Visible : EVisibility::Collapsed; 
+				})
 				.IsReadOnly_Lambda([this]() {
 					return NotebookAsset ? NotebookAsset->IsCellReadOnly(CellIndex) : false;
 				})
@@ -243,7 +246,9 @@ void SClingNotebookCell::UpdateCellUI()
 			[
 				SNew(SBorder)
 				.BorderImage(FAppStyle::Get().GetBrush("ToolPanel.DarkGroupBorder"))
-				.Visibility_Lambda([this]() { return (CellData->bIsExpanded && CellData->bHasOutput) ? EVisibility::Visible : EVisibility::Collapsed; })
+				.Visibility_Lambda([this]() { 
+					return (CellData->bIsExpanded && CellData->bHasOutput) ? EVisibility::Visible : EVisibility::Collapsed; 
+				})
 				[
 					SNew(STextBlock)
 					.Text_Lambda([this]() { return FText::FromString(CellData->Output); })
@@ -258,7 +263,9 @@ void SClingNotebookCell::UpdateCellUI()
 			[
 				SNew(SBorder)
 				.BorderImage(FAppStyle::Get().GetBrush("ToolPanel.DarkGroupBorder"))
-				.Visibility_Lambda([this]() { return (CellData->bIsExpanded && CellData->SavedSignatures.Signatures.Num() > 0) ? EVisibility::Visible : EVisibility::Collapsed; })
+				.Visibility_Lambda([this]() { 
+					return (CellData->bIsExpanded && CellData->SavedSignatures.Signatures.Num() > 0) ? EVisibility::Visible : EVisibility::Collapsed; 
+				})
 				[
 					GetSignaturesWidget()
 				]

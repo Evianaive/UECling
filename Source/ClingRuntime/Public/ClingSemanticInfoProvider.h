@@ -1,7 +1,6 @@
 ﻿#pragma once
 
 #include "CoreMinimal.h"
-
 #include "ClingSemanticInfoProvider.generated.h"
 
 /**
@@ -11,14 +10,13 @@ USTRUCT()
 struct CLINGRUNTIME_API FClingSemanticInfoProvider
 {
 	GENERATED_BODY()
+
 public:
 	FClingSemanticInfoProvider();
 	
 	/** 从解释器刷新符号信息 */
 	void Refresh(void* InInterp);
 	
-	UPROPERTY()
-	bool bIsReady{false};
 	bool IsReady() const { return bIsReady; }
 
 	const TSet<FString>& GetNamespaces() const { return Namespaces; }
@@ -35,23 +33,16 @@ public:
 	TSet<FString> GetAllKnownTypes() const;
 
 private:
+	bool bIsReady{false};
+
 	// Todo Change to FName
-	UPROPERTY()
 	TSet<FString> Namespaces;
-	UPROPERTY()
 	TSet<FString> Classes;
-	UPROPERTY()
 	TSet<FString> Structs;
-	UPROPERTY()
 	TSet<FString> Unions;
-	UPROPERTY()
 	TSet<FString> Enums;
-	UPROPERTY()
 	TSet<FString> Functions;
-	UPROPERTY()
 	TSet<FString> Typedefs;
-	UPROPERTY()
 	TSet<FString> Templates;
-	UPROPERTY()
 	TSet<FString> Others;
 };

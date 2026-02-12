@@ -256,6 +256,17 @@ namespace ClingNotebookIDE
 #if WITH_EDITOR
 namespace ClingNotebookSymbols
 {
+	static FString GLastCppString;
+	static void CppStringCallback(const char* Str) { GLastCppString = UTF8_TO_TCHAR(Str); }
+
+	static TArray<Cpp::TCppFunction_t> GLastCppFunctions;
+	static void CppFunctionsCallback(const Cpp::TCppFunction_t* Funcs, size_t Num)
+	{
+		UE_LOG(LogTemp, Log, TEXT("ClingNotebook: CppFunctionsCallback called with %llu functions"), (uint64)Num);
+		GLastCppFunctions.Empty(Num);
+		for (size_t i = 0; i < Num; ++i) GLastCppFunctions.Add(const_cast<Cpp::TCppFunction_t>(Funcs[i]));
+	}
+
 	FString StripComments(const FString& InText)
 	{
 		FString Out;
@@ -391,8 +402,55 @@ namespace ClingNotebookSymbols
 
 	bool TryResolveClass(const FString& TypeName, UClass*& OutClass)
 	{
-		OutClass = FindObject<UClass>(ANY_PACKAGE, *TypeName);
-		if (!OutClass && TypeName == TEXT("UObject"))
+		FString CleanName = TypeName;
+		if (CleanName.StartsWith(TEXT("::")))
+		{
+			CleanName.RightChopInline(2);
+		}
+
+		auto FindType = [](const FString& Name) -> UClass*
+		{
+			if (UClass* Found = UClass::TryFindTypeSlow<UClass>(Name))
+			{
+				return Found;
+			}
+			return LoadObject<UClass>(nullptr, *Name);
+		};
+
+		OutClass = FindType(CleanName);
+		if (!OutClass && (CleanName.StartsWith(TEXT("U")) || CleanName.StartsWith(TEXT("A"))))
+		{
+			OutClass = FindType(CleanName.Mid(1));
+		}
+
+		if (!OutClass && Cpp::GetInterpreter())
+		{
+			void* Interp = Cpp::GetInterpreter();
+			if (Cpp::TCppScope_t Scope = Cpp::GetScope(TCHAR_TO_ANSI(*CleanName)))
+			{
+				Cpp::GetFunctionsUsingName(Scope, "StaticClass", CppFunctionsCallback);
+				TArray<Cpp::TCppFunction_t> LocalFuncs = GLastCppFunctions;
+				for (Cpp::TCppFunction_t Func : LocalFuncs)
+				{
+					if (Cpp::GetFunctionNumArgs(Func) == 0)
+					{
+						Cpp::JitCall Call = Cpp::MakeFunctionCallable(Interp, Func);
+						if (Call.isValid())
+						{
+							void* Result = nullptr;
+							Call.Invoke(&Result);
+							if (Result)
+							{
+								OutClass = (UClass*)Result;
+								break;
+							}
+						}
+					}
+				}
+			}
+		}
+
+		if (!OutClass && CleanName == TEXT("UObject"))
 		{
 			OutClass = UObject::StaticClass();
 		}
@@ -401,13 +459,99 @@ namespace ClingNotebookSymbols
 
 	bool TryResolveStruct(const FString& TypeName, UScriptStruct*& OutStruct)
 	{
-		OutStruct = FindObject<UScriptStruct>(ANY_PACKAGE, *TypeName);
+		FString CleanName = TypeName;
+		if (CleanName.StartsWith(TEXT("::")))
+		{
+			CleanName.RightChopInline(2);
+		}
+
+		auto FindType = [](const FString& Name) -> UScriptStruct*
+		{
+			if (UScriptStruct* Found = UClass::TryFindTypeSlow<UScriptStruct>(Name))
+			{
+				return Found;
+			}
+			return LoadObject<UScriptStruct>(nullptr, *Name);
+		};
+
+		OutStruct = FindType(CleanName);
+		if (!OutStruct && CleanName.StartsWith(TEXT("F")))
+		{
+			OutStruct = FindType(CleanName.Mid(1));
+		}
+
+		if (!OutStruct && Cpp::GetInterpreter())
+		{
+			void* Interp = Cpp::GetInterpreter();
+			
+			// Try TBaseStructure first for engine types like FVector
+			FString TBaseName = FString::Printf(TEXT("TBaseStructure<%s>"), *CleanName);
+			if (Cpp::TCppScope_t TBaseScope = Cpp::GetScope(TCHAR_TO_ANSI(*TBaseName)))
+			{
+				Cpp::GetFunctionsUsingName(TBaseScope, "Get", CppFunctionsCallback);
+				TArray<Cpp::TCppFunction_t> LocalFuncs = GLastCppFunctions;
+				for (Cpp::TCppFunction_t Func : LocalFuncs)
+				{
+					if (Cpp::GetFunctionNumArgs(Func) == 0)
+					{
+						Cpp::JitCall Call = Cpp::MakeFunctionCallable(Interp, Func);
+						if (Call.isValid())
+						{
+							void* Result = nullptr;
+							Call.Invoke(&Result);
+							if (Result)
+							{
+								OutStruct = (UScriptStruct*)Result;
+								break;
+							}
+						}
+					}
+				}
+			}
+
+			if (!OutStruct)
+			{
+				// Try StaticStruct for USTRUCTs
+				if (Cpp::TCppScope_t Scope = Cpp::GetScope(TCHAR_TO_ANSI(*CleanName)))
+				{
+					Cpp::GetFunctionsUsingName(Scope, "StaticStruct", CppFunctionsCallback);
+					TArray<Cpp::TCppFunction_t> LocalFuncs = GLastCppFunctions;
+					for (Cpp::TCppFunction_t Func : LocalFuncs)
+					{
+						if (Cpp::GetFunctionNumArgs(Func) == 0)
+						{
+							Cpp::JitCall Call = Cpp::MakeFunctionCallable(Interp, Func);
+							if (Call.isValid())
+							{
+								void* Result = nullptr;
+								Call.Invoke(&Result);
+								if (Result)
+								{
+									OutStruct = (UScriptStruct*)Result;
+									break;
+								}
+							}
+						}
+					}
+				}
+			}
+		}
+
 		return OutStruct != nullptr;
 	}
 
 	bool TryResolveEnum(const FString& TypeName, UEnum*& OutEnum)
 	{
-		OutEnum = FindObject<UEnum>(ANY_PACKAGE, *TypeName);
+		auto FindType = [](const FString& Name) -> UEnum*
+		{
+			if (UEnum* Found = UClass::TryFindTypeSlow<UEnum>(Name))
+			{
+				return Found;
+			}
+			return LoadObject<UEnum>(nullptr, *Name);
+		};
+
+		OutEnum = FindType(TypeName);
 		return OutEnum != nullptr;
 	}
 
@@ -422,119 +566,133 @@ namespace ClingNotebookSymbols
 			return false;
 		}
 
-		const bool bIsVoid = Working.Equals(TEXT("void"), ESearchCase::IgnoreCase);
-		if (bIsVoid)
-		{
-			OutDesc.bIsVoid = true;
-			OutDesc.bSupported = false;
-			return true;
-		}
+	const bool bIsVoid = Working.Equals(TEXT("void"), ESearchCase::IgnoreCase);
+	if (bIsVoid)
+	{
+		OutDesc.bIsVoid = true;
+		OutDesc.bSupported = false;
+		return true;
+	}
 
-		bool bPointer = Working.EndsWith(TEXT("*"));
-		bool bReference = Working.EndsWith(TEXT("&"));
-		while (Working.EndsWith(TEXT("*")) || Working.EndsWith(TEXT("&")))
-		{
-			Working.LeftChopInline(1);
-			Working.TrimEndInline();
-		}
+	bool bPointer = Working.EndsWith(TEXT("*"));
+	bool bReference = Working.EndsWith(TEXT("&"));
+	while (Working.EndsWith(TEXT("*")) || Working.EndsWith(TEXT("&")))
+	{
+		Working.LeftChopInline(1);
+		Working.TrimEndInline();
+	}
 
-		if (Working.StartsWith(TEXT("TArray<")))
+	// Handle templates
+	if (Working.StartsWith(TEXT("TArray<")))
+	{
+		if (!InOutContainers.Add(EPropertyBagContainerType::Array))
 		{
-			if (!InOutContainers.Add(EPropertyBagContainerType::Array))
-			{
-				return false;
-			}
-			FString Inner;
-			if (!ExtractTemplateArg(Working, Inner))
-			{
-				return false;
-			}
-			return ParseTypeRecursive(Inner, OutDesc, InOutContainers);
+			return false;
 		}
-
-		if (Working.StartsWith(TEXT("TSet<")))
+		FString Inner;
+		if (!ExtractTemplateArg(Working, Inner))
 		{
-			if (!InOutContainers.Add(EPropertyBagContainerType::Set))
-			{
-				return false;
-			}
-			FString Inner;
-			if (!ExtractTemplateArg(Working, Inner))
-			{
-				return false;
-			}
-			return ParseTypeRecursive(Inner, OutDesc, InOutContainers);
+			return false;
 		}
+		return ParseTypeRecursive(Inner, OutDesc, InOutContainers);
+	}
 
-		if (Working.StartsWith(TEXT("TSubclassOf<")))
+	if (Working.StartsWith(TEXT("TSet<")))
+	{
+		if (!InOutContainers.Add(EPropertyBagContainerType::Set))
 		{
-			FString Inner;
-			if (!ExtractTemplateArg(Working, Inner))
-			{
-				return false;
-			}
-			UClass* ResolvedClass = nullptr;
-			if (!TryResolveClass(Inner.TrimStartAndEnd(), ResolvedClass))
-			{
-				return false;
-			}
-			OutDesc.ValueType = EPropertyBagPropertyType::Class;
-			OutDesc.ValueTypeObject = ResolvedClass;
-			OutDesc.ContainerTypes = InOutContainers;
-			OutDesc.bSupported = true;
-			return true;
+			return false;
 		}
-
-		if (Working.StartsWith(TEXT("TSoftObjectPtr<")))
+		FString Inner;
+		if (!ExtractTemplateArg(Working, Inner))
 		{
-			FString Inner;
-			if (!ExtractTemplateArg(Working, Inner))
-			{
-				return false;
-			}
-			UClass* ResolvedClass = nullptr;
-			if (!TryResolveClass(Inner.TrimStartAndEnd(), ResolvedClass))
-			{
-				return false;
-			}
-			OutDesc.ValueType = EPropertyBagPropertyType::SoftObject;
-			OutDesc.ValueTypeObject = ResolvedClass;
-			OutDesc.ContainerTypes = InOutContainers;
-			OutDesc.bSupported = true;
-			return true;
+			return false;
 		}
+		return ParseTypeRecursive(Inner, OutDesc, InOutContainers);
+	}
 
-		if (Working.StartsWith(TEXT("TSoftClassPtr<")))
+	if (Working.StartsWith(TEXT("TSubclassOf<")))
+	{
+		FString Inner;
+		if (!ExtractTemplateArg(Working, Inner))
 		{
-			FString Inner;
-			if (!ExtractTemplateArg(Working, Inner))
-			{
-				return false;
-			}
-			UClass* ResolvedClass = nullptr;
-			if (!TryResolveClass(Inner.TrimStartAndEnd(), ResolvedClass))
-			{
-				return false;
-			}
-			OutDesc.ValueType = EPropertyBagPropertyType::SoftClass;
-			OutDesc.ValueTypeObject = ResolvedClass;
-			OutDesc.ContainerTypes = InOutContainers;
-			OutDesc.bSupported = true;
-			return true;
+			return false;
 		}
-
-		if (Working.StartsWith(TEXT("TObjectPtr<")))
+		UClass* ResolvedClass = nullptr;
+		if (!TryResolveClass(Inner.TrimStartAndEnd(), ResolvedClass))
 		{
-			FString Inner;
-			if (!ExtractTemplateArg(Working, Inner))
-			{
-				return false;
-			}
-			UClass* ResolvedClass = nullptr;
-			if (!TryResolveClass(Inner.TrimStartAndEnd(), ResolvedClass))
-			{
-				return false;
-			}
+			return false;
+		}
+		OutDesc.ValueType = EPropertyBagPropertyType::Class;
+		OutDesc.ValueTypeObject = ResolvedClass;
+		OutDesc.ContainerTypes = InOutContainers;
+		OutDesc.bSupported = true;
+		return true;
+	}
+
+	if (Working.StartsWith(TEXT("TSoftObjectPtr<")))
+	{
+		FString Inner;
+		if (!ExtractTemplateArg(Working, Inner))
+		{
+			return false;
+		}
+		UClass* ResolvedClass = nullptr;
+		if (!TryResolveClass(Inner.TrimStartAndEnd(), ResolvedClass))
+		{
+			return false;
+		}
+		OutDesc.ValueType = EPropertyBagPropertyType::SoftObject;
+		OutDesc.ValueTypeObject = ResolvedClass;
+		OutDesc.ContainerTypes = InOutContainers;
+		OutDesc.bSupported = true;
+		return true;
+	}
+
+	if (Working.StartsWith(TEXT("TSoftClassPtr<")))
+	{
+		FString Inner;
+		if (!ExtractTemplateArg(Working, Inner))
+		{
+			return false;
+		}
+		UClass* ResolvedClass = nullptr;
+		if (!TryResolveClass(Inner.TrimStartAndEnd(), ResolvedClass))
+		{
+			return false;
+		}
+		OutDesc.ValueType = EPropertyBagPropertyType::SoftClass;
+		OutDesc.ValueTypeObject = ResolvedClass;
+		OutDesc.ContainerTypes = InOutContainers;
+		OutDesc.bSupported = true;
+		return true;
+	}
+
+	if (Working.StartsWith(TEXT("TObjectPtr<")))
+	{
+		FString Inner;
+		if (!ExtractTemplateArg(Working, Inner))
+		{
+			return false;
+		}
+		UClass* ResolvedClass = nullptr;
+		if (!TryResolveClass(Inner.TrimStartAndEnd(), ResolvedClass))
+		{
+			return false;
+		}
+		OutDesc.ValueType = EPropertyBagPropertyType::Object;
+		OutDesc.ValueTypeObject = ResolvedClass;
+		OutDesc.ContainerTypes = InOutContainers;
+		OutDesc.bSupported = true;
+		return true;
+	}
+
+	if (bPointer || bReference)
+	{
+		const FString BaseType = Working.TrimStartAndEnd();
+		UClass* ResolvedClass = nullptr;
+		if (TryResolveClass(BaseType, ResolvedClass))
+		{
 			OutDesc.ValueType = EPropertyBagPropertyType::Object;
 			OutDesc.ValueTypeObject = ResolvedClass;
 			OutDesc.ContainerTypes = InOutContainers;
@@ -542,102 +700,89 @@ namespace ClingNotebookSymbols
 			return true;
 		}
 
-		if (bPointer || bReference)
+		if (BaseType == TEXT("UClass"))
 		{
-			const FString BaseType = Working.TrimStartAndEnd();
-			UClass* ResolvedClass = nullptr;
-			if (TryResolveClass(BaseType, ResolvedClass))
-			{
-				OutDesc.ValueType = EPropertyBagPropertyType::Object;
-				OutDesc.ValueTypeObject = ResolvedClass;
-				OutDesc.ContainerTypes = InOutContainers;
-				OutDesc.bSupported = true;
-				return true;
-			}
+			OutDesc.ValueType = EPropertyBagPropertyType::Class;
+			OutDesc.ValueTypeObject = UObject::StaticClass();
+			OutDesc.ContainerTypes = InOutContainers;
+			OutDesc.bSupported = true;
+			return true;
+		}
+	}
 
-			if (BaseType == TEXT("UClass"))
-			{
-				OutDesc.ValueType = EPropertyBagPropertyType::Class;
-				OutDesc.ValueTypeObject = UObject::StaticClass();
-				OutDesc.ContainerTypes = InOutContainers;
-				OutDesc.bSupported = true;
-				return true;
-			}
-		}
-
-		const FString BaseType = Working.TrimStartAndEnd();
-		if (BaseType.Equals(TEXT("bool"), ESearchCase::IgnoreCase))
+	const FString BaseType = Working.TrimStartAndEnd();
+	if (BaseType.Equals(TEXT("bool"), ESearchCase::IgnoreCase))
+	{
+		OutDesc.ValueType = EPropertyBagPropertyType::Bool;
+	}
+	else if (BaseType.Equals(TEXT("uint8"), ESearchCase::IgnoreCase) || BaseType.Equals(TEXT("uint8_t"), ESearchCase::IgnoreCase)
+		|| BaseType.Equals(TEXT("byte"), ESearchCase::IgnoreCase))
+	{
+		OutDesc.ValueType = EPropertyBagPropertyType::Byte;
+	}
+	else if (BaseType.Equals(TEXT("int32"), ESearchCase::IgnoreCase) || BaseType.Equals(TEXT("int"), ESearchCase::IgnoreCase))
+	{
+		OutDesc.ValueType = EPropertyBagPropertyType::Int32;
+	}
+	else if (BaseType.Equals(TEXT("int64"), ESearchCase::IgnoreCase) || BaseType.Equals(TEXT("long long"), ESearchCase::IgnoreCase))
+	{
+		OutDesc.ValueType = EPropertyBagPropertyType::Int64;
+	}
+	else if (BaseType.Equals(TEXT("uint32"), ESearchCase::IgnoreCase) || BaseType.Equals(TEXT("unsigned int"), ESearchCase::IgnoreCase))
+	{
+		OutDesc.ValueType = EPropertyBagPropertyType::UInt32;
+	}
+	else if (BaseType.Equals(TEXT("uint64"), ESearchCase::IgnoreCase) || BaseType.Equals(TEXT("unsigned long long"), ESearchCase::IgnoreCase))
+	{
+		OutDesc.ValueType = EPropertyBagPropertyType::UInt64;
+	}
+	else if (BaseType.Equals(TEXT("float"), ESearchCase::IgnoreCase))
+	{
+		OutDesc.ValueType = EPropertyBagPropertyType::Float;
+	}
+	else if (BaseType.Equals(TEXT("double"), ESearchCase::IgnoreCase))
+	{
+		OutDesc.ValueType = EPropertyBagPropertyType::Double;
+	}
+	else if (BaseType.Equals(TEXT("FName"), ESearchCase::IgnoreCase))
+	{
+		OutDesc.ValueType = EPropertyBagPropertyType::Name;
+	}
+	else if (BaseType.Equals(TEXT("FString"), ESearchCase::IgnoreCase))
+	{
+		OutDesc.ValueType = EPropertyBagPropertyType::String;
+	}
+	else if (BaseType.Equals(TEXT("FText"), ESearchCase::IgnoreCase))
+	{
+		OutDesc.ValueType = EPropertyBagPropertyType::Text;
+	}
+	else
+	{
+		UScriptStruct* Struct = nullptr;
+		if (TryResolveStruct(BaseType, Struct))
 		{
-			OutDesc.ValueType = EPropertyBagPropertyType::Bool;
-		}
-		else if (BaseType.Equals(TEXT("uint8"), ESearchCase::IgnoreCase) || BaseType.Equals(TEXT("uint8_t"), ESearchCase::IgnoreCase)
-			|| BaseType.Equals(TEXT("byte"), ESearchCase::IgnoreCase))
-		{
-			OutDesc.ValueType = EPropertyBagPropertyType::Byte;
-		}
-		else if (BaseType.Equals(TEXT("int32"), ESearchCase::IgnoreCase) || BaseType.Equals(TEXT("int"), ESearchCase::IgnoreCase))
-		{
-			OutDesc.ValueType = EPropertyBagPropertyType::Int32;
-		}
-		else if (BaseType.Equals(TEXT("int64"), ESearchCase::IgnoreCase) || BaseType.Equals(TEXT("long long"), ESearchCase::IgnoreCase))
-		{
-			OutDesc.ValueType = EPropertyBagPropertyType::Int64;
-		}
-		else if (BaseType.Equals(TEXT("uint32"), ESearchCase::IgnoreCase) || BaseType.Equals(TEXT("unsigned int"), ESearchCase::IgnoreCase))
-		{
-			OutDesc.ValueType = EPropertyBagPropertyType::UInt32;
-		}
-		else if (BaseType.Equals(TEXT("uint64"), ESearchCase::IgnoreCase) || BaseType.Equals(TEXT("unsigned long long"), ESearchCase::IgnoreCase))
-		{
-			OutDesc.ValueType = EPropertyBagPropertyType::UInt64;
-		}
-		else if (BaseType.Equals(TEXT("float"), ESearchCase::IgnoreCase))
-		{
-			OutDesc.ValueType = EPropertyBagPropertyType::Float;
-		}
-		else if (BaseType.Equals(TEXT("double"), ESearchCase::IgnoreCase))
-		{
-			OutDesc.ValueType = EPropertyBagPropertyType::Double;
-		}
-		else if (BaseType.Equals(TEXT("FName"), ESearchCase::IgnoreCase))
-		{
-			OutDesc.ValueType = EPropertyBagPropertyType::Name;
-		}
-		else if (BaseType.Equals(TEXT("FString"), ESearchCase::IgnoreCase))
-		{
-			OutDesc.ValueType = EPropertyBagPropertyType::String;
-		}
-		else if (BaseType.Equals(TEXT("FText"), ESearchCase::IgnoreCase))
-		{
-			OutDesc.ValueType = EPropertyBagPropertyType::Text;
+			OutDesc.ValueType = EPropertyBagPropertyType::Struct;
+			OutDesc.ValueTypeObject = Struct;
 		}
 		else
 		{
-			UScriptStruct* Struct = nullptr;
-			if (TryResolveStruct(BaseType, Struct))
+			UEnum* Enum = nullptr;
+			if (TryResolveEnum(BaseType, Enum))
 			{
-				OutDesc.ValueType = EPropertyBagPropertyType::Struct;
-				OutDesc.ValueTypeObject = Struct;
+				OutDesc.ValueType = EPropertyBagPropertyType::Enum;
+				OutDesc.ValueTypeObject = Enum;
 			}
 			else
 			{
-				UEnum* Enum = nullptr;
-				if (TryResolveEnum(BaseType, Enum))
-				{
-					OutDesc.ValueType = EPropertyBagPropertyType::Enum;
-					OutDesc.ValueTypeObject = Enum;
-				}
-				else
-				{
-					return false;
-				}
+				return false;
 			}
 		}
-
-		OutDesc.ContainerTypes = InOutContainers;
-		OutDesc.bSupported = OutDesc.ValueType != EPropertyBagPropertyType::None;
-		return OutDesc.bSupported;
 	}
+
+	OutDesc.ContainerTypes = InOutContainers;
+	OutDesc.bSupported = OutDesc.ValueType != EPropertyBagPropertyType::None;
+	return OutDesc.bSupported;
+}
 
 	bool TryBuildTypeDesc(const FString& InType, FClingNotebookTypeDesc& OutDesc)
 	{
@@ -853,19 +998,8 @@ namespace ClingNotebookSymbols
 		OutSymbols.Reset();
 		const FString Clean = StripComments(InContent);
 		ExtractFunctionSymbols(Clean, OutSymbols);
-		ExtractVariableSymbols(Clean, OutSymbols);
+ 	ExtractVariableSymbols(Clean, OutSymbols);
 		return OutSymbols.Num() > 0;
-	}
-
-	static FString GLastCppString;
-	static void CppStringCallback(const char* Str) { GLastCppString = UTF8_TO_TCHAR(Str); }
-
-	static TArray<Cpp::TCppFunction_t> GLastCppFunctions;
-	static void CppFunctionsCallback(const Cpp::TCppFunction_t* Funcs, size_t Num)
-	{
-		UE_LOG(LogTemp, Log, TEXT("ClingNotebook: CppFunctionsCallback called with %llu functions"), (uint64)Num);
-		GLastCppFunctions.Empty(Num);
-		for (size_t i = 0; i < Num; ++i) GLastCppFunctions.Add(const_cast<Cpp::TCppFunction_t>(Funcs[i]));
 	}
 
 	bool ExtractFunctionSignatures(void* Interp, const FString& InContent, TArray<FClingFunctionSignature>& OutSignatures)
@@ -889,8 +1023,9 @@ namespace ClingNotebookSymbols
 		for (const FString& NameStr : FoundNames)
 		{
 			Cpp::GetFunctionsUsingName(Cpp::GetGlobalScope(), TCHAR_TO_ANSI(*NameStr), CppFunctionsCallback);
+			TArray<Cpp::TCppFunction_t> LocalFunctions = GLastCppFunctions;
 
-			for (Cpp::TCppFunction_t Func : GLastCppFunctions)
+			for (Cpp::TCppFunction_t Func : LocalFunctions)
 			{
 				FClingFunctionSignature Sig;
 				Sig.Name = *NameStr;
@@ -1180,6 +1315,7 @@ void UClingNotebook::ExecuteFunction(const FClingFunctionSignature& Signature)
 	UE_LOG(LogTemp, Log, TEXT("ClingNotebook: Executing function %s"), *NameStr);
 
 	Cpp::GetFunctionsUsingName(Cpp::GetGlobalScope(), TCHAR_TO_ANSI(*NameStr), ClingNotebookSymbols::CppFunctionsCallback);
+	TArray<Cpp::TCppFunction_t> LocalFunctions = ClingNotebookSymbols::GLastCppFunctions;
 
 	const UPropertyBag* BagStruct = Signature.Parameters.GetPropertyBagStruct();
 	int32 ExpectedArgs = Signature.OriginalNumArgs;
@@ -1189,10 +1325,10 @@ void UClingNotebook::ExecuteFunction(const FClingFunctionSignature& Signature)
 		ExpectedArgs = BagStruct->GetPropertyDescs().Num();
 	}
 
-	UE_LOG(LogTemp, Log, TEXT("ClingNotebook: Found %d candidates for %s, expecting %d args"), ClingNotebookSymbols::GLastCppFunctions.Num(), *NameStr, ExpectedArgs);
+	UE_LOG(LogTemp, Log, TEXT("ClingNotebook: Found %d candidates for %s, expecting %d args"), LocalFunctions.Num(), *NameStr, ExpectedArgs);
 
 	bool bExecuted = false;
-	for (Cpp::TCppFunction_t Func : ClingNotebookSymbols::GLastCppFunctions)
+	for (Cpp::TCppFunction_t Func : LocalFunctions)
 	{
 		int32 FuncNumArgs = (int32)Cpp::GetFunctionNumArgs(Func);
 		if (FuncNumArgs == ExpectedArgs)
