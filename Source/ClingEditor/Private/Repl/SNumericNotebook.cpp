@@ -247,7 +247,17 @@ void SClingNotebookCell::UpdateCellUI()
 				SNew(SBorder)
 				.BorderImage(FAppStyle::Get().GetBrush("ToolPanel.DarkGroupBorder"))
 				.Visibility_Lambda([this]() { 
-					return (CellData->bIsExpanded && CellData->bHasOutput) ? EVisibility::Visible : EVisibility::Collapsed; 
+					if (CellData->bIsExpanded && CellData->bHasOutput)
+					{
+						if (CellData->LastCompilationResult.bSuccess)
+						{
+							return EVisibility::Visible;
+						}
+
+						const bool bShowInline = NotebookAsset ? NotebookAsset->bShowCodeInline : true;
+						return bShowInline ? EVisibility::Visible : EVisibility::Collapsed;
+					}
+					return EVisibility::Collapsed;
 				})
 				[
 					SNew(STextBlock)
@@ -395,8 +405,6 @@ void SClingNotebookDetailsPanel::Refresh()
 		return;
 	}
 
-	TSharedPtr<SVerticalBox> FunctionButtonsBox;
-
 	ChildSlot
 	[
 		SNew(SBorder)
@@ -405,20 +413,6 @@ void SClingNotebookDetailsPanel::Refresh()
 		[
 			SNew(SVerticalBox)
 			
-			// Top Bar for Function Buttons
-			+SVerticalBox::Slot()
-			.AutoHeight()
-			.Padding(0, 0, 0, 10)
-			[
-				SAssignNew(FunctionButtonsBox, SVerticalBox)
-			]
-			+SVerticalBox::Slot()
-			.AutoHeight()
-			.Padding(0, 10, 0, 0)
-			[
-				SNew(SSeparator)
-				.Orientation(Orient_Horizontal)
-			]
 			+SVerticalBox::Slot()
 			.AutoHeight()
 			.Padding(0, 0, 0, 10)
@@ -480,96 +474,6 @@ void SClingNotebookDetailsPanel::Refresh()
 			]
 		]
 	];
-
-	// Detect void functions with no arguments and add buttons
-	TArray<FString> DetectedFunctions;
-	if (NotebookAsset)
-	{
-		TArray<FClingNotebookSymbolDesc> Symbols;
-		if (NotebookAsset->TryGetSectionSymbolsFromFile(NotebookAsset->SelectedCellIndex, Symbols))
-		{
-			for (const FClingNotebookSymbolDesc& Symbol : Symbols)
-			{
-				if (Symbol.Kind != EClingNotebookSymbolKind::Function)
-				{
-					continue;
-				}
-				if (Symbol.Params.Num() != 0)
-				{
-					continue;
-				}
-				if (!Symbol.ReturnType.bIsVoid)
-				{
-					continue;
-				}
-				DetectedFunctions.Add(Symbol.Name.ToString());
-			}
-		}
-	}
-
-	if (DetectedFunctions.Num() == 0)
-	{
-		const FString ContentForDetection = SelectedData->Content;
-		FRegexPattern Pattern(TEXT("void\\s+([a-zA-Z_][a-zA-Z0-9_]*)\\s*\\(\\s*\\)"));
-		FRegexMatcher Matcher(Pattern, ContentForDetection);
-		while (Matcher.FindNext())
-		{
-			DetectedFunctions.Add(Matcher.GetCaptureGroup(1));
-		}
-	}
-
-	if (DetectedFunctions.Num() > 0)
-	{
-		TSharedPtr<SHorizontalBox> HBox;
-		FunctionButtonsBox->AddSlot()
-		.AutoHeight()
-		[
-			SAssignNew(HBox, SHorizontalBox)
-		];
-
-		for (const FString& FuncName : DetectedFunctions)
-		{
-			HBox->AddSlot()
-			.AutoWidth()
-			.Padding(2.0f)
-			[
-				SNew(SButton)
-				.Text(FText::FromString(FuncName))
-				// .ButtonStyle(FAppStyle::Get(), "SimpleButton")
-				.OnClicked_Lambda([this, FuncName]() -> FReply
-				{
-					if (NotebookAsset)
-					{
-						void* Interp = NotebookAsset->GetInterpreter();
-						if (Interp)
-						{
-							FScopeLock Lock(&FClingRuntimeModule::Get().GetCppInterOpLock());
-							void* StoreInterp = Cpp::GetInterpreter();
-							Cpp::ActivateInterpreter(Interp);
-							
-							Cpp::TCppScope_t FuncHandle = Cpp::GetNamed(TCHAR_TO_ANSI(*FuncName), Cpp::GetGlobalScope());
-							if (FuncHandle && Cpp::IsFunction(FuncHandle))
-							{
-								if (Cpp::GetFunctionNumArgs((Cpp::TCppFunction_t)FuncHandle) == 0)
-								{
-									void* Addr = Cpp::GetFunctionAddress((Cpp::TCppFunction_t)FuncHandle);
-									if (Addr)
-									{
-										typedef void (*VoidFunc)();
-										VoidFunc f = (VoidFunc)Addr;
-										f();
-									}
-								}
-							}
-							
-							Cpp::ActivateInterpreter(StoreInterp);
-						}
-					}
-					return FReply::Handled();
-				})
-			];
-		}
-	}
 }
 
 void SNumericNotebook::Construct(const FArguments& InArgs)
