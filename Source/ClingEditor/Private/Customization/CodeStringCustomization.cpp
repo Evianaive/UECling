@@ -41,7 +41,6 @@ void FCodeStringCustomization::CustomizeHeader(TSharedRef<IPropertyHandle> Struc
 		.Text(this, &FCodeStringCustomization::GetText)
 		.OnTextChanged(this, &FCodeStringCustomization::SetText)
 		.OverflowPolicy(ETextOverflowPolicy::Ellipsis)
-		.Margin(0.0f)
 	];
 }
 
