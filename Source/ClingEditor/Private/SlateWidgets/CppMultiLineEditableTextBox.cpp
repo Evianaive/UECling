@@ -19,11 +19,11 @@ BEGIN_SLATE_FUNCTION_BUILD_OPTIMIZATION
 #include "Styling/SlateTypes.h"
 
 /**
- * 带行号显示的文本布局类
- * 继承自 FSlateTextLayout，在 OnPaint 中额外绘制行号
+ * Text layout class with line number display
+ * Inherits from FSlateTextLayout, draws line numbers additionally in OnPaint
  * 
- * 注意：Margin 需要在 SMultiLineEditableText 层面设置，
- * 因为 FSlateEditableTextLayout::CacheDesiredSize 会覆盖 TextLayout 的 Margin
+ * Note: Margin needs to be set at SMultiLineEditableText level,
+ * because FSlateEditableTextLayout::CacheDesiredSize will override TextLayout's Margin
  */
 class FLineNumberTextLayout : public FSlateTextLayout
 {
@@ -83,7 +83,7 @@ protected:
         LineNumberStyle.ColorAndOpacity = FLinearColor(0.6f, 0.6f, 0.6f, 1.0f);
     }
 
-    // 重写 OnPaint 绘制行号
+    // Override OnPaint to draw line numbers
     virtual int32 OnPaint(
         const FPaintArgs& Args,
         const FGeometry& AllottedGeometry,
@@ -94,13 +94,13 @@ protected:
         bool bParentEnabled) const override;
 
 private:
-    /** 是否显示行号 */
+    /** Whether to show line numbers */
     bool bShowLineNumbers;
     
-    /** 行号区域宽度 */
+    /** Line number area width */
     float LineNumberWidth;
     
-    /** 行号文本样式 */
+    /** Line number text style */
     FTextBlockStyle LineNumberStyle;
 };
 
@@ -135,11 +135,11 @@ int32 FLineNumberTextLayout::OnPaint(
 
     const TArray<FTextLayout::FLineView>& LocalLineViews = GetLineViews();
 
-    // === 绘制行号区域背景 ===
+    // === Draw line number area background ===
     const float LineNumberAreaWidth = LineNumberWidth;
     const float LineNumberAreaHeight = AllottedGeometry.GetLocalSize().Y;
 
-    // === 绘制分隔线 ===
+    // === Draw separator line ===
     FSlateDrawElement::MakeBox(
         OutDrawElements, TextLayer + 1,
         AllottedGeometry.ToPaintGeometry(
@@ -164,30 +164,30 @@ int32 FLineNumberTextLayout::OnPaint(
 
     int32 HighestLayerId = TextLayer + 2;
 
-    // === 绘制行号 ===
-    // 跟踪已显示的逻辑行，避免自动换行的续行重复显示行号
+    // === Draw line numbers ===
+    // Track displayed logical lines to avoid duplicate line numbers for auto-wrapped continuation lines
     TSet<int32> DisplayedModelIndices;
 
     for (const FTextLayout::FLineView& LineView : LocalLineViews)
     {
         const int32 ModelIdx = LineView.ModelIndex;
 
-        // 跳过已显示的逻辑行（自动换行产生的续行）
+        // Skip already displayed logical lines (continuation lines from auto-wrapping)
         if (DisplayedModelIndices.Contains(ModelIdx))
         {
             continue;
         }
         DisplayedModelIndices.Add(ModelIdx);
 
-        // 行号 = 逻辑行索引 + 1
+        // Line number = logical line index + 1
         const int32 LineNumber = ModelIdx + 1;
         const FString LineNumberText = FString::FromInt(LineNumber);
         const FVector2D TextSize = FontMeasure->Measure(LineNumberText, LineNumberStyle.Font);
 
-        // 计算行号位置
-        // Y: 使用 LineView.Offset.Y（已包含 Margin.Top）
+        // Calculate line number position
+        // Y: Use LineView.Offset.Y (already includes Margin.Top)
         float LineNumberY = LineView.Offset.Y;
-        // 垂直居中
+        // Vertical centering
         LineNumberY += (LineView.Size.Y - TextSize.Y) * 0.5f;
         
         
