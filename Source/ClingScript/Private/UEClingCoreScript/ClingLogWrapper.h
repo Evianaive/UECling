@@ -12,5 +12,5 @@
  */
 #undef UE_LOG
 #define UE_LOG(CategoryName, Verbosity, Format, ...) \
-[&](){UE_PRIVATE_LOG(PREPROCESSOR_NOTHING, constexpr, CategoryName, Verbosity, Format, ##__VA_ARGS__)}()
+[&](){UE_PRIVATE_LOG(PREPROCESSOR_NOTHING, constexpr, CategoryName, Verbosity, Format, ##__VA_ARGS__)}();
 

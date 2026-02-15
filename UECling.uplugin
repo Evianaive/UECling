@@ -42,7 +42,7 @@
 		},
 		{
 			"Name": "ClingSourceAccess",
-			"Type": "Developer",
+			"Type": "DeveloperTool",
 			"LoadingPhase": "Default"
 		}
 	]
