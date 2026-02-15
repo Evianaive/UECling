@@ -400,7 +400,7 @@ namespace ClingNotebookSymbols
 		return false;
 	}
 
-	bool TryResolveClass(const FString& TypeName, UClass*& OutClass)
+	bool TryResolveClass_Legacy(const FString& TypeName, UClass*& OutClass)
 	{
 		FString CleanName = TypeName;
 		if (CleanName.StartsWith(TEXT("::")))
@@ -437,11 +437,11 @@ namespace ClingNotebookSymbols
 						Cpp::JitCall Call = Cpp::MakeFunctionCallable(Interp, Func);
 						if (Call.isValid())
 						{
-							void* Result = nullptr;
+							UClass* Result = 0;
 							Call.Invoke(&Result);
 							if (Result)
 							{
-								OutClass = (UClass*)Result;
+								OutClass = Result;
 								break;
 							}
 						}
@@ -457,7 +457,7 @@ namespace ClingNotebookSymbols
 		return OutClass != nullptr;
 	}
 
-	bool TryResolveStruct(const FString& TypeName, UScriptStruct*& OutStruct)
+	bool TryResolveStruct_Legacy(const FString& TypeName, UScriptStruct*& OutStruct)
 	{
 		FString CleanName = TypeName;
 		if (CleanName.StartsWith(TEXT("::")))
@@ -484,7 +484,6 @@ namespace ClingNotebookSymbols
 		{
 			void* Interp = Cpp::GetInterpreter();
 			
-			// Try TBaseStructure first for engine types like FVector
 			FString TBaseName = FString::Printf(TEXT("TBaseStructure<%s>"), *CleanName);
 			if (Cpp::TCppScope_t TBaseScope = Cpp::GetScope(TCHAR_TO_ANSI(*TBaseName)))
 			{
@@ -511,7 +510,6 @@ namespace ClingNotebookSymbols
 
 			if (!OutStruct)
 			{
-				// Try StaticStruct for USTRUCTs
 				if (Cpp::TCppScope_t Scope = Cpp::GetScope(TCHAR_TO_ANSI(*CleanName)))
 				{
 					Cpp::GetFunctionsUsingName(Scope, "StaticStruct", CppFunctionsCallback);
@@ -540,7 +538,299 @@ namespace ClingNotebookSymbols
 		return OutStruct != nullptr;
 	}
 
-	bool TryResolveEnum(const FString& TypeName, UEnum*& OutEnum)
+	struct FTypeLookupRequest
+	{
+		TSet<FName> ClassNames;
+		TSet<FName> StructNames;
+		TSet<FName> EnumNames;
+	};
+
+	struct FTypeLookupResult
+	{
+		TMap<FName, UClass*> Classes;
+		TMap<FName, UScriptStruct*> Structs;
+		TMap<FName, UEnum*> Enums;
+	};
+
+	enum class EClingTypeCategory : uint8
+	{
+		Unknown,
+		Class,
+		Struct,
+		Enum
+	};
+
+	static FName GetStructFName(const FString& TypeName)
+	{
+		FString Clean = TypeName.TrimStartAndEnd();
+		if (Clean.StartsWith(TEXT("::")))
+		{
+			Clean.RightChopInline(2);
+		}
+		if (Clean.StartsWith(TEXT("F")))
+		{
+			Clean.RightChopInline(1);
+		}
+		return FName(*Clean);
+	}
+
+	static FName GetClassFName(const FString& TypeName)
+	{
+		FString Clean = TypeName.TrimStartAndEnd();
+		if (Clean.StartsWith(TEXT("::")))
+		{
+			Clean.RightChopInline(2);
+		}
+		if (Clean.StartsWith(TEXT("U")) || Clean.StartsWith(TEXT("A")))
+		{
+			Clean.RightChopInline(1);
+		}
+		return FName(*Clean);
+	}
+
+	static FName GetEnumFName(const FString& TypeName)
+	{
+		FString Clean = TypeName.TrimStartAndEnd();
+		if (Clean.StartsWith(TEXT("::")))
+		{
+			Clean.RightChopInline(2);
+		}
+		if (Clean.StartsWith(TEXT("E")))
+		{
+			Clean.RightChopInline(1);
+		}
+		return FName(*Clean);
+	}
+
+	static void ResolveAllTypes(const FTypeLookupRequest& Request, FTypeLookupResult& Result)
+	{
+		for (TObjectIterator<UStruct> It; It; ++It)
+		{
+			FName StructFName = It->GetFName();
+
+			if (Request.ClassNames.Contains(StructFName))
+			{
+				if (UClass* Class = Cast<UClass>(*It))
+				{
+					Result.Classes.Add(StructFName, Class);
+				}
+			}
+
+			if (Request.StructNames.Contains(StructFName))
+			{
+				if (UScriptStruct* Struct = Cast<UScriptStruct>(*It))
+				{
+					Result.Structs.Add(StructFName, Struct);
+				}
+			}
+		}
+
+		for (TObjectIterator<UEnum> It; It; ++It)
+		{
+			FName EnumFName = It->GetFName();
+			if (Request.EnumNames.Contains(EnumFName))
+			{
+				Result.Enums.Add(EnumFName, *It);
+			}
+		}
+	}
+
+	static void CollectTypesFromString(const FString& TypeStr, FTypeLookupRequest& Request)
+	{
+		FString Working = TypeStr.TrimStartAndEnd();
+		if (Working.IsEmpty()) return;
+
+		while (Working.EndsWith(TEXT("*")) || Working.EndsWith(TEXT("&")))
+		{
+			Working.LeftChopInline(1);
+			Working.TrimEndInline();
+		}
+
+		if (Working.StartsWith(TEXT("TArray<")) || Working.StartsWith(TEXT("TSet<")))
+		{
+			FString Inner;
+			if (ExtractTemplateArg(Working, Inner))
+			{
+				CollectTypesFromString(Inner, Request);
+			}
+			return;
+		}
+
+		if (Working.StartsWith(TEXT("TSubclassOf<")) ||
+			Working.StartsWith(TEXT("TSoftObjectPtr<")) ||
+			Working.StartsWith(TEXT("TSoftClassPtr<")) ||
+			Working.StartsWith(TEXT("TObjectPtr<")))
+		{
+			FString Inner;
+			if (ExtractTemplateArg(Working, Inner))
+			{
+				Request.ClassNames.Add(GetClassFName(Inner));
+			}
+			return;
+		}
+
+		Working = StripQualifiers(Working).TrimStartAndEnd();
+
+		static const TSet<FString> BuiltinTypes = {
+			TEXT("void"), TEXT("bool"), TEXT("uint8"), TEXT("uint8_t"), TEXT("byte"),
+			TEXT("int32"), TEXT("int"), TEXT("int64"), TEXT("uint32"), TEXT("uint64"),
+			TEXT("float"), TEXT("double"), TEXT("FName"), TEXT("FString"), TEXT("FText"),
+			TEXT("char"), TEXT("wchar_t"), TEXT("size_t"), TEXT("int8"), TEXT("int16"),
+			TEXT("uint16"), TEXT("long"), TEXT("short")
+		};
+
+		FString LowerWorking = Working.ToLower();
+		if (BuiltinTypes.Contains(LowerWorking)) return;
+
+		if (Working == TEXT("UClass"))
+		{
+			return;
+		}
+
+		Request.ClassNames.Add(GetClassFName(Working));
+		Request.StructNames.Add(GetStructFName(Working));
+		Request.EnumNames.Add(GetEnumFName(Working));
+	}
+
+	bool TryResolveClass_Legacy2(const FString& TypeName, UClass*& OutClass)
+	{
+		FString CleanName = TypeName;
+		if (CleanName.StartsWith(TEXT("::")))
+		{
+			CleanName.RightChopInline(2);
+		}
+
+		auto FindType = [](const FString& Name) -> UClass*
+		{
+			if (UClass* Found = UClass::TryFindTypeSlow<UClass>(Name))
+			{
+				return Found;
+			}
+			return LoadObject<UClass>(nullptr, *Name);
+		};
+
+		OutClass = FindType(CleanName);
+		if (!OutClass && (CleanName.StartsWith(TEXT("U")) || CleanName.StartsWith(TEXT("A"))))
+		{
+			OutClass = FindType(CleanName.Mid(1));
+		}
+
+		if (!OutClass && Cpp::GetInterpreter())
+		{
+			void* Interp = Cpp::GetInterpreter();
+			if (Cpp::TCppScope_t Scope = Cpp::GetScope(TCHAR_TO_ANSI(*CleanName)))
+			{
+				Cpp::GetFunctionsUsingName(Scope, "StaticClass", CppFunctionsCallback);
+				TArray<Cpp::TCppFunction_t> LocalFuncs = GLastCppFunctions;
+				for (Cpp::TCppFunction_t Func : LocalFuncs)
+				{
+					if (Cpp::GetFunctionNumArgs(Func) == 0)
+					{
+						Cpp::JitCall Call = Cpp::MakeFunctionCallable(Interp, Func);
+						if (Call.isValid())
+						{
+							UClass* Result = 0;
+							Call.Invoke(&Result);
+							if (Result)
+							{
+								OutClass = Result;
+								break;
+							}
+						}
+					}
+				}
+			}
+		}
+
+		if (!OutClass && CleanName == TEXT("UObject"))
+		{
+			OutClass = UObject::StaticClass();
+		}
+		return OutClass != nullptr;
+	}
+
+	bool TryResolveStruct_Legacy2(const FString& TypeName, UScriptStruct*& OutStruct)
+	{
+		FString CleanName = TypeName;
+		if (CleanName.StartsWith(TEXT("::")))
+		{
+			CleanName.RightChopInline(2);
+		}
+
+		auto FindType = [](const FString& Name) -> UScriptStruct*
+		{
+			if (UScriptStruct* Found = UClass::TryFindTypeSlow<UScriptStruct>(Name))
+			{
+				return Found;
+			}
+			return LoadObject<UScriptStruct>(nullptr, *Name);
+		};
+
+		OutStruct = FindType(CleanName);
+		if (!OutStruct && CleanName.StartsWith(TEXT("F")))
+		{
+			OutStruct = FindType(CleanName.Mid(1));
+		}
+
+		if (!OutStruct && Cpp::GetInterpreter())
+		{
+			void* Interp = Cpp::GetInterpreter();
+
+			FString TBaseName = FString::Printf(TEXT("TBaseStructure<%s>"), *CleanName);
+			if (Cpp::TCppScope_t TBaseScope = Cpp::GetScope(TCHAR_TO_ANSI(*TBaseName)))
+			{
+				Cpp::GetFunctionsUsingName(TBaseScope, "Get", CppFunctionsCallback);
+				TArray<Cpp::TCppFunction_t> LocalFuncs = GLastCppFunctions;
+				for (Cpp::TCppFunction_t Func : LocalFuncs)
+				{
+					if (Cpp::GetFunctionNumArgs(Func) == 0)
+					{
+						Cpp::JitCall Call = Cpp::MakeFunctionCallable(Interp, Func);
+						if (Call.isValid())
+						{
+							void* Result = nullptr;
+							Call.Invoke(&Result);
+							if (Result)
+							{
+								OutStruct = (UScriptStruct*)Result;
+								break;
+							}
+						}
+					}
+				}
+			}
+
+			if (!OutStruct)
+			{
+				if (Cpp::TCppScope_t Scope = Cpp::GetScope(TCHAR_TO_ANSI(*CleanName)))
+				{
+					Cpp::GetFunctionsUsingName(Scope, "StaticStruct", CppFunctionsCallback);
+					TArray<Cpp::TCppFunction_t> LocalFuncs = GLastCppFunctions;
+					for (Cpp::TCppFunction_t Func : LocalFuncs)
+					{
+						if (Cpp::GetFunctionNumArgs(Func) == 0)
+						{
+							Cpp::JitCall Call = Cpp::MakeFunctionCallable(Interp, Func);
+							if (Call.isValid())
+							{
+								void* Result = nullptr;
+								Call.Invoke(&Result);
+								if (Result)
+								{
+									OutStruct = (UScriptStruct*)Result;
+									break;
+								}
+							}
+						}
+					}
+				}
+			}
+		}
+
+		return OutStruct != nullptr;
+	}
+
+	bool TryResolveEnum_Legacy(const FString& TypeName, UEnum*& OutEnum)
 	{
 		auto FindType = [](const FString& Name) -> UEnum*
 		{
@@ -553,6 +843,224 @@ namespace ClingNotebookSymbols
 
 		OutEnum = FindType(TypeName);
 		return OutEnum != nullptr;
+	}
+
+	static UClass* FindClassFromResult(const FString& TypeName, const FTypeLookupResult& Result)
+	{
+		if (TypeName.TrimStartAndEnd() == TEXT("UObject"))
+		{
+			return UObject::StaticClass();
+		}
+		FName Key = GetClassFName(TypeName);
+		UClass* const* Found = Result.Classes.Find(Key);
+		return Found ? *Found : nullptr;
+	}
+
+	static UScriptStruct* FindStructFromResult(const FString& TypeName, const FTypeLookupResult& Result)
+	{
+		FName Key = GetStructFName(TypeName);
+		UScriptStruct* const* Found = Result.Structs.Find(Key);
+		return Found ? *Found : nullptr;
+	}
+
+	static UEnum* FindEnumFromResult(const FString& TypeName, const FTypeLookupResult& Result)
+	{
+		FName Key = GetEnumFName(TypeName);
+		UEnum* const* Found = Result.Enums.Find(Key);
+		return Found ? *Found : nullptr;
+	}
+
+	static bool ParseTypeRecursiveWithLookup(const FString& InType, FClingNotebookTypeDesc& OutDesc, FPropertyBagContainerTypes& InOutContainers, const FTypeLookupResult& LookupResult);
+
+	static bool ParseTypeWithLookup(const FString& Working, FClingNotebookTypeDesc& OutDesc, FPropertyBagContainerTypes& InOutContainers, const FTypeLookupResult& LookupResult)
+	{
+		static const TSet<FString> BuiltinTypes = {
+			TEXT("void"), TEXT("bool"), TEXT("uint8"), TEXT("uint8_t"), TEXT("byte"),
+			TEXT("int32"), TEXT("int"), TEXT("int64"), TEXT("uint32"), TEXT("uint64"),
+			TEXT("float"), TEXT("double"), TEXT("FName"), TEXT("FString"), TEXT("FText"),
+			TEXT("char"), TEXT("wchar_t"), TEXT("size_t"), TEXT("int8"), TEXT("int16"),
+			TEXT("uint16"), TEXT("long"), TEXT("short")
+		};
+
+		FString LowerWorking = Working.ToLower();
+		if (BuiltinTypes.Contains(LowerWorking))
+		{
+			if (Working.Equals(TEXT("void"), ESearchCase::IgnoreCase))
+			{
+				OutDesc.bIsVoid = true;
+				OutDesc.bSupported = false;
+				return true;
+			}
+			if (Working.Equals(TEXT("bool"), ESearchCase::IgnoreCase)) { OutDesc.ValueType = EPropertyBagPropertyType::Bool; }
+			else if (Working.Equals(TEXT("uint8"), ESearchCase::IgnoreCase) || Working.Equals(TEXT("uint8_t"), ESearchCase::IgnoreCase) || Working.Equals(TEXT("byte"), ESearchCase::IgnoreCase)) { OutDesc.ValueType = EPropertyBagPropertyType::Byte; }
+			else if (Working.Equals(TEXT("int32"), ESearchCase::IgnoreCase) || Working.Equals(TEXT("int"), ESearchCase::IgnoreCase)) { OutDesc.ValueType = EPropertyBagPropertyType::Int32; }
+			else if (Working.Equals(TEXT("int64"), ESearchCase::IgnoreCase) || Working.Equals(TEXT("long long"), ESearchCase::IgnoreCase)) { OutDesc.ValueType = EPropertyBagPropertyType::Int64; }
+			else if (Working.Equals(TEXT("uint32"), ESearchCase::IgnoreCase) || Working.Equals(TEXT("unsigned int"), ESearchCase::IgnoreCase)) { OutDesc.ValueType = EPropertyBagPropertyType::UInt32; }
+			else if (Working.Equals(TEXT("uint64"), ESearchCase::IgnoreCase) || Working.Equals(TEXT("unsigned long long"), ESearchCase::IgnoreCase)) { OutDesc.ValueType = EPropertyBagPropertyType::UInt64; }
+			else if (Working.Equals(TEXT("float"), ESearchCase::IgnoreCase)) { OutDesc.ValueType = EPropertyBagPropertyType::Float; }
+			else if (Working.Equals(TEXT("double"), ESearchCase::IgnoreCase)) { OutDesc.ValueType = EPropertyBagPropertyType::Double; }
+			else if (Working.Equals(TEXT("FName"), ESearchCase::IgnoreCase)) { OutDesc.ValueType = EPropertyBagPropertyType::Name; }
+			else if (Working.Equals(TEXT("FString"), ESearchCase::IgnoreCase)) { OutDesc.ValueType = EPropertyBagPropertyType::String; }
+			else if (Working.Equals(TEXT("FText"), ESearchCase::IgnoreCase)) { OutDesc.ValueType = EPropertyBagPropertyType::Text; }
+			else { return false; }
+			OutDesc.ContainerTypes = InOutContainers;
+			OutDesc.bSupported = true;
+			return true;
+		}
+
+		if (Working == TEXT("UClass"))
+		{
+			OutDesc.ValueType = EPropertyBagPropertyType::Class;
+			OutDesc.ValueTypeObject = UObject::StaticClass();
+			OutDesc.ContainerTypes = InOutContainers;
+			OutDesc.bSupported = true;
+			return true;
+		}
+
+		if (UScriptStruct* Struct = FindStructFromResult(Working, LookupResult))
+		{
+			OutDesc.ValueType = EPropertyBagPropertyType::Struct;
+			OutDesc.ValueTypeObject = Struct;
+			OutDesc.ContainerTypes = InOutContainers;
+			OutDesc.bSupported = true;
+			return true;
+		}
+
+		if (UEnum* Enum = FindEnumFromResult(Working, LookupResult))
+		{
+			OutDesc.ValueType = EPropertyBagPropertyType::Enum;
+			OutDesc.ValueTypeObject = Enum;
+			OutDesc.ContainerTypes = InOutContainers;
+			OutDesc.bSupported = true;
+			return true;
+		}
+
+		return false;
+	}
+
+	static bool ParseTypeRecursiveWithLookup(const FString& InType, FClingNotebookTypeDesc& OutDesc, FPropertyBagContainerTypes& InOutContainers, const FTypeLookupResult& LookupResult)
+	{
+		FString Working = StripQualifiers(InType).TrimStartAndEnd();
+		Working.ReplaceInline(TEXT("\t"), TEXT(" "));
+		Working.TrimStartAndEndInline();
+
+		if (Working.IsEmpty()) return false;
+
+		bool bPointer = Working.EndsWith(TEXT("*"));
+		bool bReference = Working.EndsWith(TEXT("&"));
+		while (Working.EndsWith(TEXT("*")) || Working.EndsWith(TEXT("&")))
+		{
+			Working.LeftChopInline(1);
+			Working.TrimEndInline();
+		}
+
+		if (Working.StartsWith(TEXT("TArray<")))
+		{
+			if (!InOutContainers.Add(EPropertyBagContainerType::Array)) return false;
+			FString Inner;
+			if (!ExtractTemplateArg(Working, Inner)) return false;
+			return ParseTypeRecursiveWithLookup(Inner, OutDesc, InOutContainers, LookupResult);
+		}
+
+		if (Working.StartsWith(TEXT("TSet<")))
+		{
+			if (!InOutContainers.Add(EPropertyBagContainerType::Set)) return false;
+			FString Inner;
+			if (!ExtractTemplateArg(Working, Inner)) return false;
+			return ParseTypeRecursiveWithLookup(Inner, OutDesc, InOutContainers, LookupResult);
+		}
+
+		if (Working.StartsWith(TEXT("TSubclassOf<")))
+		{
+			FString Inner;
+			if (!ExtractTemplateArg(Working, Inner)) return false;
+			if (UClass* Class = FindClassFromResult(Inner.TrimStartAndEnd(), LookupResult))
+			{
+				OutDesc.ValueType = EPropertyBagPropertyType::Class;
+				OutDesc.ValueTypeObject = Class;
+				OutDesc.ContainerTypes = InOutContainers;
+				OutDesc.bSupported = true;
+				return true;
+			}
+			return false;
+		}
+
+		if (Working.StartsWith(TEXT("TSoftObjectPtr<")))
+		{
+			FString Inner;
+			if (!ExtractTemplateArg(Working, Inner)) return false;
+			if (UClass* Class = FindClassFromResult(Inner.TrimStartAndEnd(), LookupResult))
+			{
+				OutDesc.ValueType = EPropertyBagPropertyType::SoftObject;
+				OutDesc.ValueTypeObject = Class;
+				OutDesc.ContainerTypes = InOutContainers;
+				OutDesc.bSupported = true;
+				return true;
+			}
+			return false;
+		}
+
+		if (Working.StartsWith(TEXT("TSoftClassPtr<")))
+		{
+			FString Inner;
+			if (!ExtractTemplateArg(Working, Inner)) return false;
+			if (UClass* Class = FindClassFromResult(Inner.TrimStartAndEnd(), LookupResult))
+			{
+				OutDesc.ValueType = EPropertyBagPropertyType::SoftClass;
+				OutDesc.ValueTypeObject = Class;
+				OutDesc.ContainerTypes = InOutContainers;
+				OutDesc.bSupported = true;
+				return true;
+			}
+			return false;
+		}
+
+		if (Working.StartsWith(TEXT("TObjectPtr<")))
+		{
+			FString Inner;
+			if (!ExtractTemplateArg(Working, Inner)) return false;
+			if (UClass* Class = FindClassFromResult(Inner.TrimStartAndEnd(), LookupResult))
+			{
+				OutDesc.ValueType = EPropertyBagPropertyType::Object;
+				OutDesc.ValueTypeObject = Class;
+				OutDesc.ContainerTypes = InOutContainers;
+				OutDesc.bSupported = true;
+				return true;
+			}
+			return false;
+		}
+
+		if (bPointer || bReference)
+		{
+			const FString BaseType = Working.TrimStartAndEnd();
+			if (UClass* Class = FindClassFromResult(BaseType, LookupResult))
+			{
+				OutDesc.ValueType = EPropertyBagPropertyType::Object;
+				OutDesc.ValueTypeObject = Class;
+				OutDesc.ContainerTypes = InOutContainers;
+				OutDesc.bSupported = true;
+				return true;
+			}
+			if (BaseType == TEXT("UClass"))
+			{
+				OutDesc.ValueType = EPropertyBagPropertyType::Class;
+				OutDesc.ValueTypeObject = UObject::StaticClass();
+				OutDesc.ContainerTypes = InOutContainers;
+				OutDesc.bSupported = true;
+				return true;
+			}
+			return false;
+		}
+
+		return ParseTypeWithLookup(Working, OutDesc, InOutContainers, LookupResult);
+	}
+
+	static bool BuildTypeDescWithLookup(const FString& InType, FClingNotebookTypeDesc& OutDesc, const FTypeLookupResult& LookupResult)
+	{
+		OutDesc = FClingNotebookTypeDesc();
+		OutDesc.OriginalType = InType.TrimStartAndEnd();
+		FPropertyBagContainerTypes Containers;
+		return ParseTypeRecursiveWithLookup(OutDesc.OriginalType, OutDesc, Containers, LookupResult);
 	}
 
 	bool ParseTypeRecursive(const FString& InType, FClingNotebookTypeDesc& OutDesc, FPropertyBagContainerTypes& InOutContainers)
@@ -619,7 +1127,7 @@ namespace ClingNotebookSymbols
 			return false;
 		}
 		UClass* ResolvedClass = nullptr;
-		if (!TryResolveClass(Inner.TrimStartAndEnd(), ResolvedClass))
+		if (!TryResolveClass_Legacy(Inner.TrimStartAndEnd(), ResolvedClass))
 		{
 			return false;
 		}
@@ -638,7 +1146,7 @@ namespace ClingNotebookSymbols
 			return false;
 		}
 		UClass* ResolvedClass = nullptr;
-		if (!TryResolveClass(Inner.TrimStartAndEnd(), ResolvedClass))
+		if (!TryResolveClass_Legacy(Inner.TrimStartAndEnd(), ResolvedClass))
 		{
 			return false;
 		}
@@ -657,7 +1165,7 @@ namespace ClingNotebookSymbols
 			return false;
 		}
 		UClass* ResolvedClass = nullptr;
-		if (!TryResolveClass(Inner.TrimStartAndEnd(), ResolvedClass))
+		if (!TryResolveClass_Legacy(Inner.TrimStartAndEnd(), ResolvedClass))
 		{
 			return false;
 		}
@@ -676,7 +1184,7 @@ namespace ClingNotebookSymbols
 			return false;
 		}
 		UClass* ResolvedClass = nullptr;
-		if (!TryResolveClass(Inner.TrimStartAndEnd(), ResolvedClass))
+		if (!TryResolveClass_Legacy(Inner.TrimStartAndEnd(), ResolvedClass))
 		{
 			return false;
 		}
@@ -691,7 +1199,7 @@ namespace ClingNotebookSymbols
 	{
 		const FString BaseType = Working.TrimStartAndEnd();
 		UClass* ResolvedClass = nullptr;
-		if (TryResolveClass(BaseType, ResolvedClass))
+		if (TryResolveClass_Legacy(BaseType, ResolvedClass))
 		{
 			OutDesc.ValueType = EPropertyBagPropertyType::Object;
 			OutDesc.ValueTypeObject = ResolvedClass;
@@ -759,7 +1267,7 @@ namespace ClingNotebookSymbols
 	else
 	{
 		UScriptStruct* Struct = nullptr;
-		if (TryResolveStruct(BaseType, Struct))
+		if (TryResolveStruct_Legacy(BaseType, Struct))
 		{
 			OutDesc.ValueType = EPropertyBagPropertyType::Struct;
 			OutDesc.ValueTypeObject = Struct;
@@ -767,7 +1275,7 @@ namespace ClingNotebookSymbols
 		else
 		{
 			UEnum* Enum = nullptr;
-			if (TryResolveEnum(BaseType, Enum))
+			if (TryResolveEnum_Legacy(BaseType, Enum))
 			{
 				OutDesc.ValueType = EPropertyBagPropertyType::Enum;
 				OutDesc.ValueTypeObject = Enum;
@@ -1020,6 +1528,22 @@ namespace ClingNotebookSymbols
 			FoundNames.Add(Matcher.GetCaptureGroup(1));
 		}
 
+		struct FArgInfo
+		{
+			FString TypeStr;
+			FString NameStr;
+		};
+		struct FFuncInfo
+		{
+			FString Name;
+			FString RetTypeStr;
+			TArray<FArgInfo> Args;
+			Cpp::TCppFunction_t Func;
+		};
+		TArray<FFuncInfo> FuncInfos;
+
+		FTypeLookupRequest TypeRequest;
+
 		for (const FString& NameStr : FoundNames)
 		{
 			Cpp::GetFunctionsUsingName(Cpp::GetGlobalScope(), TCHAR_TO_ANSI(*NameStr), CppFunctionsCallback);
@@ -1027,42 +1551,62 @@ namespace ClingNotebookSymbols
 
 			for (Cpp::TCppFunction_t Func : LocalFunctions)
 			{
-				FClingFunctionSignature Sig;
-				Sig.Name = *NameStr;
+				FFuncInfo Info;
+				Info.Name = NameStr;
+				Info.Func = Func;
 
-				// Return Type
 				Cpp::TCppType_t RetType = Cpp::GetFunctionReturnType(Func);
 				Cpp::GetTypeAsString(RetType, CppStringCallback);
-				TryBuildTypeDesc(GLastCppString, Sig.ReturnType);
+				Info.RetTypeStr = GLastCppString;
+				CollectTypesFromString(Info.RetTypeStr, TypeRequest);
 
-				// Parameters
 				size_t NumArgs = (size_t)Cpp::GetFunctionNumArgs(Func);
-				Sig.OriginalNumArgs = (int32)NumArgs;
-				TArray<FPropertyBagPropertyDesc> PropDescs;
 				for (size_t i = 0; i < NumArgs; ++i)
 				{
 					Cpp::TCppType_t ArgType = Cpp::GetFunctionArgType(Func, (Cpp::TCppIndex_t)i);
 					Cpp::GetTypeAsString(ArgType, CppStringCallback);
-					FString ArgTypeStr = GLastCppString;
 
-					FString ArgNameStr;
+					FArgInfo Arg;
+					Arg.TypeStr = GLastCppString;
+
 					Cpp::GetFunctionArgName(Func, (Cpp::TCppIndex_t)i, CppStringCallback);
-					ArgNameStr = GLastCppString;
-					if (ArgNameStr.IsEmpty()) ArgNameStr = FString::Printf(TEXT("Param%d"), (int32)i);
+					Arg.NameStr = GLastCppString;
+					if (Arg.NameStr.IsEmpty()) Arg.NameStr = FString::Printf(TEXT("Param%d"), (int32)i);
 
-					FClingNotebookTypeDesc ArgTypeDesc;
-					if (TryBuildTypeDesc(ArgTypeStr, ArgTypeDesc) && ArgTypeDesc.bSupported)
-					{
-						PropDescs.Add(FPropertyBagPropertyDesc(*ArgNameStr, ArgTypeDesc.ValueType, ArgTypeDesc.ValueTypeObject));
-						PropDescs.Last().ContainerTypes = ArgTypeDesc.ContainerTypes;
-					}
+					CollectTypesFromString(Arg.TypeStr, TypeRequest);
+					Info.Args.Add(MoveTemp(Arg));
 				}
 
-				if (PropDescs.Num() > 0 || NumArgs == 0)
+				FuncInfos.Add(MoveTemp(Info));
+			}
+		}
+
+		FTypeLookupResult TypeResult;
+		ResolveAllTypes(TypeRequest, TypeResult);
+
+		for (const FFuncInfo& Info : FuncInfos)
+		{
+			FClingFunctionSignature Sig;
+			Sig.Name = *Info.Name;
+
+			BuildTypeDescWithLookup(Info.RetTypeStr, Sig.ReturnType, TypeResult);
+
+			Sig.OriginalNumArgs = Info.Args.Num();
+			TArray<FPropertyBagPropertyDesc> PropDescs;
+			for (const FArgInfo& Arg : Info.Args)
+			{
+				FClingNotebookTypeDesc ArgTypeDesc;
+				if (BuildTypeDescWithLookup(Arg.TypeStr, ArgTypeDesc, TypeResult) && ArgTypeDesc.bSupported)
 				{
-					Sig.Parameters.AddProperties(PropDescs);
-					OutSignatures.Add(MoveTemp(Sig));
+					PropDescs.Add(FPropertyBagPropertyDesc(*Arg.NameStr, ArgTypeDesc.ValueType, ArgTypeDesc.ValueTypeObject));
+					PropDescs.Last().ContainerTypes = ArgTypeDesc.ContainerTypes;
 				}
+			}
+
+			if (PropDescs.Num() > 0 || Info.Args.Num() == 0)
+			{
+				Sig.Parameters.AddProperties(PropDescs);
+				OutSignatures.Add(MoveTemp(Sig));
 			}
 		}
 

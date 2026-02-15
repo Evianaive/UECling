@@ -222,8 +222,9 @@ void SCppMultiLineEditableTextBox::Construct(const FArguments& InArgs)
 			return true;
 		});
 	}
-	if (!OverrideDefaultArgs._Marshaller.IsValid())	
-		OverrideDefaultArgs._Marshaller=FCppRichTextSyntaxHighlightMarshaller::Create(FSyntaxTextStyle::GetSyntaxTextStyle(),FClingSemanticInfoProvider());
+    // Todo Marshaller can't be created with an empty Provider
+	// if (!OverrideDefaultArgs._Marshaller.IsValid())	
+	// 	OverrideDefaultArgs._Marshaller=FCppRichTextSyntaxHighlightMarshaller::Create(FSyntaxTextStyle::GetSyntaxTextStyle(),FClingSemanticInfoProvider());
 	if (!OverrideDefaultArgs._AllowMultiLine.IsSet())
 		OverrideDefaultArgs.AllowMultiLine(true);
 	// .Style(&FClingCodeEditorStyle::Get().GetWidgetStyle<FEditableTextBoxStyle>("TextEditor.EditableTextBox"))
