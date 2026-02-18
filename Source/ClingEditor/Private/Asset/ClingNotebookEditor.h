@@ -5,6 +5,7 @@
 #include "Framework/MultiBox/MultiBoxBuilder.h"
 
 class UClingNotebook;
+class SWidget;
 
 class FClingNotebookEditor : public FAssetEditorToolkit
 {
@@ -23,6 +24,7 @@ public:
 private:
 	TSharedRef<SDockTab> SpawnTab_Notebook(const FSpawnTabArgs& Args);
 	TSharedRef<SDockTab> SpawnTab_Details(const FSpawnTabArgs& Args);
+	TSharedRef<SDockTab> SpawnTab_Log(const FSpawnTabArgs& Args);
 
 	// Toolbar
 	void ExtendToolbar();
@@ -36,4 +38,5 @@ private:
 
 	UClingNotebook* NotebookAsset;
 	TSharedPtr<class SNumericNotebook> NotebookWidget;
+	TSharedPtr<SWidget> LogOutputWidget;
 };

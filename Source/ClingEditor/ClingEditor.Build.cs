@@ -31,7 +31,8 @@ public class ClingEditor : ModuleRules
                 "ClingScript",
                 "InputCore",
                 "ClingSourceAccess",
-                "StructUtils"
+                "StructUtils", 
+                "OutputLog"
             }
         );
     }

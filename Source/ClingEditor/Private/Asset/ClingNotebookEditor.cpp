@@ -5,9 +5,12 @@
 #include "Widgets/Docking/SDockTab.h"
 #include "Framework/MultiBox/MultiBoxBuilder.h"
 #include "Widgets/Input/SComboButton.h"
+#include "OutputLogModule.h"
+#include "OutputLogCreationParams.h"
 
 const FName ClingNotebookTabId(TEXT("ClingNotebook_Notebook"));
 const FName ClingNotebookDetailsTabId(TEXT("ClingNotebook_Details"));
+const FName ClingNotebookLogTabId(TEXT("ClingNotebook_Log"));
 
 void FClingNotebookEditor::InitEditor(const EToolkitMode::Type Mode, const TSharedPtr<IToolkitHost>& EditWithinLevelEditor, UClingNotebook* InNotebook)
 {
@@ -15,7 +18,7 @@ void FClingNotebookEditor::InitEditor(const EToolkitMode::Type Mode, const TShar
 	GEditor->GetEditorSubsystem<UAssetEditorSubsystem>()->CloseOtherEditors(InNotebook, this);
 	NotebookAsset = InNotebook;
 
-	const TSharedRef<FTabManager::FLayout> StandaloneLayout = FTabManager::NewLayout("Standalone_ClingNotebook_Layout_v2")
+	const TSharedRef<FTabManager::FLayout> StandaloneLayout = FTabManager::NewLayout("Standalone_ClingNotebook_Layout")
 	->AddArea
 	(
 		FTabManager::NewPrimaryArea()
@@ -23,14 +26,25 @@ void FClingNotebookEditor::InitEditor(const EToolkitMode::Type Mode, const TShar
 		->Split
 		(
 			FTabManager::NewStack()
-			->SetSizeCoefficient(0.4f)
+			->SetSizeCoefficient(0.5f)
 			->AddTab(ClingNotebookTabId, ETabState::OpenedTab)
 		)
 		->Split
 		(
-			FTabManager::NewStack()
-			->SetSizeCoefficient(0.6f)
-			->AddTab(ClingNotebookDetailsTabId, ETabState::OpenedTab)
+			FTabManager::NewSplitter()
+			->SetOrientation(Orient_Vertical)
+			->Split
+			(
+				FTabManager::NewStack()
+				->SetSizeCoefficient(0.5f)
+				->AddTab(ClingNotebookDetailsTabId, ETabState::OpenedTab)
+			)
+			->Split
+			(
+				FTabManager::NewStack()
+				->SetSizeCoefficient(0.5f)
+				->AddTab(ClingNotebookLogTabId, ETabState::OpenedTab)
+			)
 		)
 	);
 
@@ -69,6 +83,10 @@ void FClingNotebookEditor::RegisterTabSpawners(const TSharedRef<FTabManager>& In
 		.SetDisplayName(INVTEXT("Notebook"))
 		.SetGroup(WorkspaceMenuCategory.ToSharedRef());
 
+	InTabManager->RegisterTabSpawner(ClingNotebookLogTabId, FOnSpawnTab::CreateSP(this, &FClingNotebookEditor::SpawnTab_Log))
+		.SetDisplayName(INVTEXT("Output Log"))
+		.SetGroup(WorkspaceMenuCategory.ToSharedRef());
+
 	InTabManager->RegisterTabSpawner(ClingNotebookDetailsTabId, FOnSpawnTab::CreateSP(this, &FClingNotebookEditor::SpawnTab_Details))
 		.SetDisplayName(INVTEXT("Cell Details"))
 		.SetGroup(WorkspaceMenuCategory.ToSharedRef());
@@ -78,6 +96,7 @@ void FClingNotebookEditor::UnregisterTabSpawners(const TSharedRef<FTabManager>& 
 {
 	FAssetEditorToolkit::UnregisterTabSpawners(InTabManager);
 	InTabManager->UnregisterTabSpawner(ClingNotebookTabId);
+	InTabManager->UnregisterTabSpawner(ClingNotebookLogTabId);
 	InTabManager->UnregisterTabSpawner(ClingNotebookDetailsTabId);
 }
 
@@ -98,6 +117,25 @@ TSharedRef<SDockTab> FClingNotebookEditor::SpawnTab_Details(const FSpawnTabArgs&
 	[
 		SNew(SClingNotebookDetailsPanel)
 		.NotebookAsset(NotebookAsset)
+	];
+}
+
+TSharedRef<SDockTab> FClingNotebookEditor::SpawnTab_Log(const FSpawnTabArgs& Args)
+{
+	if (!LogOutputWidget)
+	{
+		FOutputLogCreationParams Params;
+		Params.bCreateDockInLayoutButton = true;
+		Params.SettingsMenuCreationFlags = EOutputLogSettingsMenuFlags::SkipClearOnPie
+			| EOutputLogSettingsMenuFlags::SkipOpenSourceButton
+			| EOutputLogSettingsMenuFlags::SkipEnableWordWrapping
+			| EOutputLogSettingsMenuFlags::SkipOpenInExternalEditorButton;
+		LogOutputWidget = FOutputLogModule::Get().MakeOutputLogWidget(Params);
+	}
+
+	return SNew(SDockTab)
+	[
+		LogOutputWidget.ToSharedRef()
 	];
 }
 
