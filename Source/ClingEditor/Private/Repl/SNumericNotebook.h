@@ -90,6 +90,15 @@ private:
 	void Refresh();
 
 	TSharedPtr<SMultiLineEditableTextBox> DetailCodeTextBox;
+
+	// Search
+	TSharedPtr<class SSearchBox> DetailSearchBox;
+	FString SearchFilterText;
+	bool bSearchCaseSensitive = false;
+
+	void OnDetailSearchTextChanged(const FText& InText);
+	void OnDetailSearchCaseSensitiveChanged(ECheckBoxState NewState);
+	void PerformSearch(bool bReverse=false);
 };
 
 /**

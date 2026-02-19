@@ -15,22 +15,22 @@ TSharedRef<SWindow> FClingUIScriptUtils::CreateWindow(
 		{
 			if (Widget.IsValid())
 			{
-				auto Slot = MoveTemp(
-					BoxLayout->AddSlot()
-					.Padding(5.0f));
-				if constexpr (std::is_same_v<typename TLayout::ElementType,SVerticalBox>)					
-					Slot.AutoHeight();
-				if constexpr (std::is_same_v<typename TLayout::ElementType,SHorizontalBox>)
-					Slot.AutoWidth();
-				Slot[
+				auto& Args = BoxLayout->AddSlot()
+				.Padding(5.0f)
+				[
 					Widget.ToSharedRef()
-				];
+				]
+				.SizeParam(FAuto());
+				// if constexpr (std::is_same_v<typename TLayout::ElementType,SVerticalBox>)					
+				// 	Slot.AutoHeight();
+				// if constexpr (std::is_same_v<typename TLayout::ElementType,SHorizontalBox>)
+				// 	Slot.AutoWidth();
 			}
 		}
 	};
 	// Determine the layout type based on WindowSettings
 	TSharedPtr<SWidget> LayoutContainer;
-	if (WindowSettings.Layout == EWindowLayout::Horizontal)
+	if (WindowSettings.Layout == FWindowSettings::EWindowLayout::Horizontal)
 	{
 		TSharedRef<SHorizontalBox> HorizontalBox = SNew(SHorizontalBox);
 		AddWidgetsToBox(HorizontalBox);

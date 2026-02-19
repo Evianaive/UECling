@@ -4,10 +4,13 @@
 class SWidget;
 class SWindow;
 
-class FClingUIScriptUtils
-{
-public:	
+// Todo Protect from windows temporarily, Fix it in PCH
+#ifdef CreateWindow
+#undef CreateWindow;
+#endif
 
+struct FWindowSettings
+{
 	// Layout direction for window widgets
 	enum class EWindowLayout : uint8
 	{
@@ -15,12 +18,15 @@ public:
 		Horizontal  // Left to right
 	};
 	
-	struct FWindowSettings
-	{
-		const FString& Title = TEXT("Cling Untitled Window");
-		FVector2D Size = FVector2D(800, 400);
-		EWindowLayout Layout = EWindowLayout::Vertical;		
-	};
+	FString Title = GetDefaultTitle();
+	FVector2D Size = FVector2D(800, 400);
+	EWindowLayout Layout = EWindowLayout::Vertical;
+	static FString GetDefaultTitle(){ return TEXT("Cling Untitled Window"); };
+};
+
+class CLINGSCRIPT_API FClingUIScriptUtils
+{
+public:	
 	static TSharedRef<SWindow> CreateWindow(
 		const TArray<TSharedPtr<SWidget>>& Widgets, 
 		const FWindowSettings& WindowSettings = FWindowSettings());

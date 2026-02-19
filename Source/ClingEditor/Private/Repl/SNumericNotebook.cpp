@@ -13,6 +13,7 @@
 #include "Framework/Application/SlateApplication.h"
 #include "Widgets/Input/SButton.h"
 #include "Widgets/Input/SEditableTextBox.h"
+#include "Widgets/Input/SSearchBox.h"
 #include "Widgets/Layout/SBox.h"
 #include "Widgets/Layout/SSeparator.h"
 #include "Widgets/Layout/SUniformGridPanel.h"
@@ -424,6 +425,41 @@ void SClingNotebookDetailsPanel::Refresh()
 				.Font(FAppStyle::Get().GetFontStyle("HeadingFont"))
 			]
 
+			// Search bar
+			+SVerticalBox::Slot()
+			.AutoHeight()
+			.Padding(0, 0, 0, 5)
+			[
+				SNew(SHorizontalBox)
+				+SHorizontalBox::Slot()
+				.FillWidth(1.0f)
+				[
+					SAssignNew(DetailSearchBox, SSearchBox)
+					.HintText(INVTEXT("Search in code..."))
+					.OnTextChanged(this, &SClingNotebookDetailsPanel::OnDetailSearchTextChanged)
+					.DelayChangeNotificationsWhileTyping(true)
+					.OnSearch_Lambda([this](SSearchBox::SearchDirection Direction)
+					{
+						PerformSearch(Direction==SSearchBox::Previous);
+					})
+				]
+				+SHorizontalBox::Slot()
+				.AutoWidth()
+				.Padding(5, 0, 0, 0)
+				[
+					
+					SNew(SCheckBox)
+					.IsChecked(bSearchCaseSensitive ? ECheckBoxState::Checked : ECheckBoxState::Unchecked)
+					.OnCheckStateChanged(this, &SClingNotebookDetailsPanel::OnDetailSearchCaseSensitiveChanged)
+					.ToolTipText(INVTEXT("Match Case"))
+					[
+						SNew(STextBlock)
+						.Text(INVTEXT("Aa"))
+						.Font(FAppStyle::Get().GetFontStyle("BoldFont"))
+					]
+				]
+			]
+
 			+SVerticalBox::Slot()
 			.FillHeight(1.0f)
 			[
@@ -474,6 +510,12 @@ void SClingNotebookDetailsPanel::Refresh()
 			]
 		]
 	];
+
+	// Perform initial search with existing filter text
+	if (!SearchFilterText.IsEmpty())
+	{
+		PerformSearch();
+	}
 }
 
 void SNumericNotebook::Construct(const FArguments& InArgs)
@@ -793,4 +835,27 @@ void SNumericNotebook::OnPCHProfileSelected(FName ProfileName)
 		NotebookAsset->PCHProfile = ProfileName;
 		NotebookAsset->MarkPackageDirty();
 	}
+}
+
+void SClingNotebookDetailsPanel::OnDetailSearchTextChanged(const FText& InText)
+{
+	SearchFilterText = InText.ToString();
+	PerformSearch();
+}
+
+void SClingNotebookDetailsPanel::OnDetailSearchCaseSensitiveChanged(ECheckBoxState NewState)
+{
+	bSearchCaseSensitive = (NewState == ECheckBoxState::Checked);
+	PerformSearch();
+}
+
+void SClingNotebookDetailsPanel::PerformSearch(bool bReverse)
+{
+	if (!DetailCodeTextBox.IsValid() || SearchFilterText.IsEmpty())
+	{
+		return;
+	}
+
+	ESearchCase::Type SearchCase = bSearchCaseSensitive ? ESearchCase::CaseSensitive : ESearchCase::IgnoreCase;
+	DetailCodeTextBox->BeginSearch(FText::FromString(SearchFilterText), SearchCase, bReverse);
 }
