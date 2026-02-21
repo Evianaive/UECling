@@ -7,6 +7,7 @@
 #include "Widgets/Input/SComboButton.h"
 #include "OutputLogModule.h"
 #include "OutputLogCreationParams.h"
+#include "SourceCodeNavigation.h"
 
 const FName ClingNotebookTabId(TEXT("ClingNotebook_Notebook"));
 const FName ClingNotebookDetailsTabId(TEXT("ClingNotebook_Details"));
@@ -166,7 +167,7 @@ void FClingNotebookEditor::FillToolbar(FToolBarBuilder& ToolbarBuilder)
 			NAME_None,
 			INVTEXT("Fold All"),
 			INVTEXT("Fold all cells"),
-			FSlateIcon()
+			FSlateIcon(FAppStyle::GetAppStyleSetName(), "ContentBrowser.HideSourcesView")
 		);
 
 		ToolbarBuilder.AddToolBarButton(
@@ -177,7 +178,7 @@ void FClingNotebookEditor::FillToolbar(FToolBarBuilder& ToolbarBuilder)
 			NAME_None,
 			INVTEXT("Unfold All"),
 			INVTEXT("Unfold all cells"),
-			FSlateIcon()
+			FSlateIcon(FAppStyle::GetAppStyleSetName(), "ContentBrowser.ShowSourcesView")
 		);
 
 		ToolbarBuilder.AddToolBarButton(
@@ -188,7 +189,7 @@ void FClingNotebookEditor::FillToolbar(FToolBarBuilder& ToolbarBuilder)
 			NAME_None,
 			INVTEXT("Open in IDE"),
 			INVTEXT("Open notebook file in IDE"),
-			FSlateIcon()
+			FSourceCodeNavigation::GetOpenSourceCodeIDEIcon()
 		);
 
 		ToolbarBuilder.AddToolBarButton(
@@ -199,7 +200,7 @@ void FClingNotebookEditor::FillToolbar(FToolBarBuilder& ToolbarBuilder)
 			NAME_None,
 			INVTEXT("Read from IDE"),
 			INVTEXT("Read changes from IDE"),
-			FSlateIcon()
+			FSlateIcon(FAppStyle::GetAppStyleSetName(), "Icons.Import")
 		);
 	}
 	ToolbarBuilder.EndSection();
