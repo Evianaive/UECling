@@ -11,7 +11,7 @@
  */
 
 USTRUCT(BlueprintType)
-struct FWrapPropertyBag
+struct CLINGSCRIPT_API FWrapPropertyBag
 {
 	GENERATED_BODY()
 	UPROPERTY(EditAnywhere, Category="Cling")

@@ -22,7 +22,9 @@ public class ClingScript : ModuleRules
             {
                 "Slate",
                 "SlateCore", 
-                "StructUtilsEditor"
+                "StructUtilsEditor",
+                "WebBrowserNativeProxy", 
+                "ClingLibrary", "ClingEditor", "ClingRuntime"
             }
         );
         Action<string> ensureDirectoryExists = path =>

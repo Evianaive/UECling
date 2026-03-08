@@ -3,6 +3,8 @@
 #include "CoreMinimal.h"
 #include "UObject/NoExportTypes.h"
 #include "Async/Future.h"
+#include "Tasks/Task.h"
+#include "ClingCoroUtils.h"
 #include "ClingSemanticInfoProvider.h"
 #include "CppInterOp/CppInterOp.h"
 #if WITH_EDITORONLY_DATA
@@ -216,14 +218,19 @@ public:
 
 	// Interpreter management
 	CppImpl::CppInterpWrapper& GetInterpreter();
-	TFuture<FClingInterpreterResult> GetInterpreterAsync();
+	ClingCoro::TClingTask<FClingInterpreterResult> GetInterpreterAsync();
 	void RestartInterpreter();
 
 private:
-	// Async operations using TPromise/TFuture
-	TFuture<FClingInterpreterResult> StartInterpreterAsync();
-	TFuture<FClingCellCompilationResult> CompileCellAsync(CppImpl::CppInterpWrapper& Interp, int32 CellIndex);
+	// Async operations using Coroutines
+	ClingCoro::TClingTask<FClingInterpreterResult> StartInterpreterAsync();
+	ClingCoro::TClingTask<FClingCellCompilationResult> CompileCellAsync(CppImpl::CppInterpWrapper& Interp, int32 CellIndex);
 	void OnCellCompilationComplete(int32 CellIndex, const FClingCellCompilationResult& Result);
+
+	// Static coroutine: avoids MSVC lambda-coroutine capture-dangling-pointer bug.
+	// Parameters are copied into the coroutine frame (unlike lambda captures which
+	// store a pointer to the stack-allocated closure object).
+	static ClingCoro::TClingTask<void> ProcessCellCoro(TWeakObjectPtr<UClingNotebook> WeakThis, int32 CellIndex);
 
 #if WITH_EDITOR
 	void UpdateCellSignatures(int32 CellIndex);
@@ -232,8 +239,6 @@ private:
 	// Compilation execution (extracted common logic)
 	FClingCellCompilationResult ExecuteCellCompilation(CppImpl::CppInterpWrapper& Interp, const FString& Code);
 
-	// Shared promise for interpreter initialization (allows multiple waiters)
-	TSharedPtr<TPromise<FClingInterpreterResult>> InterpreterPromise;
 
 public:
 	// Cell Management

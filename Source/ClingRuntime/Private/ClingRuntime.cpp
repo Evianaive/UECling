@@ -6,6 +6,7 @@
 #include "Interfaces/IPluginManager.h"
 #include "Misc/Paths.h"
 #include "HAL/PlatformProcess.h"
+#include "Async/TaskGraphInterfaces.h"
 #include <algorithm>
 #include "Engine/Engine.h"
 #include "CppInterOp/CppInterOp.h"
@@ -41,18 +42,34 @@ void FClingRuntimeModule::StartupModule()
 	Setting->GenerateAllPCHProfiles();	
 	// Cpp::EnableDebugOutput();
 	BaseInterp = StartInterpreterInternal();
-	
-	// BaseInterp.Decalre("#define WITH_CLING 1");
-	// if(Setting->bAllowRedefine)
-	// 	BaseInterp.Execute("gClingOpts->AllowRedefinition = true;");
+	// Initial pool fill
+	RefillPool();
+	// Pool is filled lazily when notebooks become idle, see ProcessNextInQueue.
 }
 
 void FClingRuntimeModule::ShutdownModule()
 {
-	// This function may be called during shutdown to clean up your module.  For modules that support dynamic reloading,
-	// we call this function before unloading the module.
+	// Signal pool workers to stop
+	bPoolShuttingDown.store(true);
 
-	FScopeLock Lock(&CppInterOpLock);
+	// Wait for any in-flight pool creation tasks to finish
+	while (PoolInFlight.load() > 0)
+	{
+		FPlatformProcess::Sleep(0.01f);
+	}
+
+	FScopeLock CppLock(&CppInterOpLock);
+
+	// Delete pooled (pre-created, not yet acquired) interpreters
+	for (CppImpl::CppInterpWrapper& Interp : PooledInterps)
+	{
+		if (Interp.IsValid())
+		{
+			Interp.DeleteInterpreter();
+		}
+	}
+	PooledInterps.Empty();
+
 	SemanticInfoProviders.Empty();
 	// CppInterpWrapper destructor will handle cleanup
 }
@@ -175,5 +192,84 @@ CppImpl::CppInterpWrapper FClingRuntimeModule::StartInterpreterInternal(FName PC
 }
 
 #undef LOCTEXT_NAMESPACE
+
+// ---------------------------------------------------------------------------
+// Interpreter Pool
+// ---------------------------------------------------------------------------
+
+CppImpl::CppInterpWrapper FClingRuntimeModule::TryAcquireFromPool()
+{
+	FScopeLock Lock(&PoolLock);
+	if (PooledInterps.Num() > 0)
+	{
+		CppImpl::CppInterpWrapper Interp = PooledInterps.Pop();
+		UE_LOG(LogCling, Log, TEXT("[InterpPool] Acquired from pool. Remaining: %d"), PooledInterps.Num());
+		return Interp;
+	}
+	UE_LOG(LogCling, Warning, TEXT("[InterpPool] Pool empty! Notebook will create a new interpreter synchronously (slow)."));
+	return CppImpl::CppInterpWrapper();
+}
+
+void FClingRuntimeModule::RefillPool()
+{
+	if (bPoolShuttingDown.load()) return;
+
+	int32 ToCreate;
+	{
+		FScopeLock Lock(&PoolLock);
+		const int32 Current = PooledInterps.Num() + PoolInFlight.load();
+		ToCreate = FMath::Max(0, PoolTargetSize - Current);
+		PoolInFlight.fetch_add(ToCreate);
+	}
+
+	for (int32 i = 0; i < ToCreate; ++i)
+	{
+		FFunctionGraphTask::CreateAndDispatchWhenReady(
+			[this]()
+			{
+				CreatePoolEntry();
+			},
+			TStatId{}, nullptr, ENamedThreads::AnyThread
+		);
+	}
+
+	if (ToCreate > 0)
+	{
+		UE_LOG(LogCling, Log, TEXT("[InterpPool] Dispatched %d background create task(s)."), ToCreate);
+	}
+}
+
+void FClingRuntimeModule::CreatePoolEntry()
+{
+	if (bPoolShuttingDown.load())
+	{
+		PoolInFlight.fetch_sub(1);
+		return;
+	}
+
+	UE_LOG(LogCling, Log, TEXT("[InterpPool] Creating pool interpreter..."));
+	
+	double StartTime = FPlatformTime::Seconds();
+	CppImpl::CppInterpWrapper NewInterp = StartInterpreterInternal(TEXT("Default"));
+	double Duration = FPlatformTime::Seconds() - StartTime;
+
+	UE_LOG(LogCling, Log, TEXT("[InterpPool] Created pool interpreter in %.2f seconds."), Duration);
+
+	{
+		FScopeLock Lock(&PoolLock);
+		if (!bPoolShuttingDown.load() && NewInterp.IsValid())
+		{
+			PooledInterps.Add(NewInterp);
+			UE_LOG(LogCling, Log, TEXT("[InterpPool] Pool size: %d"), PooledInterps.Num());
+		}
+		else if (NewInterp.IsValid())
+		{
+			// Shutting down - discard
+			NewInterp.DeleteInterpreter();
+		}
+	}
+
+	PoolInFlight.fetch_sub(1);
+}
 	
 IMPLEMENT_MODULE(FClingRuntimeModule, ClingRuntime);

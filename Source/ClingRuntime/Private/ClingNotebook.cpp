@@ -1,6 +1,7 @@
 #include "ClingNotebook.h"
 #include "ClingRuntime.h"
 #include "ClingSetting.h"
+#include "ClingCoroUtils.h"
 #include "CppInterOp/CppInterOp.h"
 #include "Modules/ModuleManager.h"
 #include "Async/Async.h"
@@ -1649,74 +1650,79 @@ CppImpl::CppInterpWrapper& UClingNotebook::GetInterpreter()
 	return Interpreter;
 }
 
-TFuture<FClingInterpreterResult> UClingNotebook::GetInterpreterAsync()
+ClingCoro::TClingTask<FClingInterpreterResult> UClingNotebook::GetInterpreterAsync()
 {
-	// If interpreter already exists, return completed future immediately
+	UE_LOG(LogTemp, Log, TEXT("[GetInterpreterAsync] Entry, Interpreter=%p, GameThread=%d"), Interpreter.GetInterpreter(), (int32)IsInGameThread());
+	// If interpreter already exists, return completed task immediately
 	if (Interpreter.IsValid())
 	{
-		TPromise<FClingInterpreterResult> Promise;
-		Promise.SetValue(FClingInterpreterResult(Interpreter));
-		return Promise.GetFuture();
-	}
-
-	// If already initializing, return a future that will be fulfilled when init completes
-	if (bIsInitializingInterpreter)
-	{
-		if (InterpreterPromise.IsValid())
-		{
-			return InterpreterPromise->GetFuture();
-		}
+		UE_LOG(LogTemp, Log, TEXT("[GetInterpreterAsync] Returning existing interpreter immediately"));
+		co_return FClingInterpreterResult(Interpreter);
 	}
 
 	// Start async initialization
-	return StartInterpreterAsync();
+	UE_LOG(LogTemp, Log, TEXT("[GetInterpreterAsync] Launching StartInterpreterAsync"));
+	auto Task = StartInterpreterAsync();
+	Task.Launch(TEXT("GetInterpreterAsync"));
+	UE_LOG(LogTemp, Log, TEXT("[GetInterpreterAsync] Waiting for StartInterpreterAsync..."));
+	auto Result = co_await Task;
+	UE_LOG(LogTemp, Log, TEXT("[GetInterpreterAsync] StartInterpreterAsync completed, bSuccess=%d"), (int32)Result.bSuccess);
+	co_return Result;
 }
 
-TFuture<FClingInterpreterResult> UClingNotebook::StartInterpreterAsync()
+ClingCoro::TClingTask<FClingInterpreterResult> UClingNotebook::StartInterpreterAsync()
 {
 	bIsInitializingInterpreter = true;
 
-	// Create shared promise that can fulfill multiple futures
-	InterpreterPromise = MakeShared<TPromise<FClingInterpreterResult>>();
-	TFuture<FClingInterpreterResult> ResultFuture = InterpreterPromise->GetFuture();
-
 	TWeakObjectPtr<UClingNotebook> WeakThis(this);
-	TSharedPtr<TPromise<FClingInterpreterResult>> PromiseCapture = InterpreterPromise;
+	FName ProfileName = PCHProfile;
 
-	// Start interpreter creation on background thread
-	AsyncTask(ENamedThreads::AnyBackgroundHiPriTask, [WeakThis, PromiseCapture]()
+	// Move to background thread - never block the game thread
+	co_await ClingCoro::MoveToTask();
+
+	// Try pool first (only matches Default profile to avoid PCH mismatch)
+	CppImpl::CppInterpWrapper NewInterpreter;
+	const bool bIsDefaultProfile = (ProfileName == TEXT("Default") || ProfileName.IsNone());
+	if (bIsDefaultProfile)
 	{
-		UClingNotebook* NotebookPtr = WeakThis.Get();
-		FName ProfileName = NotebookPtr ? NotebookPtr->PCHProfile : TEXT("Default");
-		
-		auto NewInterpreter = FClingRuntimeModule::Get().StartNewInterp(ProfileName);
+		NewInterpreter = FClingRuntimeModule::Get().TryAcquireFromPool();
+	}
 
-		// Return to game thread to set the interpreter and fulfill promise
-		AsyncTask(ENamedThreads::GameThread, [WeakThis, PromiseCapture, NewInterpreter]() mutable
+	if (!NewInterpreter.IsValid())
+	{
+		// Pool empty or profile mismatch - create directly
+		UE_LOG(LogTemp, Log, TEXT("[StartInterpreterAsync] Pool miss, creating new interpreter for profile %s..."), *ProfileName.ToString());
+		double StartTime = FPlatformTime::Seconds();
+		NewInterpreter = FClingRuntimeModule::Get().StartNewInterp(ProfileName);
+		double Duration = FPlatformTime::Seconds() - StartTime;
+		UE_LOG(LogTemp, Log, TEXT("[StartInterpreterAsync] Created new interpreter in %.2f seconds."), Duration);
+	}
+
+	// Return to game thread to update notebook state
+	co_await ClingCoro::MoveToGameThread();
+
+	FClingInterpreterResult Result(NewInterpreter);
+
+	if (!WeakThis.IsValid())
+	{
+		if (NewInterpreter.IsValid())
 		{
-			if (!WeakThis.IsValid())
-			{
-				// Notebook destroyed during init, clean up
-				if (NewInterpreter.IsValid())
-				{
-					NewInterpreter.DeleteInterpreter();
-				}
-				PromiseCapture->SetValue(FClingInterpreterResult(CppImpl::CppInterpWrapper(), TEXT("Notebook destroyed during initialization")));
-				return;
-			}
+			NewInterpreter.DeleteInterpreter();
+		}
+		co_return FClingInterpreterResult(CppImpl::CppInterpWrapper(), TEXT("Notebook destroyed during initialization"));
+	}
 
-			UClingNotebook* Notebook = WeakThis.Get();
-			Notebook->Interpreter = NewInterpreter;
-			Notebook->bIsInitializingInterpreter = false;
-			Notebook->SemanticInfoProvider.Refresh(NewInterpreter);
-			Notebook->InterpreterPromise.Reset();
+	UClingNotebook* Notebook = WeakThis.Get();
+	Notebook->Interpreter = NewInterpreter;
+	Notebook->bIsInitializingInterpreter = false;
+	if (NewInterpreter.IsValid())
+	{
+		Notebook->SemanticInfoProvider.Refresh(NewInterpreter);
+		UE_LOG(LogTemp, Log, TEXT("[Notebook] Interpreter ready, semantic info refreshed."));
+	}
 
-			// Fulfill the promise - this triggers all waiting futures
-			PromiseCapture->SetValue(FClingInterpreterResult(NewInterpreter));
-		});
-	});
-
-	return ResultFuture;
+	UE_LOG(LogTemp, Log, TEXT("[StartInterpreterAsync] About to co_return, Interpreter=%p"), NewInterpreter.GetInterpreter());
+	co_return Result;
 }
 
 FClingCellCompilationResult UClingNotebook::ExecuteCellCompilation(CppImpl::CppInterpWrapper& Interp, const FString& Code)
@@ -1736,21 +1742,19 @@ FClingCellCompilationResult UClingNotebook::ExecuteCellCompilation(CppImpl::CppI
 	FClingCellCompilationResult CompilationResult;
 	CompilationResult.ErrorOutput = StaticErrors;
 	CompilationResult.bSuccess = (ResultCode == 0);
+
 	return CompilationResult;
 }
 
-TFuture<FClingCellCompilationResult> UClingNotebook::CompileCellAsync(CppImpl::CppInterpWrapper& Interp, int32 CellIndex)
+ClingCoro::TClingTask<FClingCellCompilationResult> UClingNotebook::CompileCellAsync(CppImpl::CppInterpWrapper& Interp, int32 CellIndex)
 {
-	TSharedRef<TPromise<FClingCellCompilationResult>> CompilePromise = MakeShared<TPromise<FClingCellCompilationResult>>();
-	TFuture<FClingCellCompilationResult> ResultFuture = CompilePromise->GetFuture();
-
+	UE_LOG(LogTemp, Log, TEXT("[CompileCellAsync] Cell %d: entry, Interp=%p, GameThread=%d"), CellIndex, Interp.GetInterpreter(), (int32)IsInGameThread());
 	if (!Cells.IsValidIndex(CellIndex) || !Interp.IsValid())
 	{
 		FClingCellCompilationResult ErrorResult;
 		ErrorResult.ErrorOutput = TEXT("Invalid cell index or interpreter");
 		ErrorResult.bSuccess = false;
-		CompilePromise->SetValue(ErrorResult);
-		return ResultFuture;
+		co_return ErrorResult;
 	}
 
 	// Generate compilation file
@@ -1760,8 +1764,7 @@ TFuture<FClingCellCompilationResult> UClingNotebook::CompileCellAsync(CppImpl::C
 		FClingCellCompilationResult ErrorResult;
 		ErrorResult.ErrorOutput = TEXT("Failed to generate compilation file");
 		ErrorResult.bSuccess = false;
-		CompilePromise->SetValue(ErrorResult);
-		return ResultFuture;
+		co_return ErrorResult;
 	}
 
 	const FString IncludePath = ClingNotebookFile::NormalizeIncludePath(NotebookFilePath);
@@ -1775,36 +1778,33 @@ TFuture<FClingCellCompilationResult> UClingNotebook::CompileCellAsync(CppImpl::C
 		// Execute synchronously on game thread
 		FClingCellCompilationResult Result = ExecuteCellCompilation(Interp, Code);
 		OnCellCompilationComplete(CellIndex, Result);
-		CompilePromise->SetValue(Result);
+		co_return Result;
 	}
 	else
 	{
-		// Execute on background thread
-		AsyncTask(ENamedThreads::AnyBackgroundHiPriTask, [WeakThis, Interp, Code, CellIndex, CompilePromise]() mutable
+		// Execute on background thread using Coroutine
+		co_await ClingCoro::MoveToTask();
+
+		FClingCellCompilationResult Result;
+		if (WeakThis.IsValid())
 		{
-			FClingCellCompilationResult Result;
-			Result.ErrorOutput = TEXT("Compilation failed");
+			Result = WeakThis->ExecuteCellCompilation(Interp, Code);
+		}
+		else
+		{
+			Result.ErrorOutput = TEXT("Notebook destroyed during compilation");
 			Result.bSuccess = false;
+		}
 
-			if (WeakThis.IsValid())
-			{
-				UClingNotebook* Notebook = WeakThis.Get();
-				Result = Notebook->ExecuteCellCompilation(Interp, Code);
-			}
+		// Jump back to game thread
+		co_await ClingCoro::MoveToGameThread();
 
-			// Return to game thread to update state
-			AsyncTask(ENamedThreads::GameThread, [WeakThis, CellIndex, Result, CompilePromise]()
-			{
-				if (WeakThis.IsValid())
-				{
-					WeakThis->OnCellCompilationComplete(CellIndex, Result);
-				}
-				CompilePromise->SetValue(Result);
-			});
-		});
+		if (WeakThis.IsValid())
+		{
+			WeakThis->OnCellCompilationComplete(CellIndex, Result);
+		}
+		co_return Result;
 	}
-
-	return ResultFuture;
 }
 
 #if WITH_EDITOR
@@ -2073,6 +2073,63 @@ void UClingNotebook::UndoToHere(int32 InIndex)
 	}
 }
 
+// ---------------------------------------------------------------------------
+// Static coroutine to process one cell — avoids MSVC lambda-coroutine
+// capture-by-pointer bug (lambda closure lives on the caller's stack and
+// becomes a dangling pointer once ProcessNextInQueue returns).
+// ---------------------------------------------------------------------------
+ClingCoro::TClingTask<void> UClingNotebook::ProcessCellCoro(
+	TWeakObjectPtr<UClingNotebook> WeakThis,
+	int32 CellIndex)
+{
+	UE_LOG(LogTemp, Log, TEXT("[ProcessCoro] Cell %d: started on GameThread=%d"), CellIndex, (int32)IsInGameThread());
+	FClingInterpreterResult InterpResult = co_await WeakThis->GetInterpreterAsync();
+	UE_LOG(LogTemp, Log, TEXT("[ProcessCoro] Cell %d: GetInterpreterAsync returned, bSuccess=%d, GameThread=%d"), CellIndex, (int32)InterpResult.bSuccess, (int32)IsInGameThread());
+
+	// Always continue on GameThread: CompileCellAsync accesses UClingNotebook members
+	// (Cells, GetName, etc.). When the interpreter was already set, GetInterpreterAsync
+	// completes synchronously inside the symmetric-transfer chain on a background thread,
+	// so we must explicitly move to GameThread here.
+	co_await ClingCoro::MoveToGameThread();
+	UE_LOG(LogTemp, Log, TEXT("[ProcessCoro] Cell %d: now on GameThread=%d"), CellIndex, (int32)IsInGameThread());
+
+	if (!WeakThis.IsValid())
+	{
+		UE_LOG(LogTemp, Warning, TEXT("[ProcessCoro] Cell %d: WeakThis INVALID, notebook was GC'd — aborting."), CellIndex);
+		co_return;
+	}
+
+	UClingNotebook* Notebook = WeakThis.Get();
+	if (!InterpResult.bSuccess || !InterpResult.Interpreter.IsValid())
+	{
+		UE_LOG(LogTemp, Warning, TEXT("[Notebook] Cell %d: failed to get interpreter: %s"), CellIndex, *InterpResult.ErrorMessage);
+		if (Notebook->Cells.IsValidIndex(CellIndex))
+		{
+			FClingCellCompilationResult FailedResult;
+			FailedResult.ErrorOutput = InterpResult.ErrorMessage.IsEmpty()
+				? TEXT("Failed to create interpreter")
+				: InterpResult.ErrorMessage;
+			FailedResult.bSuccess = false;
+			Notebook->OnCellCompilationComplete(CellIndex, FailedResult);
+		}
+		Notebook->CompilingCells.Remove(CellIndex);
+		Notebook->bIsProcessingQueue = false;
+		Notebook->bIsCompiling = (Notebook->CompilingCells.Num() > 0);
+		Notebook->ProcessNextInQueue();
+		co_return;
+	}
+
+	UE_LOG(LogTemp, Log, TEXT("[Notebook] Cell %d: starting compilation (GameThread=%d)"), CellIndex, (int32)IsInGameThread());
+	co_await Notebook->CompileCellAsync(InterpResult.Interpreter, CellIndex);
+
+	if (!WeakThis.IsValid()) co_return;
+	UE_LOG(LogTemp, Log, TEXT("[Notebook] Cell %d: compilation complete"), CellIndex);
+	Notebook->bIsProcessingQueue = false;
+	Notebook->bIsCompiling = (Notebook->CompilingCells.Num() > 0);
+	Notebook->ProcessNextInQueue();
+	co_return;
+}
+
 void UClingNotebook::ProcessNextInQueue()
 {
 	if (bIsProcessingQueue || ExecutionQueue.Num() == 0)
@@ -2080,6 +2137,14 @@ void UClingNotebook::ProcessNextInQueue()
 		if (!bIsProcessingQueue)
 		{
 			bIsCompiling = (CompilingCells.Num() > 0);
+
+			// Notebook is idle: queue empty and no active compilation.
+			// Safe to refill the interpreter pool now — pool workers hold CppInterOpLock
+			// for ~30s, so we must never trigger this while cells are compiling.
+			if (!bIsCompiling)
+			{
+				FClingRuntimeModule::Get().RefillPool();
+			}
 		}
 		return;
 	}
@@ -2097,76 +2162,11 @@ void UClingNotebook::ProcessNextInQueue()
 
 	TWeakObjectPtr<UClingNotebook> WeakThis(this);
 
-	/*
-	 * TFuture链式执行流程:
-	 *
-	 * 1. GetInterpreterAsync() 返回 TFuture<FClingInterpreterResult>
-	 *    - 如果Interpreter已存在: 返回立即完成的Future
-	 *    - 如果正在初始化: 返回等待中的Future(共享同一个Promise)
-	 *    - 如果需要初始化: 启动后台线程创建,返回Future
-	 *
-	 * 2. Next() 非阻塞回调
-	 *    - Future完成时在调用SetValue的线程执行
-	 *    - 使用AsyncTask回到GameThread安全更新状态
-	 *
-	 * 3. CompileCellAsync() 返回 TFuture<FClingCellCompilationResult>
-	 *    - 在后台线程执行编译
-	 *    - 完成后自动触发状态更新和队列处理
-	 *
-	 * 对象持有关系:
-	 * - WeakThis: 弱引用,不延长Notebook生命周期
-	 * - Promise被TSharedRef持有,Future持有Promise的State
-	 * - Lambda捕获的变量在Future完成前保持有效
-	 */
-	GetInterpreterAsync().Next([WeakThis, CellIndex](const FClingInterpreterResult& InterpResult)
-	{
-		// 此回调可能在后台线程执行,需要回到GameThread
-		AsyncTask(ENamedThreads::GameThread, [WeakThis, CellIndex, InterpResult]()
-		{
-			if (!WeakThis.IsValid())
-			{
-				return;
-			}
-	
-			UClingNotebook* Notebook = WeakThis.Get();
-	
-			if (!InterpResult.bSuccess || !InterpResult.Interpreter.IsValid())
-			{
-				// Interpreter创建失败
-				if (Notebook->Cells.IsValidIndex(CellIndex))
-				{
-					FClingCellCompilationResult FailedResult;
-					FailedResult.ErrorOutput = InterpResult.ErrorMessage.IsEmpty() 
-						? TEXT("Failed to create interpreter") 
-						: InterpResult.ErrorMessage;
-					FailedResult.bSuccess = false;
-					Notebook->OnCellCompilationComplete(CellIndex, FailedResult);
-				}
-				Notebook->CompilingCells.Remove(CellIndex);
-				Notebook->bIsProcessingQueue = false;
-				Notebook->bIsCompiling = (Notebook->CompilingCells.Num() > 0);
-				Notebook->ProcessNextInQueue();
-				return;
-			}
-	
-			// 启动编译,编译完成后继续处理队列
-			Notebook->CompileCellAsync(const_cast<CppImpl::CppInterpWrapper&>(InterpResult.Interpreter), CellIndex).Next([WeakThis](const FClingCellCompilationResult& CompileResult)
-			{
-				AsyncTask(ENamedThreads::GameThread, [WeakThis]()
-				{
-					if (!WeakThis.IsValid())
-					{
-						return;
-					}
-	
-					UClingNotebook* Notebook = WeakThis.Get();
-					Notebook->bIsProcessingQueue = false;
-					Notebook->bIsCompiling = (Notebook->CompilingCells.Num() > 0);
-					Notebook->ProcessNextInQueue();
-				});
-			});
-		});
-	});
+	// Use a static coroutine function (not a lambda) to avoid MSVC's
+	// lambda-coroutine capture bug where the lambda closure (on the
+	// caller's stack) becomes a dangling pointer after ProcessNextInQueue returns.
+	UE_LOG(LogTemp, Log, TEXT("[Notebook] Processing cell %d from queue."), CellIndex);
+	ProcessCellCoro(WeakThis, CellIndex).Launch(TEXT("ProcessNextInQueue"));
 }
 
 FClingNotebookCellData* UClingNotebook::GetSelectedCellData()
