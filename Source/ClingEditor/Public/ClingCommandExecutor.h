@@ -1,17 +1,7 @@
-﻿#pragma once
-namespace Cpp
-{
-	using TCppIndex_t = size_t;
-	using TCppScope_t = void*;
-	using TCppConstScope_t = const void*;
-	using TCppType_t = void*;
-	using TCppFunction_t = void*;
-	using TCppConstFunction_t = const void*;
-	using TCppFuncAddr_t = void*;
-	using TInterp_t = void*;
-	using TCppObject_t = void*;
-}
-DECLARE_DELEGATE_RetVal(Cpp::TInterp_t,FRestartInterpreter)
+#pragma once
+#include "CppInterOp/CppInterOp.h"
+
+DECLARE_DELEGATE_RetVal(CppImpl::CppInterpWrapper, FRestartInterpreter)
 /**
  * Executor for "Cling" commands
  */
@@ -19,7 +9,7 @@ class FClingCommandExecutor : public IConsoleCommandExecutor
 {
 public:
 	// FClingCommandExecutor(IPythonScriptPlugin* InPythonScriptPlugin);
-	FClingCommandExecutor(Cpp::TInterp_t InInterpreter);
+	FClingCommandExecutor(CppImpl::CppInterpWrapper& InInterpreter);
 	static FName StaticName();
 	virtual FName GetName() const override;
 	virtual FText GetDisplayName() const override;
@@ -37,5 +27,5 @@ public:
 #endif
 	FRestartInterpreter RestartInterpreter;
 private:
-	Cpp::TInterp_t Interpreter;
+	CppImpl::CppInterpWrapper Interpreter;
 };

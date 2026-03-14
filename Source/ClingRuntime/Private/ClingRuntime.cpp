@@ -42,9 +42,9 @@ void FClingRuntimeModule::StartupModule()
 	// Cpp::EnableDebugOutput();
 	BaseInterp = StartInterpreterInternal();
 	
-	// Decalre(BaseInterp,"#define WITH_CLING 1");
+	// BaseInterp.Decalre("#define WITH_CLING 1");
 	// if(Setting->bAllowRedefine)
-	// 	Execute(BaseInterp,"gClingOpts->AllowRedefinition = true;");
+	// 	BaseInterp.Execute("gClingOpts->AllowRedefinition = true;");
 }
 
 void FClingRuntimeModule::ShutdownModule()
@@ -54,10 +54,10 @@ void FClingRuntimeModule::ShutdownModule()
 
 	FScopeLock Lock(&CppInterOpLock);
 	SemanticInfoProviders.Empty();
-	Cpp::DeleteInterpreter(BaseInterp);
+	// CppInterpWrapper destructor will handle cleanup
 }
 
-void* FClingRuntimeModule::GetInterp(int Version)
+CppImpl::CppInterpWrapper& FClingRuntimeModule::GetInterp(int Version)
 {
 	const int id = Interps.Num()-Version-1;
 	if(Interps.IsValidIndex(id))
@@ -66,17 +66,36 @@ void* FClingRuntimeModule::GetInterp(int Version)
 	return Interps[Interps.Num()-1];
 }
 
-Cpp::TInterp_t FClingRuntimeModule::StartNewInterp(FName PCHProfile)
+CppImpl::CppInterpWrapper FClingRuntimeModule::StartNewInterp(FName PCHProfile)
+{
+	return StartInterpreterInternal(PCHProfile);
+}
+
+CppImpl::CppInterpWrapper& FClingRuntimeModule::StartNewRecordInterp(FName PCHProfile)
 {
 	return Interps.Add_GetRef(StartInterpreterInternal(PCHProfile));
 }
 
-void FClingRuntimeModule::DeleteInterp(void* CurrentInterp)
+void FClingRuntimeModule::DeleteInterp(int32 Index)
 {
 	FScopeLock Lock(&CppInterOpLock);
-	Cpp::DeleteInterpreter(CurrentInterp);
-	Interps.Remove(CurrentInterp);
-	SemanticInfoProviders.Remove(CurrentInterp);
+	if (Interps.IsValidIndex(Index))
+	{
+		void* InterpreterPtr = Interps[Index].GetInterpreter();
+		SemanticInfoProviders.Remove(InterpreterPtr);
+		Interps.RemoveAt(Index);
+	}
+}
+
+int32 FClingRuntimeModule::FindInterpIndex(CppImpl::CppInterpWrapper& InInterp)
+{
+	void* InterpreterPtr = InInterp.GetInterpreter();
+	for (int32 i = 0; i < Interps.Num(); ++i)
+	{
+		if (Interps[i].GetInterpreter() == InterpreterPtr)
+			return i;
+	}
+	return -1;
 }
 
 FClingRuntimeModule& FClingRuntimeModule::Get()
@@ -89,21 +108,22 @@ struct FClingSemanticInfoProvider* FClingRuntimeModule::GetDefaultSemanticInfoPr
 	return GetSemanticInfoProvider(BaseInterp);
 }
 
-struct FClingSemanticInfoProvider* FClingRuntimeModule::GetSemanticInfoProvider(void* InInterp)
+struct FClingSemanticInfoProvider* FClingRuntimeModule::GetSemanticInfoProvider(CppImpl::CppInterpWrapper& InInterp)
 {
-	if (!InInterp) return nullptr;
+	void* InterpreterPtr = InInterp.GetInterpreter();
+	if (!InInterp.IsValid()) return nullptr;
 
-	if (FClingSemanticInfoProvider* Found = SemanticInfoProviders.Find(InInterp))
+	if (FClingSemanticInfoProvider* Found = SemanticInfoProviders.Find(InterpreterPtr))
 	{
 		return Found;
 	}
 
-	FClingSemanticInfoProvider& NewProvider = SemanticInfoProviders.Add(InInterp);
+	FClingSemanticInfoProvider& NewProvider = SemanticInfoProviders.Add(InterpreterPtr);
 	NewProvider.Refresh(InInterp);
 	return &NewProvider;
 }
 
-Cpp::TInterp_t FClingRuntimeModule::StartInterpreterInternal(FName PCHProfile)
+CppImpl::CppInterpWrapper FClingRuntimeModule::StartInterpreterInternal(FName PCHProfile)
 {
 	SCOPED_NAMED_EVENT(StartInterpreterInternal, FColor::Red);
 	// FString LLVMDir = GetLLVMDir();
@@ -137,17 +157,16 @@ Cpp::TInterp_t FClingRuntimeModule::StartInterpreterInternal(FName PCHProfile)
 	// Todo use if is debug build
 // #if USING_CPPINTEROP_DEBUG
 	// the abi of debug build of std::vector is different between unreal and clang! use raw input
-	Cpp::TInterp_t Interp;
+	CppImpl::CppInterpWrapper Interp;
 	{
 		SCOPED_NAMED_EVENT(TrueStart, FColor::Red);
-		FScopeLock Lock(&CppInterOpLock);
-		Interp = Cpp::CreateInterpreter(&Argv[0], Argv.Num(),nullptr,0);
-		UE_LOG(LogCling,Log,TEXT("CreateInterpreter %p"),Interp);
+		Interp.CreateInterpreter(&Argv[0], Argv.Num(),nullptr,0);
+		UE_LOG(LogCling,Log,TEXT("CreateInterpreter %p"), Interp.GetInterpreter());
 	}
 	{
 		SCOPED_NAMED_EVENT(DeclareOverride, FColor::Red);
 		// Cling-safe UE_LOG wrapper (CLING_LOG macro and ClingLog:: namespace)
-		Cpp::Declare("#include \"ClingScript/Private/UEClingCoreScript/ClingLogWrapper.h\"");
+		Interp.Declare("#include \"ClingScript/Private/UEClingCoreScript/ClingLogWrapper.h\"");
 	}
 // #else
 	// auto Interp = Cpp::CreateInterpreter(Argv, {});

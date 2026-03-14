@@ -6,10 +6,6 @@
 #include "Framework/Text/SyntaxHighlighterTextLayoutMarshaller.h"
 #include "Framework/Text/SlateHyperlinkRun.h"
 
-namespace Cpp {
-	typedef void* TInterp_t;
-}
-
 class FTextLayout;
 
 /**

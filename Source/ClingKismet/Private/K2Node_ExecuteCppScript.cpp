@@ -140,24 +140,25 @@ public:
 			LogInformation = NSLOCTEXT("KismetCompiler", "CompileCppScriptFaild_Error", "faild to compile cpp script of @@, node must be compiled after read back all code from IDE!").ToString();
 			return;
 		}
-		auto& Module = FModuleManager::Get().GetModuleChecked<FClingRuntimeModule>(TEXT("ClingRuntime"));
+		auto& Module = FClingRuntimeModule::Get();
+		CppImpl::CppInterpWrapper& Wrapper = Module.GetInterp();
 		
-		Cpp::BeginStdStreamCapture(Cpp::kStdErr);
-		int32 CompilationResult = Cpp::Declare(StringCast<ANSICHAR>(*FunctionDeclare).Get());
+		Wrapper.BeginStdStreamCapture(CppImpl::CaptureStreamKind::kStdErr);
+		int32 CompilationResult = Wrapper.Declare(StringCast<ANSICHAR>(*FunctionDeclare).Get());
 		auto CompileResultCallBack = CompilationResult==0
 		?[](const char* Result){}
 		:[](const char* Result)
 		{
 			UE_LOG(LogTemp,Error,TEXT("%hs"),Result)
 		};
-		Cpp::EndStdStreamCapture(CompileResultCallBack);
+		Wrapper.EndStdStreamCapture(CompileResultCallBack);
 		
 		FString StubLambda;
 		StubLambda += FString::Printf(TEXT("{\n\tsigned long long& FunctionPtr = *(signed long long*)%I64d;\n"),size_t(&FunctionPtr));
 		StubLambda += FString::Printf(TEXT("\tFunctionPtr = reinterpret_cast<int64>((void(*)(signed long long*))(%s));\n}"),*CurNode->GetLambdaName());
 		
 		auto* CompileResult = reinterpret_cast<FCppScriptCompiledResult*>(CurNode->ResultPtr);
-		Cpp::Process(StringCast<ANSICHAR>(*StubLambda).Get());
+		Wrapper.Process(StringCast<ANSICHAR>(*StubLambda).Get());
 		
 		if(CompileResult)
 		{

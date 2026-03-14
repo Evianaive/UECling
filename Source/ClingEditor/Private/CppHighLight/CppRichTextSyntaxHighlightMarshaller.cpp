@@ -704,19 +704,19 @@ FCppRichTextSyntaxHighlightMarshaller::FCppRichTextSyntaxHighlightMarshaller(
 FString FCppRichTextSyntaxHighlightMarshaller::TryFixIncludes(const FString& InCode)
 {
 	FClingRuntimeModule* Module = FModuleManager::GetModulePtr<FClingRuntimeModule>(TEXT("ClingRuntime"));
-	if (!Module || !Module->BaseInterp) return InCode;
+	if (!Module || !Module->BaseInterp.IsValid()) return InCode;
 
-	Cpp::ActivateInterpreter(Module->BaseInterp);
+	CppImpl::CppInterpWrapper& Wrapper = Module->BaseInterp;
 
 	// 1. 捕获 CppInterOp 的编译错误 (Clang 错误通常输出到 stderr)
-	Cpp::BeginStdStreamCapture(Cpp::kStdErr);
-	Cpp::Declare(TCHAR_TO_UTF8(*InCode), true);
+	Wrapper.BeginStdStreamCapture(CppImpl::CaptureStreamKind::kStdErr);
+	Wrapper.Declare(TCHAR_TO_UTF8(*InCode), true);
 	thread_local FString FErrors;
 	FErrors.Reset();
-	Cpp::EndStdStreamCapture([](const char* Result)
+	Wrapper.EndStdStreamCapture([](const char* Result)
 	{
 		FErrors = UTF8_TO_TCHAR(Result);
-	});	
+	});
 
 	// 2. 使用正则表达式提取未定义的符号
 	TArray<FString> MissingSymbols;

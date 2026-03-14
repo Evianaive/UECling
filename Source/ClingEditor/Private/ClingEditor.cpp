@@ -45,7 +45,10 @@ void FClingEditorModule::StartupCommandExecutor()
 {
 	FClingRuntimeModule& Module = FModuleManager::LoadModuleChecked<FClingRuntimeModule>(TEXT("ClingRuntime"));
 	Executor = new FClingCommandExecutor(Module.BaseInterp);
-	Executor->RestartInterpreter.BindLambda([&Module](){return Module.StartNewInterp();});
+	Executor->RestartInterpreter.BindLambda([&Module]()
+	{
+		return Module.StartNewRecordInterp();
+	});
 	IModularFeatures::Get().RegisterModularFeature(IConsoleCommandExecutor::ModularFeatureName(), Executor);
 }
 

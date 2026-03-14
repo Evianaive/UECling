@@ -32,8 +32,9 @@ void AMyTestInterpreter::Process()
 {
 	// TBaseStructure<FVector>::Get();
 	SCOPED_NAMED_EVENT(Cling_EXEC, FColor::Red);
-	auto& Module = FModuleManager::Get().GetModuleChecked<FClingRuntimeModule>(TEXT("ClingRuntime"));
-	Cpp::Process(StringCast<ANSICHAR>(*ProcessString).Get());
+	auto& Module = FClingRuntimeModule::Get();
+	CppImpl::CppInterpWrapper& Wrapper = Module.GetInterp();
+	Wrapper.Process(StringCast<ANSICHAR>(*ProcessString).Get());
 }
 
 void AMyTestInterpreter::TestCallByUE()

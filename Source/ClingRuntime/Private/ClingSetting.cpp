@@ -124,7 +124,7 @@ void AppendCompileArgs(T& InOutCompileArgs)
 	constexpr bool IsFString = std::is_same_v<typename TDecay<T>::Type::ElementType, FString>;
 	constexpr bool IsCharStar = std::is_same_v<typename TDecay<T>::Type::ElementType, const char*>;
 	
-	static FString ResourceDir = GetPluginDir()/TEXT("Source/ThirdParty/ClingLibrary/LLVM/lib/clang/20");
+	static FString ResourceDir = GetPluginDir()/TEXT("Source/ThirdParty/ClingLibrary/LLVM/lib/clang/22");
 	static FAnsiString ResourceDirAnsi = StringCast<ANSICHAR>(*ResourceDir).Get();
 #endif
 	if constexpr (TIsTArray<typename TDecay<T>::Type>::Value)
@@ -435,12 +435,12 @@ void UClingSetting::GeneratePCHForProfile(FName ProfileName, bool bForce)
 	if (bForce)
 	{
 		UE_LOG(LogCling, Log, TEXT("Force generate PCH [%s], regenerating"), *ProfileName.ToString());
-		Cpp::CreatePCH(StringCast<ANSICHAR>(*(TEXT("@") + RspPath)).Get());
+		CppImpl::CppInterpWrapper::CreatePCH(StringCast<ANSICHAR>(*(TEXT("@") + RspPath)).Get());
 	}
 	else if (BuildGlobalDefinesTime > PCHTime || PCHSourceFileTime > PCHTime)
 	{
 		UE_LOG(LogCling, Log, TEXT("PCH [%s] source files newer than binary, regenerating"), *ProfileName.ToString());
-		Cpp::CreatePCH(StringCast<ANSICHAR>(*(TEXT("@") + RspPath)).Get());
+		CppImpl::CppInterpWrapper::CreatePCH(StringCast<ANSICHAR>(*(TEXT("@") + RspPath)).Get());
 	}
 	else
 	{

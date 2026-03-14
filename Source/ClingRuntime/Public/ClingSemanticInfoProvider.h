@@ -3,6 +3,10 @@
 #include "CoreMinimal.h"
 #include "ClingSemanticInfoProvider.generated.h"
 
+namespace CppImpl {
+	class CppInterpWrapper;
+}
+
 /**
  * 为 C++ 代码高亮和语义检查提供符号信息
  */
@@ -15,7 +19,7 @@ public:
 	FClingSemanticInfoProvider();
 	
 	/** 从解释器刷新符号信息 */
-	void Refresh(void* InInterp);
+	void Refresh(CppImpl::CppInterpWrapper& InInterp);
 	
 	bool IsReady() const { return bIsReady; }
 

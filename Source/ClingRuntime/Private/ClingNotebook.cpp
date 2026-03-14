@@ -259,12 +259,12 @@ namespace ClingNotebookSymbols
 	static FString GLastCppString;
 	static void CppStringCallback(const char* Str) { GLastCppString = UTF8_TO_TCHAR(Str); }
 
-	static TArray<Cpp::TCppFunction_t> GLastCppFunctions;
-	static void CppFunctionsCallback(const Cpp::TCppFunction_t* Funcs, size_t Num)
+	static TArray<CppImpl::TCppFunction_t> GLastCppFunctions;
+	static void CppFunctionsCallback(const CppImpl::TCppFunction_t* Funcs, size_t Num)
 	{
 		UE_LOG(LogTemp, Log, TEXT("ClingNotebook: CppFunctionsCallback called with %llu functions"), (uint64)Num);
 		GLastCppFunctions.Empty(Num);
-		for (size_t i = 0; i < Num; ++i) GLastCppFunctions.Add(const_cast<Cpp::TCppFunction_t>(Funcs[i]));
+		for (size_t i = 0; i < Num; ++i) GLastCppFunctions.Add(const_cast<CppImpl::TCppFunction_t>(Funcs[i]));
 	}
 
 	FString StripComments(const FString& InText)
@@ -423,18 +423,18 @@ namespace ClingNotebookSymbols
 			OutClass = FindType(CleanName.Mid(1));
 		}
 
-		if (!OutClass && Cpp::GetInterpreter())
+		CppImpl::CppInterpWrapper& Wrapper = FClingRuntimeModule::Get().GetInterp();
+		if (!OutClass && Wrapper.IsValid())
 		{
-			void* Interp = Cpp::GetInterpreter();
-			if (Cpp::TCppScope_t Scope = Cpp::GetScope(TCHAR_TO_ANSI(*CleanName)))
+			if (CppImpl::TCppScope_t Scope = Wrapper.GetScope(TCHAR_TO_ANSI(*CleanName)))
 			{
-				Cpp::GetFunctionsUsingName(Scope, "StaticClass", CppFunctionsCallback);
-				TArray<Cpp::TCppFunction_t> LocalFuncs = GLastCppFunctions;
-				for (Cpp::TCppFunction_t Func : LocalFuncs)
+				Wrapper.GetFunctionsUsingName(Scope, "StaticClass", CppFunctionsCallback);
+				TArray<CppImpl::TCppFunction_t> LocalFuncs = GLastCppFunctions;
+				for (CppImpl::TCppFunction_t Func : LocalFuncs)
 				{
-					if (Cpp::GetFunctionNumArgs(Func) == 0)
+					if (Wrapper.GetFunctionNumArgs(Func) == 0)
 					{
-						Cpp::JitCall Call = Cpp::MakeFunctionCallable(Interp, Func);
+						CppImpl::JitCall Call = Wrapper.MakeFunctionCallable(Func);
 						if (Call.isValid())
 						{
 							UClass* Result = 0;
@@ -479,21 +479,20 @@ namespace ClingNotebookSymbols
 		{
 			OutStruct = FindType(CleanName.Mid(1));
 		}
-
-		if (!OutStruct && Cpp::GetInterpreter())
+		
+		CppImpl::CppInterpWrapper& Wrapper = FClingRuntimeModule::Get().GetInterp();
+		if (!OutStruct && Wrapper.IsValid())
 		{
-			void* Interp = Cpp::GetInterpreter();
-			
 			FString TBaseName = FString::Printf(TEXT("TBaseStructure<%s>"), *CleanName);
-			if (Cpp::TCppScope_t TBaseScope = Cpp::GetScope(TCHAR_TO_ANSI(*TBaseName)))
+			if (Wrapper.GetScope(TCHAR_TO_ANSI(*TBaseName)))
 			{
-				Cpp::GetFunctionsUsingName(TBaseScope, "Get", CppFunctionsCallback);
-				TArray<Cpp::TCppFunction_t> LocalFuncs = GLastCppFunctions;
-				for (Cpp::TCppFunction_t Func : LocalFuncs)
+				Wrapper.GetFunctionsUsingName(Wrapper.GetScope(TCHAR_TO_ANSI(*TBaseName)), "Get", CppFunctionsCallback);
+				TArray<CppImpl::TCppFunction_t> LocalFuncs = GLastCppFunctions;
+				for (CppImpl::TCppFunction_t Func : LocalFuncs)
 				{
-					if (Cpp::GetFunctionNumArgs(Func) == 0)
+					if (Wrapper.GetFunctionNumArgs(Func) == 0)
 					{
-						Cpp::JitCall Call = Cpp::MakeFunctionCallable(Interp, Func);
+						CppImpl::JitCall Call = Wrapper.MakeFunctionCallable(Func);
 						if (Call.isValid())
 						{
 							void* Result = nullptr;
@@ -510,15 +509,15 @@ namespace ClingNotebookSymbols
 
 			if (!OutStruct)
 			{
-				if (Cpp::TCppScope_t Scope = Cpp::GetScope(TCHAR_TO_ANSI(*CleanName)))
+				if (Wrapper.GetScope(TCHAR_TO_ANSI(*CleanName)))
 				{
-					Cpp::GetFunctionsUsingName(Scope, "StaticStruct", CppFunctionsCallback);
-					TArray<Cpp::TCppFunction_t> LocalFuncs = GLastCppFunctions;
-					for (Cpp::TCppFunction_t Func : LocalFuncs)
+					Wrapper.GetFunctionsUsingName(Wrapper.GetScope(TCHAR_TO_ANSI(*CleanName)), "StaticStruct", CppFunctionsCallback);
+					TArray<CppImpl::TCppFunction_t> LocalFuncs = GLastCppFunctions;
+					for (CppImpl::TCppFunction_t Func : LocalFuncs)
 					{
-						if (Cpp::GetFunctionNumArgs(Func) == 0)
+						if (Wrapper.GetFunctionNumArgs(Func) == 0)
 						{
-							Cpp::JitCall Call = Cpp::MakeFunctionCallable(Interp, Func);
+							CppImpl::JitCall Call = Wrapper.MakeFunctionCallable(Func);
 							if (Call.isValid())
 							{
 								void* Result = nullptr;
@@ -715,18 +714,18 @@ namespace ClingNotebookSymbols
 			OutClass = FindType(CleanName.Mid(1));
 		}
 
-		if (!OutClass && Cpp::GetInterpreter())
+		CppImpl::CppInterpWrapper& Wrapper = FClingRuntimeModule::Get().GetInterp();
+		if (!OutClass && Wrapper.IsValid())
 		{
-			void* Interp = Cpp::GetInterpreter();
-			if (Cpp::TCppScope_t Scope = Cpp::GetScope(TCHAR_TO_ANSI(*CleanName)))
+			if (CppImpl::TCppScope_t Scope = Wrapper.GetScope(TCHAR_TO_ANSI(*CleanName)))
 			{
-				Cpp::GetFunctionsUsingName(Scope, "StaticClass", CppFunctionsCallback);
-				TArray<Cpp::TCppFunction_t> LocalFuncs = GLastCppFunctions;
-				for (Cpp::TCppFunction_t Func : LocalFuncs)
+				Wrapper.GetFunctionsUsingName(Scope, "StaticClass", CppFunctionsCallback);
+				TArray<CppImpl::TCppFunction_t> LocalFuncs = GLastCppFunctions;
+				for (CppImpl::TCppFunction_t Func : LocalFuncs)
 				{
-					if (Cpp::GetFunctionNumArgs(Func) == 0)
+					if (Wrapper.GetFunctionNumArgs(Func) == 0)
 					{
-						Cpp::JitCall Call = Cpp::MakeFunctionCallable(Interp, Func);
+						CppImpl::JitCall Call = Wrapper.MakeFunctionCallable(Func);
 						if (Call.isValid())
 						{
 							UClass* Result = 0;
@@ -772,20 +771,19 @@ namespace ClingNotebookSymbols
 			OutStruct = FindType(CleanName.Mid(1));
 		}
 
-		if (!OutStruct && Cpp::GetInterpreter())
+		CppImpl::CppInterpWrapper& Wrapper = FClingRuntimeModule::Get().GetInterp();
+		if (!OutStruct && Wrapper.IsValid())
 		{
-			void* Interp = Cpp::GetInterpreter();
-
 			FString TBaseName = FString::Printf(TEXT("TBaseStructure<%s>"), *CleanName);
-			if (Cpp::TCppScope_t TBaseScope = Cpp::GetScope(TCHAR_TO_ANSI(*TBaseName)))
+			if (Wrapper.GetScope(TCHAR_TO_ANSI(*TBaseName)))
 			{
-				Cpp::GetFunctionsUsingName(TBaseScope, "Get", CppFunctionsCallback);
-				TArray<Cpp::TCppFunction_t> LocalFuncs = GLastCppFunctions;
-				for (Cpp::TCppFunction_t Func : LocalFuncs)
+				Wrapper.GetFunctionsUsingName(Wrapper.GetScope(TCHAR_TO_ANSI(*TBaseName)), "Get", CppFunctionsCallback);
+				TArray<CppImpl::TCppFunction_t> LocalFuncs = GLastCppFunctions;
+				for (CppImpl::TCppFunction_t Func : LocalFuncs)
 				{
-					if (Cpp::GetFunctionNumArgs(Func) == 0)
+					if (Wrapper.GetFunctionNumArgs(Func) == 0)
 					{
-						Cpp::JitCall Call = Cpp::MakeFunctionCallable(Interp, Func);
+						CppImpl::JitCall Call = Wrapper.MakeFunctionCallable(Func);
 						if (Call.isValid())
 						{
 							void* Result = nullptr;
@@ -802,15 +800,15 @@ namespace ClingNotebookSymbols
 
 			if (!OutStruct)
 			{
-				if (Cpp::TCppScope_t Scope = Cpp::GetScope(TCHAR_TO_ANSI(*CleanName)))
+				if (Wrapper.GetScope(TCHAR_TO_ANSI(*CleanName)))
 				{
-					Cpp::GetFunctionsUsingName(Scope, "StaticStruct", CppFunctionsCallback);
-					TArray<Cpp::TCppFunction_t> LocalFuncs = GLastCppFunctions;
-					for (Cpp::TCppFunction_t Func : LocalFuncs)
+					Wrapper.GetFunctionsUsingName(Wrapper.GetScope(TCHAR_TO_ANSI(*CleanName)), "StaticStruct", CppFunctionsCallback);
+					TArray<CppImpl::TCppFunction_t> LocalFuncs = GLastCppFunctions;
+					for (CppImpl::TCppFunction_t Func : LocalFuncs)
 					{
-						if (Cpp::GetFunctionNumArgs(Func) == 0)
+						if (Wrapper.GetFunctionNumArgs(Func) == 0)
 						{
-							Cpp::JitCall Call = Cpp::MakeFunctionCallable(Interp, Func);
+							CppImpl::JitCall Call = Wrapper.MakeFunctionCallable(Func);
 							if (Call.isValid())
 							{
 								void* Result = nullptr;
@@ -1510,13 +1508,11 @@ namespace ClingNotebookSymbols
 		return OutSymbols.Num() > 0;
 	}
 
-	bool ExtractFunctionSignatures(void* Interp, const FString& InContent, TArray<FClingFunctionSignature>& OutSignatures)
+	bool ExtractFunctionSignatures(CppImpl::CppInterpWrapper& Interp, const FString& InContent, TArray<FClingFunctionSignature>& OutSignatures)
 	{
-		if (!Interp) return false;
+		if (!Interp.IsValid()) return false;
 
 		FScopeLock Lock(&FClingRuntimeModule::Get().GetCppInterOpLock());
-		void* OldInterp = Cpp::GetInterpreter();
-		Cpp::ActivateInterpreter(Interp);
 
 		FString Clean = StripComments(InContent);
 		FRegexPattern Pattern(TEXT("(?m)^\\s*(?:[\\w:<>&\\*\\s]+?)\\s+([A-Za-z_][A-Za-z0-9_]*)\\s*\\("));
@@ -1538,7 +1534,7 @@ namespace ClingNotebookSymbols
 			FString Name;
 			FString RetTypeStr;
 			TArray<FArgInfo> Args;
-			Cpp::TCppFunction_t Func;
+			CppImpl::TCppFunction_t Func;
 		};
 		TArray<FFuncInfo> FuncInfos;
 
@@ -1546,30 +1542,30 @@ namespace ClingNotebookSymbols
 
 		for (const FString& NameStr : FoundNames)
 		{
-			Cpp::GetFunctionsUsingName(Cpp::GetGlobalScope(), TCHAR_TO_ANSI(*NameStr), CppFunctionsCallback);
-			TArray<Cpp::TCppFunction_t> LocalFunctions = GLastCppFunctions;
+			Interp.GetFunctionsUsingName(Interp.GetGlobalScope(), TCHAR_TO_ANSI(*NameStr), CppFunctionsCallback);
+			TArray<CppImpl::TCppFunction_t> LocalFunctions = GLastCppFunctions;
 
-			for (Cpp::TCppFunction_t Func : LocalFunctions)
+			for (CppImpl::TCppFunction_t Func : LocalFunctions)
 			{
 				FFuncInfo Info;
 				Info.Name = NameStr;
 				Info.Func = Func;
 
-				Cpp::TCppType_t RetType = Cpp::GetFunctionReturnType(Func);
-				Cpp::GetTypeAsString(RetType, CppStringCallback);
+				CppImpl::TCppType_t RetType = Interp.GetFunctionReturnType(Func);
+				Interp.GetTypeAsString(RetType, CppStringCallback);
 				Info.RetTypeStr = GLastCppString;
 				CollectTypesFromString(Info.RetTypeStr, TypeRequest);
 
-				size_t NumArgs = (size_t)Cpp::GetFunctionNumArgs(Func);
+				size_t NumArgs = (size_t)Interp.GetFunctionNumArgs(Func);
 				for (size_t i = 0; i < NumArgs; ++i)
 				{
-					Cpp::TCppType_t ArgType = Cpp::GetFunctionArgType(Func, (Cpp::TCppIndex_t)i);
-					Cpp::GetTypeAsString(ArgType, CppStringCallback);
+					CppImpl::TCppType_t ArgType = Interp.GetFunctionArgType(Func, (CppImpl::TCppIndex_t)i);
+					Interp.GetTypeAsString(ArgType, CppStringCallback);
 
 					FArgInfo Arg;
 					Arg.TypeStr = GLastCppString;
 
-					Cpp::GetFunctionArgName(Func, (Cpp::TCppIndex_t)i, CppStringCallback);
+					Interp.GetFunctionArgName(Func, (CppImpl::TCppIndex_t)i, CppStringCallback);
 					Arg.NameStr = GLastCppString;
 					if (Arg.NameStr.IsEmpty()) Arg.NameStr = FString::Printf(TEXT("Param%d"), (int32)i);
 
@@ -1610,7 +1606,6 @@ namespace ClingNotebookSymbols
 			}
 		}
 
-		Cpp::ActivateInterpreter(OldInterp);
 		return OutSignatures.Num() > 0;
 	}
 }
@@ -1618,10 +1613,13 @@ namespace ClingNotebookSymbols
 
 void UClingNotebook::FinishDestroy()
 {
-	if (Interpreter)
+	if (Interpreter.GetInterpreter())
 	{
-		FClingRuntimeModule::Get().DeleteInterp(Interpreter);
-		Interpreter = nullptr;
+		int32 Index = FClingRuntimeModule::Get().FindInterpIndex(Interpreter);
+		if (Index >= 0)
+		{
+			FClingRuntimeModule::Get().DeleteInterp(Index);
+		}
 	}
 	Super::FinishDestroy();
 }
@@ -1642,9 +1640,9 @@ void UClingNotebook::SetSelectedCell(int32 Index)
 	}
 }
 
-void* UClingNotebook::GetInterpreter()
+CppImpl::CppInterpWrapper& UClingNotebook::GetInterpreter()
 {
-	if (!Interpreter)
+	if (!Interpreter.IsValid())
 	{
 		Interpreter = FClingRuntimeModule::Get().StartNewInterp(PCHProfile);
 	}
@@ -1654,7 +1652,7 @@ void* UClingNotebook::GetInterpreter()
 TFuture<FClingInterpreterResult> UClingNotebook::GetInterpreterAsync()
 {
 	// If interpreter already exists, return completed future immediately
-	if (Interpreter)
+	if (Interpreter.IsValid())
 	{
 		TPromise<FClingInterpreterResult> Promise;
 		Promise.SetValue(FClingInterpreterResult(Interpreter));
@@ -1691,19 +1689,19 @@ TFuture<FClingInterpreterResult> UClingNotebook::StartInterpreterAsync()
 		UClingNotebook* NotebookPtr = WeakThis.Get();
 		FName ProfileName = NotebookPtr ? NotebookPtr->PCHProfile : TEXT("Default");
 		
-		void* NewInterpreter = FClingRuntimeModule::Get().StartNewInterp(ProfileName);
+		auto NewInterpreter = FClingRuntimeModule::Get().StartNewInterp(ProfileName);
 
 		// Return to game thread to set the interpreter and fulfill promise
-		AsyncTask(ENamedThreads::GameThread, [WeakThis, PromiseCapture, NewInterpreter]()
+		AsyncTask(ENamedThreads::GameThread, [WeakThis, PromiseCapture, NewInterpreter]() mutable
 		{
 			if (!WeakThis.IsValid())
 			{
 				// Notebook destroyed during init, clean up
-				if (NewInterpreter)
+				if (NewInterpreter.IsValid())
 				{
-					FClingRuntimeModule::Get().DeleteInterp(NewInterpreter);
+					NewInterpreter.DeleteInterpreter();
 				}
-				PromiseCapture->SetValue(FClingInterpreterResult(nullptr, TEXT("Notebook destroyed during initialization")));
+				PromiseCapture->SetValue(FClingInterpreterResult(CppImpl::CppInterpWrapper(), TEXT("Notebook destroyed during initialization")));
 				return;
 			}
 
@@ -1721,23 +1719,19 @@ TFuture<FClingInterpreterResult> UClingNotebook::StartInterpreterAsync()
 	return ResultFuture;
 }
 
-FClingCellCompilationResult UClingNotebook::ExecuteCellCompilation(void* Interp, const FString& Code)
+FClingCellCompilationResult UClingNotebook::ExecuteCellCompilation(CppImpl::CppInterpWrapper& Interp, const FString& Code)
 {
 	FScopeLock Lock(&FClingRuntimeModule::Get().GetCppInterOpLock());
-	void* StoreInterp = Cpp::GetInterpreter();
-	Cpp::ActivateInterpreter(Interp);
 
 	static FString StaticErrors;
 	StaticErrors.Reset();
 
-	Cpp::BeginStdStreamCapture(Cpp::kStdErr);
-	int32 ResultCode = Cpp::Process(TCHAR_TO_ANSI(*Code));
-	Cpp::EndStdStreamCapture([](const char* Result)
+	Interp.BeginStdStreamCapture(CppImpl::CaptureStreamKind::kStdErr);
+	int32 ResultCode = Interp.Process(TCHAR_TO_ANSI(*Code));
+	Interp.EndStdStreamCapture([](const char* Result)
 	{
 		StaticErrors = UTF8_TO_TCHAR(Result);
 	});
-
-	Cpp::ActivateInterpreter(StoreInterp);
 
 	FClingCellCompilationResult CompilationResult;
 	CompilationResult.ErrorOutput = StaticErrors;
@@ -1745,12 +1739,12 @@ FClingCellCompilationResult UClingNotebook::ExecuteCellCompilation(void* Interp,
 	return CompilationResult;
 }
 
-TFuture<FClingCellCompilationResult> UClingNotebook::CompileCellAsync(void* Interp, int32 CellIndex)
+TFuture<FClingCellCompilationResult> UClingNotebook::CompileCellAsync(CppImpl::CppInterpWrapper& Interp, int32 CellIndex)
 {
 	TSharedRef<TPromise<FClingCellCompilationResult>> CompilePromise = MakeShared<TPromise<FClingCellCompilationResult>>();
 	TFuture<FClingCellCompilationResult> ResultFuture = CompilePromise->GetFuture();
 
-	if (!Cells.IsValidIndex(CellIndex) || !Interp)
+	if (!Cells.IsValidIndex(CellIndex) || !Interp.IsValid())
 	{
 		FClingCellCompilationResult ErrorResult;
 		ErrorResult.ErrorOutput = TEXT("Invalid cell index or interpreter");
@@ -1786,7 +1780,7 @@ TFuture<FClingCellCompilationResult> UClingNotebook::CompileCellAsync(void* Inte
 	else
 	{
 		// Execute on background thread
-		AsyncTask(ENamedThreads::AnyBackgroundHiPriTask, [WeakThis, Interp, Code, CellIndex, CompilePromise]()
+		AsyncTask(ENamedThreads::AnyBackgroundHiPriTask, [WeakThis, Interp, Code, CellIndex, CompilePromise]() mutable
 		{
 			FClingCellCompilationResult Result;
 			Result.ErrorOutput = TEXT("Compilation failed");
@@ -1844,22 +1838,20 @@ void UClingNotebook::UpdateCellSignatures(int32 CellIndex)
 
 void UClingNotebook::ExecuteFunction(const FClingFunctionSignature& Signature)
 {
-	void* Interp = GetInterpreter();
-	if (!Interp)
+	CppImpl::CppInterpWrapper& Interp = GetInterpreter();
+	if (!Interp.GetInterpreter())
 	{
 		UE_LOG(LogTemp, Error, TEXT("ClingNotebook: Cannot execute function, interpreter is null"));
 		return;
 	}
 
 	FScopeLock Lock(&FClingRuntimeModule::Get().GetCppInterOpLock());
-	void* OldInterp = Cpp::GetInterpreter();
-	Cpp::ActivateInterpreter(Interp);
 
 	FString NameStr = Signature.Name.ToString();
 	UE_LOG(LogTemp, Log, TEXT("ClingNotebook: Executing function %s"), *NameStr);
 
-	Cpp::GetFunctionsUsingName(Cpp::GetGlobalScope(), TCHAR_TO_ANSI(*NameStr), ClingNotebookSymbols::CppFunctionsCallback);
-	TArray<Cpp::TCppFunction_t> LocalFunctions = ClingNotebookSymbols::GLastCppFunctions;
+	Interp.GetFunctionsUsingName(Interp.GetGlobalScope(), TCHAR_TO_ANSI(*NameStr), ClingNotebookSymbols::CppFunctionsCallback);
+	TArray<CppImpl::TCppFunction_t> LocalFunctions = ClingNotebookSymbols::GLastCppFunctions;
 
 	const UPropertyBag* BagStruct = Signature.Parameters.GetPropertyBagStruct();
 	int32 ExpectedArgs = Signature.OriginalNumArgs;
@@ -1872,13 +1864,13 @@ void UClingNotebook::ExecuteFunction(const FClingFunctionSignature& Signature)
 	UE_LOG(LogTemp, Log, TEXT("ClingNotebook: Found %d candidates for %s, expecting %d args"), LocalFunctions.Num(), *NameStr, ExpectedArgs);
 
 	bool bExecuted = false;
-	for (Cpp::TCppFunction_t Func : LocalFunctions)
+	for (CppImpl::TCppFunction_t Func : LocalFunctions)
 	{
-		int32 FuncNumArgs = (int32)Cpp::GetFunctionNumArgs(Func);
+		int32 FuncNumArgs = (int32)Interp.GetFunctionNumArgs(Func);
 		if (FuncNumArgs == ExpectedArgs)
 		{
 			UE_LOG(LogTemp, Log, TEXT("ClingNotebook: Found candidate with matching args (%d), creating JitCall"), FuncNumArgs);
-			Cpp::JitCall Call = Cpp::MakeFunctionCallable(Interp, Func);
+			CppImpl::JitCall Call = Interp.MakeFunctionCallable(Func);
 			if (Call.isValid())
 			{
 				UE_LOG(LogTemp, Log, TEXT("ClingNotebook: JitCall is valid, invoking..."));
@@ -1895,7 +1887,7 @@ void UClingNotebook::ExecuteFunction(const FClingFunctionSignature& Signature)
 					}
 				}
 
-				Cpp::JitCall::ArgList Args(ArgPointers.GetData(), ArgPointers.Num());
+				CppImpl::JitCall::ArgList Args(ArgPointers.GetData(), ArgPointers.Num());
 				Call.Invoke(Args);
 				bExecuted = true;
 				break;
@@ -1915,8 +1907,6 @@ void UClingNotebook::ExecuteFunction(const FClingFunctionSignature& Signature)
 	{
 		UE_LOG(LogTemp, Error, TEXT("ClingNotebook: Failed to execute function %s - no matching valid function found"), *NameStr);
 	}
-
-	Cpp::ActivateInterpreter(OldInterp);
 }
 #endif
 
@@ -1953,9 +1943,9 @@ void UClingNotebook::OnCellCompilationComplete(int32 CellIndex, const FClingCell
 
 void UClingNotebook::RestartInterpreter()
 {
-	if (Interpreter)
+	if (Interpreter.IsValid())
 	{
-		FClingRuntimeModule::Get().DeleteInterp(Interpreter);
+		Interpreter.DeleteInterpreter();
 	}
 	Interpreter = FClingRuntimeModule::Get().StartNewInterp(PCHProfile);
 
@@ -2063,13 +2053,10 @@ void UClingNotebook::UndoToHere(int32 InIndex)
 	if (UndoCount > 0)
 	{
 		FScopeLock Lock(&FClingRuntimeModule::Get().GetCppInterOpLock());
-		void* Interp = GetInterpreter();
-		if (Interp)
+		CppImpl::CppInterpWrapper& Interp = GetInterpreter();
+		if (Interp.GetInterpreter())
 		{
-			void* StoreInterp = Cpp::GetInterpreter();
-			Cpp::ActivateInterpreter(Interp);
-			Cpp::Undo(UndoCount);
-			Cpp::ActivateInterpreter(StoreInterp);
+			Interp.Undo(UndoCount);
 		}
 	}
 
@@ -2143,7 +2130,7 @@ void UClingNotebook::ProcessNextInQueue()
 	
 			UClingNotebook* Notebook = WeakThis.Get();
 	
-			if (!InterpResult.bSuccess || !InterpResult.Interpreter)
+			if (!InterpResult.bSuccess || !InterpResult.Interpreter.IsValid())
 			{
 				// Interpreter创建失败
 				if (Notebook->Cells.IsValidIndex(CellIndex))
@@ -2163,7 +2150,7 @@ void UClingNotebook::ProcessNextInQueue()
 			}
 	
 			// 启动编译,编译完成后继续处理队列
-			Notebook->CompileCellAsync(InterpResult.Interpreter, CellIndex).Next([WeakThis](const FClingCellCompilationResult& CompileResult)
+			Notebook->CompileCellAsync(const_cast<CppImpl::CppInterpWrapper&>(InterpResult.Interpreter), CellIndex).Next([WeakThis](const FClingCellCompilationResult& CompileResult)
 			{
 				AsyncTask(ENamedThreads::GameThread, [WeakThis]()
 				{

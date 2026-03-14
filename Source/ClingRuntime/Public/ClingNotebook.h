@@ -4,6 +4,7 @@
 #include "UObject/NoExportTypes.h"
 #include "Async/Future.h"
 #include "ClingSemanticInfoProvider.h"
+#include "CppInterOp/CppInterOp.h"
 #if WITH_EDITORONLY_DATA
 #include "StructUtils/PropertyBag.h"
 #endif
@@ -163,15 +164,15 @@ struct FClingNotebookCellData
 
 struct FClingInterpreterResult
 {
-	void* Interpreter = nullptr;
+	CppImpl::CppInterpWrapper Interpreter;
 	bool bSuccess = false;
 	FString ErrorMessage;
 
 	FClingInterpreterResult() = default;
-	explicit FClingInterpreterResult(void* InInterpreter)
-		: Interpreter(InInterpreter), bSuccess(InInterpreter != nullptr) {}
-	FClingInterpreterResult(void* InInterpreter, const FString& InError)
-		: Interpreter(InInterpreter), bSuccess(InInterpreter != nullptr), ErrorMessage(InError) {}
+	explicit FClingInterpreterResult(const CppImpl::CppInterpWrapper& InInterpreter)
+		: Interpreter(InInterpreter), bSuccess(Interpreter.GetInterpreter() != nullptr) {}
+	FClingInterpreterResult(const CppImpl::CppInterpWrapper& InInterpreter, const FString& InError)
+		: Interpreter(InInterpreter), bSuccess(Interpreter.GetInterpreter() != nullptr), ErrorMessage(InError) {}
 };
 
 /**
@@ -214,14 +215,14 @@ public:
 	bool bIsProcessingQueue = false;
 
 	// Interpreter management
-	void* GetInterpreter();
+	CppImpl::CppInterpWrapper& GetInterpreter();
 	TFuture<FClingInterpreterResult> GetInterpreterAsync();
 	void RestartInterpreter();
 
 private:
 	// Async operations using TPromise/TFuture
 	TFuture<FClingInterpreterResult> StartInterpreterAsync();
-	TFuture<FClingCellCompilationResult> CompileCellAsync(void* Interp, int32 CellIndex);
+	TFuture<FClingCellCompilationResult> CompileCellAsync(CppImpl::CppInterpWrapper& Interp, int32 CellIndex);
 	void OnCellCompilationComplete(int32 CellIndex, const FClingCellCompilationResult& Result);
 
 #if WITH_EDITOR
@@ -229,7 +230,7 @@ private:
 #endif
 
 	// Compilation execution (extracted common logic)
-	FClingCellCompilationResult ExecuteCellCompilation(void* Interp, const FString& Code);
+	FClingCellCompilationResult ExecuteCellCompilation(CppImpl::CppInterpWrapper& Interp, const FString& Code);
 
 	// Shared promise for interpreter initialization (allows multiple waiters)
 	TSharedPtr<TPromise<FClingInterpreterResult>> InterpreterPromise;
@@ -263,5 +264,5 @@ public:
 #endif
 
 private:
-	void* Interpreter = nullptr;
+	CppImpl::CppInterpWrapper Interpreter;
 };

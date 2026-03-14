@@ -3,12 +3,9 @@
 
 FClingSemanticInfoProvider::FClingSemanticInfoProvider() {}
 
-void FClingSemanticInfoProvider::Refresh(void* InInterp)
+void FClingSemanticInfoProvider::Refresh(CppImpl::CppInterpWrapper& InInterp)
 {
-	if (!InInterp) return;
-
-	void* StoreInterp = Cpp::GetInterpreter();
-	Cpp::ActivateInterpreter(InInterp);
+	if (!InInterp.IsValid()) return;
 	
 	Namespaces.Reset();
 	Classes.Reset();
@@ -23,7 +20,7 @@ void FClingSemanticInfoProvider::Refresh(void* InInterp)
 	static thread_local FClingSemanticInfoProvider* CurrentProvider = nullptr;
 	CurrentProvider = this;
 
-	Cpp::GetAllCppNamesWithTypeName(Cpp::GetGlobalScope(), [](const char* const* Names, const char* const* TypeNames, size_t Size)
+	InInterp.GetAllCppNamesWithTypeName(InInterp.GetGlobalScope(), [&InInterp](const char* const* Names, const char* const* TypeNames, size_t Size)
 	{
 		if (!CurrentProvider) return;
 
@@ -39,10 +36,10 @@ void FClingSemanticInfoProvider::Refresh(void* InInterp)
 			else if (TypeName == TEXT("CXXRecord") || TypeName == TEXT("Record"))
 			{
 				// 尝试区分 Class 和 Struct
-				Cpp::TCppScope_t Scope = Cpp::GetNamed(TCHAR_TO_UTF8(*Name), Cpp::GetGlobalScope());
+				CppImpl::TCppScope_t Scope = InInterp.GetNamed(TCHAR_TO_UTF8(*Name), InInterp.GetGlobalScope());
 				if (Scope)
 				{
-					if (Cpp::IsClass(Scope))
+					if (InInterp.IsClass(Scope))
 					{
 						CurrentProvider->Classes.Add(Name);
 					}
@@ -82,12 +79,12 @@ void FClingSemanticInfoProvider::Refresh(void* InInterp)
 	});
 
 	// 获取 Using Namespaces
-	Cpp::GetUsingNamespaces(Cpp::GetGlobalScope(), [](const Cpp::TCppScope_t* Scopes, size_t Size)
+	InInterp.GetUsingNamespaces(InInterp.GetGlobalScope(), [&InInterp](const CppImpl::TCppScope_t* Scopes, size_t Size)
 	{
 		if (!CurrentProvider) return;
 		for (size_t i = 0; i < Size; ++i)
 		{
-			Cpp::GetName(Scopes[i], [](const char* Name)
+			InInterp.GetName(Scopes[i], [](const char* Name)
 			{
 				if (CurrentProvider)
 				{
@@ -98,7 +95,7 @@ void FClingSemanticInfoProvider::Refresh(void* InInterp)
 	});
 
 	// 直接获取全局枚举，不需要通过类型名分析
-	Cpp::GetEnums(Cpp::GetGlobalScope(), [](const char* const* Names, size_t Size)
+	InInterp.GetEnums(InInterp.GetGlobalScope(), [](const char* const* Names, size_t Size)
 	{
 		if (!CurrentProvider) return;
 		for (size_t i = 0; i < Size; ++i)
@@ -108,7 +105,6 @@ void FClingSemanticInfoProvider::Refresh(void* InInterp)
 	});
 
 	CurrentProvider = nullptr;
-	Cpp::ActivateInterpreter(StoreInterp);
 	bIsReady = true;
 }
 

@@ -5,7 +5,7 @@
 
 #define LOCTEXT_NAMESPACE "ClingCommandExecutor"
 
-FClingCommandExecutor::FClingCommandExecutor(Cpp::TInterp_t InInterpreter)
+FClingCommandExecutor::FClingCommandExecutor(CppImpl::CppInterpWrapper& InInterpreter)
 	:Interpreter(InInterpreter)
 {	
 }
@@ -45,7 +45,7 @@ void FClingCommandExecutor::GetExecHistory(TArray<FString>& Out)
 	IConsoleManager::Get().GetConsoleHistory(TEXT("Cling"), Out);
 }
 
-bool FClingCommandExecutor::Exec(const TCHAR* Input)
+	bool FClingCommandExecutor::Exec(const TCHAR* Input)
 {
 	SCOPED_NAMED_EVENT(Cling_EXEC, FColor::Red);
 	IConsoleManager::Get().AddConsoleHistoryEntry(TEXT("Cling"), Input);
@@ -73,15 +73,15 @@ bool FClingCommandExecutor::Exec(const TCHAR* Input)
 	// 	::ProcessCommand(Interpreter,TCHAR_TO_ANSI(Input),nullptr);	
 	// }
 	
-	Cpp::BeginStdStreamCapture(Cpp::kStdErr);
-	int32 CompilationResult = Cpp::Process(TCHAR_TO_ANSI(Input));
+	Interpreter.BeginStdStreamCapture(CppImpl::CaptureStreamKind::kStdErr);
+	int32 CompilationResult = Interpreter.Process(TCHAR_TO_ANSI(Input));
 	auto CompileResultCallBack = CompilationResult==0
 	?[](const char* Result){}
 	:[](const char* Result)
 	{
 		UE_LOG(LogTemp,Error,TEXT("%hs"),Result)
 	};
-	Cpp::EndStdStreamCapture(CompileResultCallBack);
+	Interpreter.EndStdStreamCapture(CompileResultCallBack);
 	return true;
 }
 

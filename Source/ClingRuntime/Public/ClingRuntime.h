@@ -6,6 +6,8 @@
 #include "HAL/CriticalSection.h"
 #include "ClingSemanticInfoProvider.h"
 
+#include "CppInterOp/CppInterOp.h"
+
 namespace cling
 {
 	class Interpreter;
@@ -18,25 +20,25 @@ public:
 	/** IModuleInterface implementation */
 	virtual void StartupModule() override;
 	virtual void ShutdownModule() override;
-// private:
-	void* BaseInterp{nullptr};
-public:
-	// Todo use unique ptr
-	TArray<void*> Interps;
 
-	void* GetInterp(int Version=0);
-	void* StartNewInterp(FName PCHProfile = TEXT("Default"));
-	void DeleteInterp(void* CurrentInterp);
+	CppImpl::CppInterpWrapper BaseInterp;
+	TArray<CppImpl::CppInterpWrapper> Interps;
+
+	CppImpl::CppInterpWrapper& GetInterp(int Version=0);
+	CppImpl::CppInterpWrapper StartNewInterp(FName PCHProfile = TEXT("Default"));
+	CppImpl::CppInterpWrapper& StartNewRecordInterp(FName PCHProfile = TEXT("Default"));
+	void DeleteInterp(int32 Index);
+	int32 FindInterpIndex(CppImpl::CppInterpWrapper& InInterp);
 	static FClingRuntimeModule& Get();
 
-	struct FClingSemanticInfoProvider* GetSemanticInfoProvider(void* InInterp);
-	struct FClingSemanticInfoProvider* GetDefaultSemanticInfoProvider();
+	FClingSemanticInfoProvider* GetSemanticInfoProvider(CppImpl::CppInterpWrapper& InInterp);
+	FClingSemanticInfoProvider* GetDefaultSemanticInfoProvider();
 
 	/** Get the global lock for CppInterOp calls */
 	FCriticalSection& GetCppInterOpLock() { return CppInterOpLock; }
 
 private:
-	void* StartInterpreterInternal(FName PCHProfile = TEXT("Default"));
+	static CppImpl::CppInterpWrapper StartInterpreterInternal(FName PCHProfile = TEXT("Default"));
 
 	FCriticalSection CppInterOpLock;
 
