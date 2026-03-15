@@ -61,11 +61,14 @@ void FClingRuntimeModule::ShutdownModule()
 	FScopeLock CppLock(&CppInterOpLock);
 
 	// Delete pooled (pre-created, not yet acquired) interpreters
-	for (CppImpl::CppInterpWrapper& Interp : PooledInterps)
+	for (auto& Pair : PooledInterps)
 	{
-		if (Interp.IsValid())
+		for (CppImpl::CppInterpWrapper& Interp : Pair.Value)
 		{
-			Interp.DeleteInterpreter();
+			if (Interp.IsValid())
+			{
+				Interp.DeleteInterpreter();
+			}
 		}
 	}
 	PooledInterps.Empty();
@@ -197,16 +200,19 @@ CppImpl::CppInterpWrapper FClingRuntimeModule::StartInterpreterInternal(FName PC
 // Interpreter Pool
 // ---------------------------------------------------------------------------
 
-CppImpl::CppInterpWrapper FClingRuntimeModule::TryAcquireFromPool()
+CppImpl::CppInterpWrapper FClingRuntimeModule::TryAcquireFromPool(FName PCHProfile)
 {
+	if (PCHProfile.IsNone()) PCHProfile = TEXT("Default");
 	FScopeLock Lock(&PoolLock);
-	if (PooledInterps.Num() > 0)
+	if (TArray<CppImpl::CppInterpWrapper>* Pool = PooledInterps.Find(PCHProfile))
 	{
-		CppImpl::CppInterpWrapper Interp = PooledInterps.Pop();
-		UE_LOG(LogCling, Log, TEXT("[InterpPool] Acquired from pool. Remaining: %d"), PooledInterps.Num());
-		return Interp;
+		if (Pool->Num() > 0)
+		{
+			CppImpl::CppInterpWrapper Interp = Pool->Pop();
+			UE_LOG(LogCling, Log, TEXT("[InterpPool] Acquired from pool [%s]. Remaining: %d"), *PCHProfile.ToString(), Pool->Num());
+			return Interp;
+		}
 	}
-	UE_LOG(LogCling, Warning, TEXT("[InterpPool] Pool empty! Notebook will create a new interpreter synchronously (slow)."));
 	return CppImpl::CppInterpWrapper();
 }
 
@@ -214,53 +220,89 @@ void FClingRuntimeModule::RefillPool()
 {
 	if (bPoolShuttingDown.load()) return;
 
-	int32 ToCreate;
+	UClingSetting* Settings = GetMutableDefault<UClingSetting>();
+	TArray<const FClingPCHProfile*> AllProfiles;
+	AllProfiles.Add(&Settings->DefaultPCHProfile);
+	for (const auto& Profile : Settings->PCHProfiles)
 	{
-		FScopeLock Lock(&PoolLock);
-		const int32 Current = PooledInterps.Num() + PoolInFlight.load();
-		ToCreate = FMath::Max(0, PoolTargetSize - Current);
-		PoolInFlight.fetch_add(ToCreate);
+		AllProfiles.Add(&Profile);
 	}
 
-	for (int32 i = 0; i < ToCreate; ++i)
+	for (const FClingPCHProfile* Profile : AllProfiles)
 	{
-		FFunctionGraphTask::CreateAndDispatchWhenReady(
-			[this]()
+		if (!Profile->bEnabled || Profile->PoolSize <= 0) continue;
+
+		FName ProfileName = Profile->ProfileName;
+		int32 TargetSize = Profile->PoolSize;
+		
+		int32 ToCreate = 0;
+		{
+			FScopeLock Lock(&PoolLock);
+			int32 Current = 0;
+			if (TArray<CppImpl::CppInterpWrapper>* Pool = PooledInterps.Find(ProfileName))
 			{
-				CreatePoolEntry();
-			},
-			TStatId{}, nullptr, ENamedThreads::AnyThread
-		);
-	}
+				Current += Pool->Num();
+			}
+			if (int32* InFlight = PoolInFlightPerProfile.Find(ProfileName))
+			{
+				Current += *InFlight;
+			}
+			
+			ToCreate = FMath::Max(0, TargetSize - Current);
+			if (ToCreate > 0)
+			{
+				PoolInFlightPerProfile.FindOrAdd(ProfileName) += ToCreate;
+				PoolInFlight.fetch_add(ToCreate);
+			}
+		}
 
-	if (ToCreate > 0)
-	{
-		UE_LOG(LogCling, Log, TEXT("[InterpPool] Dispatched %d background create task(s)."), ToCreate);
+		for (int32 i = 0; i < ToCreate; ++i)
+		{
+			AsyncTask(ENamedThreads::AnyBackgroundHiPriTask, [this, ProfileName]()
+			{
+				CreatePoolEntry(ProfileName);
+			});
+		}
+		
+		if (ToCreate > 0)
+		{
+			UE_LOG(LogCling, Log, TEXT("[InterpPool] Dispatched %d background create task(s) for profile [%s]."), ToCreate, *ProfileName.ToString());
+		}
 	}
 }
 
-void FClingRuntimeModule::CreatePoolEntry()
+void FClingRuntimeModule::CreatePoolEntry(FName PCHProfile)
 {
+	auto CleanupInFlight = [this, PCHProfile]()
+	{
+		FScopeLock Lock(&PoolLock);
+		if (int32* InFlight = PoolInFlightPerProfile.Find(PCHProfile))
+		{
+			(*InFlight)--;
+		}
+		PoolInFlight.fetch_sub(1);
+	};
+
 	if (bPoolShuttingDown.load())
 	{
-		PoolInFlight.fetch_sub(1);
+		CleanupInFlight();
 		return;
 	}
 
-	UE_LOG(LogCling, Log, TEXT("[InterpPool] Creating pool interpreter..."));
+	UE_LOG(LogCling, Log, TEXT("[InterpPool] Creating pool interpreter for profile [%s]..."), *PCHProfile.ToString());
 	
 	double StartTime = FPlatformTime::Seconds();
-	CppImpl::CppInterpWrapper NewInterp = StartInterpreterInternal(TEXT("Default"));
+	CppImpl::CppInterpWrapper NewInterp = StartInterpreterInternal(PCHProfile);
 	double Duration = FPlatformTime::Seconds() - StartTime;
 
-	UE_LOG(LogCling, Log, TEXT("[InterpPool] Created pool interpreter in %.2f seconds."), Duration);
+	UE_LOG(LogCling, Log, TEXT("[InterpPool] Created pool interpreter [%s] in %.2f seconds."), *PCHProfile.ToString(), Duration);
 
 	{
 		FScopeLock Lock(&PoolLock);
 		if (!bPoolShuttingDown.load() && NewInterp.IsValid())
 		{
-			PooledInterps.Add(NewInterp);
-			UE_LOG(LogCling, Log, TEXT("[InterpPool] Pool size: %d"), PooledInterps.Num());
+			PooledInterps.FindOrAdd(PCHProfile).Add(NewInterp);
+			UE_LOG(LogCling, Log, TEXT("[InterpPool] Pool [%s] size: %d"), *PCHProfile.ToString(), PooledInterps[PCHProfile].Num());
 		}
 		else if (NewInterp.IsValid())
 		{
@@ -269,7 +311,42 @@ void FClingRuntimeModule::CreatePoolEntry()
 		}
 	}
 
-	PoolInFlight.fetch_sub(1);
+	CleanupInFlight();
+}
+
+void FClingRuntimeModule::InvalidatePool(FName PCHProfile)
+{
+	if (PCHProfile.IsNone()) PCHProfile = TEXT("Default");
+	FScopeLock Lock(&PoolLock);
+	if (TArray<CppImpl::CppInterpWrapper>* Pool = PooledInterps.Find(PCHProfile))
+	{
+		UE_LOG(LogCling, Log, TEXT("[InterpPool] Invalidating pool [%s], deleting %d interpreters."), *PCHProfile.ToString(), Pool->Num());
+		for (CppImpl::CppInterpWrapper& Interp : *Pool)
+		{
+			if (Interp.IsValid())
+			{
+				Interp.DeleteInterpreter();
+			}
+		}
+		Pool->Empty();
+	}
+}
+
+void FClingRuntimeModule::InvalidateAllPools()
+{
+	FScopeLock Lock(&PoolLock);
+	UE_LOG(LogCling, Log, TEXT("[InterpPool] Invalidating all pools."));
+	for (auto& Pair : PooledInterps)
+	{
+		for (CppImpl::CppInterpWrapper& Interp : Pair.Value)
+		{
+			if (Interp.IsValid())
+			{
+				Interp.DeleteInterpreter();
+			}
+		}
+		Pair.Value.Empty();
+	}
 }
 	
 IMPLEMENT_MODULE(FClingRuntimeModule, ClingRuntime);

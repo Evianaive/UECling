@@ -2,6 +2,7 @@
 
 
 #include "ClingSetting.h"
+#include "ClingRuntime.h"
 
 #include <CppInterOp/CppInterOp.h>
 
@@ -60,6 +61,40 @@ FName UClingSetting::GetSectionName() const
 {
 	return Super::GetSectionName();
 }
+
+#if WITH_EDITOR
+void UClingSetting::PostEditChangeProperty(FPropertyChangedEvent& PropertyChangedEvent)
+{
+	Super::PostEditChangeProperty(PropertyChangedEvent);
+
+	if (PropertyChangedEvent.Property)
+	{
+		FName PropertyName = PropertyChangedEvent.Property->GetFName();
+		if (PropertyName == GET_MEMBER_NAME_CHECKED(UClingSetting, DefaultPCHProfile))
+		{
+			if (FModuleManager::Get().IsModuleLoaded(TEXT("ClingRuntime")))
+			{
+				FClingRuntimeModule::Get().InvalidatePool(TEXT("Default"));
+			}
+		}
+		else if (PropertyName == GET_MEMBER_NAME_CHECKED(UClingSetting, PCHProfiles))
+		{
+			if (FModuleManager::Get().IsModuleLoaded(TEXT("ClingRuntime")))
+			{
+				const int32 ArrayIndex = PropertyChangedEvent.GetArrayIndex(PropertyName.ToString());
+				if (ArrayIndex != INDEX_NONE && PCHProfiles.IsValidIndex(ArrayIndex))
+				{
+					FClingRuntimeModule::Get().InvalidatePool(PCHProfiles[ArrayIndex].ProfileName);
+				}
+				else
+				{
+					FClingRuntimeModule::Get().InvalidateAllPools();
+				}
+			}
+		}
+	}
+}
+#endif
 
 FString UClingSetting::GetGlobalBuildDefinsPath()
 {

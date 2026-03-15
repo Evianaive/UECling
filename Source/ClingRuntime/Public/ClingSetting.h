@@ -35,6 +35,10 @@ struct FClingPCHProfile
 	UPROPERTY(EditAnywhere, Config, Category = "PCH")
 	bool bEnabled = true;
 
+	/** Target number of pre-warmed interpreters for this profile */
+	UPROPERTY(EditAnywhere, Config, Category = "PCH", meta = (ClampMin = "0", ClampMax = "10"))
+	int32 PoolSize = 1;
+
 	/** Get the PCH header file path for this profile */
 	FString GetPCHHeaderPath() const;
 
@@ -122,6 +126,10 @@ public:
 	virtual FName GetCategoryName() const override;
 	virtual FName GetContainerName() const override;
 	virtual FName GetSectionName() const override;
+
+#if WITH_EDITOR
+	virtual void PostEditChangeProperty(struct FPropertyChangedEvent& PropertyChangedEvent) override;
+#endif
 
 	UPROPERTY(EditAnywhere,Config)
 	FDirectoryPath PathForLambdaScriptCompile;

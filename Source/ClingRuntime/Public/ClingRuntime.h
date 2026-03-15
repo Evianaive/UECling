@@ -40,10 +40,9 @@ public:
 
 	/**
 	 * Try to acquire a pre-warmed interpreter from the pool (non-blocking).
-	 * Only returns interpreters created with the "Default" PCH profile.
-	 * Returns an invalid wrapper if pool is empty.
+	 * Returns an invalid wrapper if pool is empty for the given profile.
 	 */
-	CppImpl::CppInterpWrapper TryAcquireFromPool();
+	CppImpl::CppInterpWrapper TryAcquireFromPool(FName PCHProfile = TEXT("Default"));
 
 	/**
 	 * Ensure the pool is being filled up to PoolTargetSize in the background.
@@ -51,19 +50,25 @@ public:
 	 */
 	void RefillPool();
 
+	/** Clear pool for a specific profile (e.g. when configuration changes) */
+	void InvalidatePool(FName PCHProfile);
+
+	/** Clear all pools */
+	void InvalidateAllPools();
+
 private:
 	static CppImpl::CppInterpWrapper StartInterpreterInternal(FName PCHProfile = TEXT("Default"));
 
-	/** Background worker: create one "Default" interpreter and add to pool */
-	void CreatePoolEntry();
+	/** Background worker: create one interpreter for the profile and add to pool */
+	void CreatePoolEntry(FName PCHProfile);
 
 	FCriticalSection CppInterOpLock;
 	TMap<void*, FClingSemanticInfoProvider> SemanticInfoProviders;
 
 	// --- Interpreter Pool ---
-	static constexpr int32 PoolTargetSize = 2;
-	TArray<CppImpl::CppInterpWrapper> PooledInterps;       // Ready-to-use interpreters (not yet acquired)
-	FCriticalSection PoolLock;         // Guards PooledInterps
-	std::atomic<int32> PoolInFlight{0}; // How many are being created right now
+	TMap<FName, TArray<CppImpl::CppInterpWrapper>> PooledInterps;       // Ready-to-use interpreters per profile (not yet acquired)
+	TMap<FName, int32> PoolInFlightPerProfile; // How many are being created right now per profile
+	FCriticalSection PoolLock;         // Guards PooledInterps and PoolInFlightPerProfile
+	std::atomic<int32> PoolInFlight{0}; // Total number being created right now
 	std::atomic<bool> bPoolShuttingDown{false};
 };

@@ -1680,13 +1680,9 @@ ClingCoro::TClingTask<FClingInterpreterResult> UClingNotebook::StartInterpreterA
 	// Move to background thread - never block the game thread
 	co_await ClingCoro::MoveToTask();
 
-	// Try pool first (only matches Default profile to avoid PCH mismatch)
+	// Try pool first
 	CppImpl::CppInterpWrapper NewInterpreter;
-	const bool bIsDefaultProfile = (ProfileName == TEXT("Default") || ProfileName.IsNone());
-	if (bIsDefaultProfile)
-	{
-		NewInterpreter = FClingRuntimeModule::Get().TryAcquireFromPool();
-	}
+	NewInterpreter = FClingRuntimeModule::Get().TryAcquireFromPool(ProfileName);
 
 	if (!NewInterpreter.IsValid())
 	{
