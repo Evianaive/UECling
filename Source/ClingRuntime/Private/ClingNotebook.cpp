@@ -1677,22 +1677,8 @@ ClingCoro::TClingTask<FClingInterpreterResult> UClingNotebook::StartInterpreterA
 	TWeakObjectPtr<UClingNotebook> WeakThis(this);
 	FName ProfileName = PCHProfile;
 
-	// Move to background thread - never block the game thread
-	co_await ClingCoro::MoveToTask();
-
-	// Try pool first
-	CppImpl::CppInterpWrapper NewInterpreter;
-	NewInterpreter = FClingRuntimeModule::Get().TryAcquireFromPool(ProfileName);
-
-	if (!NewInterpreter.IsValid())
-	{
-		// Pool empty or profile mismatch - create directly
-		UE_LOG(LogTemp, Log, TEXT("[StartInterpreterAsync] Pool miss, creating new interpreter for profile %s..."), *ProfileName.ToString());
-		double StartTime = FPlatformTime::Seconds();
-		NewInterpreter = FClingRuntimeModule::Get().StartNewInterp(ProfileName);
-		double Duration = FPlatformTime::Seconds() - StartTime;
-		UE_LOG(LogTemp, Log, TEXT("[StartInterpreterAsync] Created new interpreter in %.2f seconds."), Duration);
-	}
+	// Acquire interpreter from pool (async)
+	CppImpl::CppInterpWrapper NewInterpreter = co_await FClingRuntimeModule::Get().GetPool().AcquireAsync(ProfileName);
 
 	// Return to game thread to update notebook state
 	co_await ClingCoro::MoveToGameThread();
@@ -2139,7 +2125,7 @@ void UClingNotebook::ProcessNextInQueue()
 			// for ~30s, so we must never trigger this while cells are compiling.
 			if (!bIsCompiling)
 			{
-				FClingRuntimeModule::Get().RefillPool();
+				FClingRuntimeModule::Get().GetPool().Refill();
 			}
 		}
 		return;

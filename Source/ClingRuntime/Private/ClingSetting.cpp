@@ -74,7 +74,7 @@ void UClingSetting::PostEditChangeProperty(FPropertyChangedEvent& PropertyChange
 		{
 			if (FModuleManager::Get().IsModuleLoaded(TEXT("ClingRuntime")))
 			{
-				FClingRuntimeModule::Get().InvalidatePool(TEXT("Default"));
+				FClingRuntimeModule::Get().GetPool().Invalidate(TEXT("Default"));
 			}
 		}
 		else if (PropertyName == GET_MEMBER_NAME_CHECKED(UClingSetting, PCHProfiles))
@@ -84,11 +84,12 @@ void UClingSetting::PostEditChangeProperty(FPropertyChangedEvent& PropertyChange
 				const int32 ArrayIndex = PropertyChangedEvent.GetArrayIndex(PropertyName.ToString());
 				if (ArrayIndex != INDEX_NONE && PCHProfiles.IsValidIndex(ArrayIndex))
 				{
-					FClingRuntimeModule::Get().InvalidatePool(PCHProfiles[ArrayIndex].ProfileName);
+					FClingRuntimeModule::Get().GetPool().Invalidate(PCHProfiles[ArrayIndex].ProfileName);
 				}
 				else
 				{
-					FClingRuntimeModule::Get().InvalidateAllPools();
+					FClingRuntimeModule::Get().GetPool().Shutdown();
+					FClingRuntimeModule::Get().GetPool().Refill();
 				}
 			}
 		}

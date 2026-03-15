@@ -43,35 +43,14 @@ void FClingRuntimeModule::StartupModule()
 	// Cpp::EnableDebugOutput();
 	BaseInterp = StartInterpreterInternal();
 	// Initial pool fill
-	RefillPool();
-	// Pool is filled lazily when notebooks become idle, see ProcessNextInQueue.
+	InterpreterPool.Refill();
 }
 
 void FClingRuntimeModule::ShutdownModule()
 {
-	// Signal pool workers to stop
-	bPoolShuttingDown.store(true);
-
-	// Wait for any in-flight pool creation tasks to finish
-	while (PoolInFlight.load() > 0)
-	{
-		FPlatformProcess::Sleep(0.01f);
-	}
+	InterpreterPool.Shutdown();
 
 	FScopeLock CppLock(&CppInterOpLock);
-
-	// Delete pooled (pre-created, not yet acquired) interpreters
-	for (auto& Pair : PooledInterps)
-	{
-		for (CppImpl::CppInterpWrapper& Interp : Pair.Value)
-		{
-			if (Interp.IsValid())
-			{
-				Interp.DeleteInterpreter();
-			}
-		}
-	}
-	PooledInterps.Empty();
 
 	SemanticInfoProviders.Empty();
 	// CppInterpWrapper destructor will handle cleanup
@@ -197,156 +176,9 @@ CppImpl::CppInterpWrapper FClingRuntimeModule::StartInterpreterInternal(FName PC
 #undef LOCTEXT_NAMESPACE
 
 // ---------------------------------------------------------------------------
-// Interpreter Pool
+// Interpreter Pool (Forwarders for compatibility if needed, or remove)
 // ---------------------------------------------------------------------------
 
-CppImpl::CppInterpWrapper FClingRuntimeModule::TryAcquireFromPool(FName PCHProfile)
-{
-	if (PCHProfile.IsNone()) PCHProfile = TEXT("Default");
-	FScopeLock Lock(&PoolLock);
-	if (TArray<CppImpl::CppInterpWrapper>* Pool = PooledInterps.Find(PCHProfile))
-	{
-		if (Pool->Num() > 0)
-		{
-			CppImpl::CppInterpWrapper Interp = Pool->Pop();
-			UE_LOG(LogCling, Log, TEXT("[InterpPool] Acquired from pool [%s]. Remaining: %d"), *PCHProfile.ToString(), Pool->Num());
-			return Interp;
-		}
-	}
-	return CppImpl::CppInterpWrapper();
-}
-
-void FClingRuntimeModule::RefillPool()
-{
-	if (bPoolShuttingDown.load()) return;
-
-	UClingSetting* Settings = GetMutableDefault<UClingSetting>();
-	TArray<const FClingPCHProfile*> AllProfiles;
-	AllProfiles.Add(&Settings->DefaultPCHProfile);
-	for (const auto& Profile : Settings->PCHProfiles)
-	{
-		AllProfiles.Add(&Profile);
-	}
-
-	for (const FClingPCHProfile* Profile : AllProfiles)
-	{
-		if (!Profile->bEnabled || Profile->PoolSize <= 0) continue;
-
-		FName ProfileName = Profile->ProfileName;
-		int32 TargetSize = Profile->PoolSize;
-		
-		int32 ToCreate = 0;
-		{
-			FScopeLock Lock(&PoolLock);
-			int32 Current = 0;
-			if (TArray<CppImpl::CppInterpWrapper>* Pool = PooledInterps.Find(ProfileName))
-			{
-				Current += Pool->Num();
-			}
-			if (int32* InFlight = PoolInFlightPerProfile.Find(ProfileName))
-			{
-				Current += *InFlight;
-			}
-			
-			ToCreate = FMath::Max(0, TargetSize - Current);
-			if (ToCreate > 0)
-			{
-				PoolInFlightPerProfile.FindOrAdd(ProfileName) += ToCreate;
-				PoolInFlight.fetch_add(ToCreate);
-			}
-		}
-
-		for (int32 i = 0; i < ToCreate; ++i)
-		{
-			AsyncTask(ENamedThreads::AnyBackgroundHiPriTask, [this, ProfileName]()
-			{
-				CreatePoolEntry(ProfileName);
-			});
-		}
-		
-		if (ToCreate > 0)
-		{
-			UE_LOG(LogCling, Log, TEXT("[InterpPool] Dispatched %d background create task(s) for profile [%s]."), ToCreate, *ProfileName.ToString());
-		}
-	}
-}
-
-void FClingRuntimeModule::CreatePoolEntry(FName PCHProfile)
-{
-	auto CleanupInFlight = [this, PCHProfile]()
-	{
-		FScopeLock Lock(&PoolLock);
-		if (int32* InFlight = PoolInFlightPerProfile.Find(PCHProfile))
-		{
-			(*InFlight)--;
-		}
-		PoolInFlight.fetch_sub(1);
-	};
-
-	if (bPoolShuttingDown.load())
-	{
-		CleanupInFlight();
-		return;
-	}
-
-	UE_LOG(LogCling, Log, TEXT("[InterpPool] Creating pool interpreter for profile [%s]..."), *PCHProfile.ToString());
-	
-	double StartTime = FPlatformTime::Seconds();
-	CppImpl::CppInterpWrapper NewInterp = StartInterpreterInternal(PCHProfile);
-	double Duration = FPlatformTime::Seconds() - StartTime;
-
-	UE_LOG(LogCling, Log, TEXT("[InterpPool] Created pool interpreter [%s] in %.2f seconds."), *PCHProfile.ToString(), Duration);
-
-	{
-		FScopeLock Lock(&PoolLock);
-		if (!bPoolShuttingDown.load() && NewInterp.IsValid())
-		{
-			PooledInterps.FindOrAdd(PCHProfile).Add(NewInterp);
-			UE_LOG(LogCling, Log, TEXT("[InterpPool] Pool [%s] size: %d"), *PCHProfile.ToString(), PooledInterps[PCHProfile].Num());
-		}
-		else if (NewInterp.IsValid())
-		{
-			// Shutting down - discard
-			NewInterp.DeleteInterpreter();
-		}
-	}
-
-	CleanupInFlight();
-}
-
-void FClingRuntimeModule::InvalidatePool(FName PCHProfile)
-{
-	if (PCHProfile.IsNone()) PCHProfile = TEXT("Default");
-	FScopeLock Lock(&PoolLock);
-	if (TArray<CppImpl::CppInterpWrapper>* Pool = PooledInterps.Find(PCHProfile))
-	{
-		UE_LOG(LogCling, Log, TEXT("[InterpPool] Invalidating pool [%s], deleting %d interpreters."), *PCHProfile.ToString(), Pool->Num());
-		for (CppImpl::CppInterpWrapper& Interp : *Pool)
-		{
-			if (Interp.IsValid())
-			{
-				Interp.DeleteInterpreter();
-			}
-		}
-		Pool->Empty();
-	}
-}
-
-void FClingRuntimeModule::InvalidateAllPools()
-{
-	FScopeLock Lock(&PoolLock);
-	UE_LOG(LogCling, Log, TEXT("[InterpPool] Invalidating all pools."));
-	for (auto& Pair : PooledInterps)
-	{
-		for (CppImpl::CppInterpWrapper& Interp : Pair.Value)
-		{
-			if (Interp.IsValid())
-			{
-				Interp.DeleteInterpreter();
-			}
-		}
-		Pair.Value.Empty();
-	}
-}
+// Removed old pool implementation. Logic moved to ClingInterpreterPool.cpp.
 	
 IMPLEMENT_MODULE(FClingRuntimeModule, ClingRuntime);
