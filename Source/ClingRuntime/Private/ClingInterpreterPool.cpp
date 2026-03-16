@@ -30,7 +30,7 @@ ClingCoro::TClingTask<CppImpl::CppInterpWrapper> FClingInterpreterPool::AcquireA
 	}
 
 	// 2. Pool miss, need to create. Ensure we are in a background thread for creation.
-	co_await ClingCoro::MoveToTask();
+	co_await ClingCoro::MoveToBackgroundTask();
 
 	double StartTime = FPlatformTime::Seconds();
 	UE_LOG(LogCling, Log, TEXT("[InterpPool] Pool miss for [%s], creating new interpreter..."), *PCHProfile.ToString());
@@ -119,20 +119,26 @@ void FClingInterpreterPool::Refill()
 	}
 }
 
-void FClingInterpreterPool::Invalidate(FName PCHProfile)
+void FClingInterpreterPool::Invalidate(FName PCHProfile, bool bRefill /*= false*/)
 {
 	if (PCHProfile.IsNone()) PCHProfile = TEXT("Default");
-	FScopeLock Lock(&PoolLock);
-	if (TArray<CppImpl::CppInterpWrapper>* Pool = PooledInterps.Find(PCHProfile))
 	{
-		for (CppImpl::CppInterpWrapper& Interp : *Pool)
+		FScopeLock Lock(&PoolLock);
+		if (TArray<CppImpl::CppInterpWrapper>* Pool = PooledInterps.Find(PCHProfile))
 		{
-			if (Interp.IsValid())
+			for (CppImpl::CppInterpWrapper& Interp : *Pool)
 			{
-				Interp.DeleteInterpreter();
+				if (Interp.IsValid())
+				{
+					Interp.DeleteInterpreter();
+				}
 			}
+			Pool->Empty();
 		}
-		Pool->Empty();
+	}
+	if (bRefill)
+	{
+		Refill();
 	}
 }
 
@@ -161,6 +167,48 @@ void FClingInterpreterPool::Shutdown()
 	PooledInterps.Empty();
 }
 
+void FClingInterpreterPool::CleanOrphanedPools()
+{
+	UClingSetting* Settings = GetMutableDefault<UClingSetting>();
+	TSet<FName> ValidProfiles;
+	if (Settings->DefaultPCHProfile.bEnabled && Settings->DefaultPCHProfile.PoolSize > 0)
+	{
+		ValidProfiles.Add(TEXT("Default"));
+	}
+	for (const auto& Profile : Settings->PCHProfiles)
+	{
+		if (Profile.bEnabled && Profile.PoolSize > 0)
+		{
+			ValidProfiles.Add(Profile.ProfileName);
+		}
+	}
+
+	TArray<FName> ToRemove;
+	{
+		FScopeLock Lock(&PoolLock);
+		for (auto& Pair : PooledInterps)
+		{
+			if (!ValidProfiles.Contains(Pair.Key))
+			{
+				for (CppImpl::CppInterpWrapper& Interp : Pair.Value)
+				{
+					if (Interp.IsValid())
+					{
+						Interp.DeleteInterpreter();
+					}
+				}
+				Pair.Value.Empty();
+				ToRemove.Add(Pair.Key);
+			}
+		}
+		for (const FName& Key : ToRemove)
+		{
+			PooledInterps.Remove(Key);
+			PoolInFlightPerProfile.Remove(Key);
+		}
+	}
+}
+
 CppImpl::CppInterpWrapper FClingInterpreterPool::CreateNew(FName PCHProfile)
 {
 	// Forward to module as it has access to the lock and StartInternal
@@ -179,9 +227,30 @@ void FClingInterpreterPool::CreatePoolEntry(FName PCHProfile)
 
 	CppImpl::CppInterpWrapper NewInterp = CreateNew(PCHProfile);
 
+	// Validate that profile is still enabled/desired
+	bool bProfileStillValid = false;
+	{
+		UClingSetting* Settings = GetMutableDefault<UClingSetting>();
+		if (PCHProfile == TEXT("Default"))
+		{
+			bProfileStillValid = Settings->DefaultPCHProfile.bEnabled && Settings->DefaultPCHProfile.PoolSize > 0;
+		}
+		else
+		{
+			for (const auto& Profile : Settings->PCHProfiles)
+			{
+				if (Profile.ProfileName == PCHProfile)
+				{
+					bProfileStillValid = Profile.bEnabled && Profile.PoolSize > 0;
+					break;
+				}
+			}
+		}
+	}
+
 	{
 		FScopeLock Lock(&PoolLock);
-		if (!bShuttingDown.load() && NewInterp.IsValid())
+		if (!bShuttingDown.load() && bProfileStillValid && NewInterp.IsValid())
 		{
 			PooledInterps.FindOrAdd(PCHProfile).Add(NewInterp);
 		}

@@ -318,10 +318,10 @@ public:
 };
 
 // Todo priority is not considered!
-using FMoveToTask = FMoveToThread<ENamedThreads::AnyThread>;
+using FMoveToOtherThread = FMoveToThread<ENamedThreads::AnyHiPriThreadHiPriTask>;
 using FMoveToGameThread = FMoveToThread<ENamedThreads::GameThread>;
 
-inline FMoveToTask MoveToTask() { return {}; }
+inline FMoveToOtherThread MoveToBackgroundTask() { return {}; }
 inline FMoveToGameThread MoveToGameThread() { return {}; }
 
 } // namespace ClingCoro

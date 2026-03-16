@@ -74,7 +74,7 @@ void UClingSetting::PostEditChangeProperty(FPropertyChangedEvent& PropertyChange
 		{
 			if (FModuleManager::Get().IsModuleLoaded(TEXT("ClingRuntime")))
 			{
-				FClingRuntimeModule::Get().GetPool().Invalidate(TEXT("Default"));
+				FClingRuntimeModule::Get().GetPool().Invalidate(TEXT("Default"), true);
 			}
 		}
 		else if (PropertyName == GET_MEMBER_NAME_CHECKED(UClingSetting, PCHProfiles))
@@ -84,12 +84,24 @@ void UClingSetting::PostEditChangeProperty(FPropertyChangedEvent& PropertyChange
 				const int32 ArrayIndex = PropertyChangedEvent.GetArrayIndex(PropertyName.ToString());
 				if (ArrayIndex != INDEX_NONE && PCHProfiles.IsValidIndex(ArrayIndex))
 				{
-					FClingRuntimeModule::Get().GetPool().Invalidate(PCHProfiles[ArrayIndex].ProfileName);
+					FClingRuntimeModule::Get().GetPool().Invalidate(PCHProfiles[ArrayIndex].ProfileName, true);
 				}
 				else
 				{
-					FClingRuntimeModule::Get().GetPool().Shutdown();
-					FClingRuntimeModule::Get().GetPool().Refill();
+					if (PropertyChangedEvent.ChangeType == EPropertyChangeType::ArrayAdd)
+					{
+						FClingRuntimeModule::Get().GetPool().Refill();
+					}
+					else if (PropertyChangedEvent.ChangeType == EPropertyChangeType::ArrayRemove || 
+							 PropertyChangedEvent.ChangeType == EPropertyChangeType::ArrayClear)
+					{
+						FClingRuntimeModule::Get().GetPool().Refill();
+					}
+					else
+					{
+						FClingRuntimeModule::Get().GetPool().Shutdown();
+						FClingRuntimeModule::Get().GetPool().Refill();
+					}
 				}
 			}
 		}

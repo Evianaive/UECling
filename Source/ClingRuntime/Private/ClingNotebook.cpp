@@ -1765,7 +1765,7 @@ ClingCoro::TClingTask<FClingCellCompilationResult> UClingNotebook::CompileCellAs
 	else
 	{
 		// Execute on background thread using Coroutine
-		co_await ClingCoro::MoveToTask();
+		co_await ClingCoro::MoveToBackgroundTask();
 
 		FClingCellCompilationResult Result;
 		if (WeakThis.IsValid())

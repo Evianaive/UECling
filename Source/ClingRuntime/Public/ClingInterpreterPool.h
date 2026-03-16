@@ -30,8 +30,11 @@ public:
 	/** Ensure pools are filled according to settings */
 	void Refill();
 
-	/** Invalidate pool for a specific profile */
-	void Invalidate(FName PCHProfile);
+	/** Invalidate pool for a specific profile and optionally refill */
+	void Invalidate(FName PCHProfile, bool bRefill = false);
+
+	/** Remove pools that are no longer defined in settings */
+	void CleanOrphanedPools();
 
 	/** Shutdown the pool, canceling in-flight tasks and deleting pooled interpreters */
 	void Shutdown();
