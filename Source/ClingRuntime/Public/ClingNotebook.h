@@ -117,6 +117,8 @@ struct FClingFunctionSignature
 	int32 OriginalNumArgs = 0;
 
 	TDelegate<void(const struct FClingFunctionSignature&)> OnExecute;
+
+	CppImpl::JitCall CachedCall;
 };
 
 USTRUCT()

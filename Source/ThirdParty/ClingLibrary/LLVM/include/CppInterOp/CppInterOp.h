@@ -31,10 +31,6 @@
 namespace compat {
 class Interpreter;
 }
-// namespace clang {
-// class Sema;
-// class ASTContext;
-// }
 #endif
 
 #include "CppCallback.h"
@@ -146,6 +142,7 @@ enum CaptureStreamKind : char {
 /// function, constructor or destructor.
 class JitCall {
 public:
+  JitCall() : m_GenericCall(nullptr), m_Kind(kUnknown), m_FD(nullptr) {}
   friend CPPINTEROP_API JitCall MakeFunctionCallable(TInterp_t I,
                                                      TCppConstFunction_t func);
   // friend CPPINTEROP_API JitCall MakeFunctionCallable(TCppConstFunction_t func);
@@ -181,7 +178,6 @@ private:
   };
   Kind m_Kind;
   TCppConstFunction_t m_FD;
-  JitCall() : m_GenericCall(nullptr), m_Kind(kUnknown), m_FD(nullptr) {}
   JitCall(Kind K, GenericCall C, TCppConstFunction_t FD)
       : m_GenericCall(C), m_Kind(K), m_FD(FD) {}
   JitCall(Kind K, ConstructorCall C, TCppConstFunction_t Ctor)
@@ -726,6 +722,9 @@ CPPINTEROP_API bool IsTypeDerivedFrom(TCppType_t derived, TCppType_t base);
 /// uniform interface to call it from compiled code.
 CPPINTEROP_API JitCall MakeFunctionCallable(TCppConstFunction_t func);
 
+CPPINTEROP_API void MakeFunctionCallables(const TCppConstFunction_t* funcs, size_t size,
+                                         CppCallback<void(const JitCall*, size_t)> callback);
+
 CPPINTEROP_API JitCall MakeFunctionCallable(TInterp_t I,
                                             TCppConstFunction_t func);
 
@@ -778,7 +777,7 @@ CPPINTEROP_API bool DeleteInterpreter();
 /// Clang-REPL, etcetera). In practice, the selected interpreter should not
 /// matter, since the library will function in the same way.
 ///\returns the current interpreter instance, if any.
-  TInterp_t GetInterpreter() {
+  CPPINTEROP_API TInterp_t GetInterpreter() {
     return m_Interpreter;
   }
 
