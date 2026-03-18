@@ -299,6 +299,9 @@ public:
   bool IsValid() const {
     return m_Interpreter!=nullptr;
   }
+  
+///\returns the PTU counts of the interpreter.
+CPPINTEROP_API int GetPTUCounts() const;
 
 ///\returns the version string information of the library.
 CPPINTEROP_API static void GetVersion(CppCallback<void(const char*)> callback);

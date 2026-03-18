@@ -1626,11 +1626,13 @@ namespace ClingNotebookSymbols
 			for (CppImpl::TCppFunction_t F : FinalFuncs) FuncsToWrap.Add(F);
 
 			TArray<CppImpl::JitCall> LocalJitCalls;
+			UE_LOG(LogTemp, Log, TEXT("ClingNotebook: Before MakeFunctionCallables, PTU count: %d"), Interp.GetPTUCounts());
 			Interp.MakeFunctionCallables(FuncsToWrap.GetData(), (size_t)FuncsToWrap.Num(), 
 				[&LocalJitCalls](const CppImpl::JitCall* Calls, size_t Num) {
 					LocalJitCalls.Empty(Num);
 					for (size_t i = 0; i < Num; ++i) LocalJitCalls.Add(Calls[i]);
 				});
+			UE_LOG(LogTemp, Log, TEXT("ClingNotebook: After MakeFunctionCallables, PTU count: %d"), Interp.GetPTUCounts());
 
 			for (int32 i = 0; i < OutSignatures.Num(); ++i)
 			{
@@ -1749,7 +1751,9 @@ FClingCellCompilationResult UClingNotebook::ExecuteCellCompilation(CppImpl::CppI
 	StaticErrors.Reset();
 
 	Interp.BeginStdStreamCapture(CppImpl::CaptureStreamKind::kStdErr);
+	UE_LOG(LogTemp, Log, TEXT("ClingNotebook: Before Process, PTU count: %d"), Interp.GetPTUCounts());
 	int32 ResultCode = Interp.Process(TCHAR_TO_ANSI(*Code));
+	UE_LOG(LogTemp, Log, TEXT("ClingNotebook: After Process, PTU count: %d"), Interp.GetPTUCounts());
 	Interp.EndStdStreamCapture([](const char* Result)
 	{
 		StaticErrors = UTF8_TO_TCHAR(Result);
@@ -2128,8 +2132,9 @@ void UClingNotebook::UndoToHere(int32 InIndex)
 		CppImpl::CppInterpWrapper& Interp = GetInterpreter();
 		if (Interp.GetInterpreter())
 		{
-			UE_LOG(LogTemp, Log, TEXT("ClingNotebook: Undoing %d steps starting from cell %d"), UndoCount, InIndex);
+			UE_LOG(LogTemp, Log, TEXT("ClingNotebook: Undoing %d steps starting from cell %d, PTU count before: %d"), UndoCount, InIndex, Interp.GetPTUCounts());
 			Interp.Undo(UndoCount);
+			UE_LOG(LogTemp, Log, TEXT("ClingNotebook: After Undo, PTU count: %d"), Interp.GetPTUCounts());
 			SemanticInfoProvider.Refresh(Interp);
 		}
 	}
