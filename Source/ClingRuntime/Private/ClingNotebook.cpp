@@ -8,7 +8,6 @@
 #include "HAL/FileManager.h"
 #include "Interfaces/IPluginManager.h"
 #include "Misc/FileHelper.h"
-#include "Misc/Guid.h"
 #include "Misc/Paths.h"
 #include "StructUtils/PropertyBag.h"
 
@@ -108,27 +107,12 @@ namespace ClingNotebookFile
 
 		FString FileContent;
 		BuildNotebookFileContent(Notebook, FileContent, OutSelectedLine);
-		return FFileHelper::SaveStringToFile(FileContent, *OutFilePath);
+		return FFileHelper::SaveStringToFile(FileContent, *OutFilePath, FFileHelper::EEncodingOptions::ForceUTF8);
 	}
 
 	bool WriteNotebookCompileFile(const UClingNotebook* Notebook, int32 SectionIndex, FString& OutFilePath)
 	{
-		FString BaseFilePath;
-		if (!WriteNotebookFile(Notebook, BaseFilePath, nullptr))
-		{
-			return false;
-		}
-
-		const FString Suffix = FString::Printf(TEXT("_Compile_%d_%s.h"), SectionIndex, *FGuid::NewGuid().ToString(EGuidFormats::Digits));
-		OutFilePath = GetNotebookDir() / (Notebook->GetName() + Suffix);
-
-		FString BaseContent;
-		if (!FFileHelper::LoadFileToString(BaseContent, *BaseFilePath))
-		{
-			return false;
-		}
-
-		return FFileHelper::SaveStringToFile(BaseContent, *OutFilePath,FFileHelper::EEncodingOptions::ForceUTF8);
+		return WriteNotebookFile(Notebook, OutFilePath, nullptr);
 	}
 }
 

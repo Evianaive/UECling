@@ -125,14 +125,14 @@ void SClingNotebookCell::UpdateCellUI()
 						SNew(SThrobber)
 						.NumPieces(3)
 					]
-					+SHorizontalBox::Slot()
-					.AutoWidth()
-					.Padding(5, 0)
-					[
-						SNew(STextBlock)
-						.Text(INVTEXT("Compiling..."))
-						.ColorAndOpacity(FLinearColor::Yellow)
-					]
+					// +SHorizontalBox::Slot()
+					// .AutoWidth()
+					// .Padding(5, 0)
+					// [
+					// 	SNew(STextBlock)
+					// 	.Text(INVTEXT("Compiling..."))
+					// 	.ColorAndOpacity(FLinearColor::Yellow)
+					// ]
 				]
 
 				// Run in GameThread Checkbox
