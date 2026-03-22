@@ -1962,7 +1962,7 @@ void UClingNotebook::UpdateCellSignatures(int32 CellIndex)
 			{
 				if (OldSig.Name == NewSig.Name)
 				{
-					NewSig.Parameters = OldSig.Parameters;
+					NewSig.Parameters.CopyValuesFrom(OldSig.Parameters);
 					break;
 				}
 			}

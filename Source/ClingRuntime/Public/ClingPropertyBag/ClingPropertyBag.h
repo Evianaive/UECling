@@ -65,6 +65,8 @@ struct FClingPropertyBagPropertyDesc
 	FClingPropertyBagPropertyDesc() = default;
 	FClingPropertyBagPropertyDesc(const FName InName, const EClingPropertyBagPropertyType InValueType, UObject* InValueTypeObject = nullptr)
 		: Name(InName), ValueType(InValueType), ValueTypeObject(InValueTypeObject) {}
+
+	friend FArchive& operator<<(FArchive& Ar, FClingPropertyBagPropertyDesc& Desc);
 };
 
 UCLASS(Transient)
@@ -88,7 +90,13 @@ struct CLINGRUNTIME_API FClingInstancedPropertyBag
 {
 	GENERATED_BODY()
 
-	UPROPERTY(EditAnywhere, Category = "Cling")
+	UPROPERTY()
+	TArray<FClingPropertyBagPropertyDesc> PropertyDescs;
+
+	UPROPERTY()
+	TMap<FName, FString> SerializedValues;
+
+	UPROPERTY(Transient)
 	TObjectPtr<UClingPropertyBag> PropertyBagStruct = nullptr;
 
 	UPROPERTY(EditAnywhere, Category = "Cling")
@@ -99,9 +107,17 @@ struct CLINGRUNTIME_API FClingInstancedPropertyBag
 	const UClingPropertyBag* GetPropertyBagStruct() const { return PropertyBagStruct; }
 	const FInstancedStruct& GetValue() const { return Value; }
 
-	void InitializeWithStruct(const UClingPropertyBag* InStruct)
+	void InitializeWithStruct(const UClingPropertyBag* InStruct);
+	void CopyValuesFrom(const FClingInstancedPropertyBag& Other);
+
+	bool Serialize(FArchive& Ar);
+};
+
+template<>
+struct TStructOpsTypeTraits<FClingInstancedPropertyBag> : public TStructOpsTypeTraitsBase2<FClingInstancedPropertyBag>
+{
+	enum
 	{
-		PropertyBagStruct = const_cast<UClingPropertyBag*>(InStruct);
-		Value.InitializeAs(const_cast<UClingPropertyBag*>(InStruct));
-	}
+		WithSerializer = true,
+	};
 };

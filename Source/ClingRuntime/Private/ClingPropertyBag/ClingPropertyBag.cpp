@@ -9,11 +9,39 @@
 #include "UObject/UnrealTypePrivate.h"
 #include "UObject/ObjectMacros.h"
 #include "UObject/Script.h"
+#include "UObject/PropertyPortFlags.h"
 #include "Misc/ScopeLock.h"
+#include "Serialization/CustomVersion.h"
 
 #ifndef FUInt32Property
 #define FUInt32Property FUInt32Property
 #endif
+
+struct FClingPropertyBagCustomVersion
+{
+	enum Type
+	{
+		// Before any versioning was added
+		BeforeCustomVersion = 0,
+
+		// Added versioning and improved serialization
+		AddedVersioning = 1,
+
+		// -----<new versions can be added above this line>-----
+		VersionPlusOne,
+		LatestVersion = VersionPlusOne - 1
+	};
+
+	// The GUID for this custom version number
+	const static FGuid GUID;
+
+private:
+	FClingPropertyBagCustomVersion() {}
+};
+
+const FGuid FClingPropertyBagCustomVersion::GUID(0x7D3A158E, 0xE6F349B4, 0x9E5F854D, 0xACFEAE42);
+// Register the custom version with the engine
+FCustomVersionRegistration GClingPropertyBagCustomVersion(FClingPropertyBagCustomVersion::GUID, FClingPropertyBagCustomVersion::LatestVersion, TEXT("ClingPropertyBagVer"));
 
 static FProperty* CreatePropertyInstance(EClingPropertyBagPropertyType Type, UObject* TypeObject, FFieldVariant Outer, FName Name)
 {
@@ -240,4 +268,182 @@ const UClingPropertyBag* UClingPropertyBag::GetOrCreateFromDescs(const TArray<FC
 		GClingPropertyBagCache.Add(Hash, NewStruct);
 	}
 	return NewStruct;
+}
+
+FArchive& operator<<(FArchive& Ar, FClingPropertyBagPropertyDesc& Desc)
+{
+	Ar << Desc.Name;
+	Ar << Desc.ValueType;
+	Ar << Desc.ValueTypeObject;
+	Ar << Desc.ContainerTypes;
+	Ar << Desc.KeyType;
+	Ar << Desc.KeyTypeObject;
+	return Ar;
+}
+
+void FClingInstancedPropertyBag::InitializeWithStruct(const UClingPropertyBag* InStruct)
+{
+	PropertyBagStruct = const_cast<UClingPropertyBag*>(InStruct);
+	if (PropertyBagStruct)
+	{
+		PropertyDescs = PropertyBagStruct->GetPropertyDescs();
+	}
+	Value.InitializeAs(const_cast<UClingPropertyBag*>(InStruct));
+}
+
+void FClingInstancedPropertyBag::CopyValuesFrom(const FClingInstancedPropertyBag& Other)
+{
+	const UClingPropertyBag* DestStruct = PropertyBagStruct;
+	const UClingPropertyBag* SourceStruct = Other.PropertyBagStruct;
+
+	if (!DestStruct || !SourceStruct)
+	{
+		return;
+	}
+
+	uint8* DestData = Value.GetMutableMemory();
+	const uint8* SourceData = Other.Value.GetMemory();
+
+	if (!DestData || !SourceData)
+	{
+		return;
+	}
+
+	for (TFieldIterator<FProperty> DestIt(DestStruct); DestIt; ++DestIt)
+	{
+		FProperty* DestProp = *DestIt;
+		if (DestProp->GetFName() == "PropertyDescs") continue;
+
+		if (FProperty* SourceProp = SourceStruct->FindPropertyByName(DestProp->GetFName()))
+		{
+			// Check if types are roughly compatible
+			if (DestProp->SameType(SourceProp))
+			{
+				DestProp->CopyCompleteValue(DestProp->ContainerPtrToValuePtr<void>(DestData), SourceProp->ContainerPtrToValuePtr<void>(SourceData));
+			}
+		}
+	}
+}
+
+bool FClingInstancedPropertyBag::Serialize(FArchive& Ar)
+{
+	Ar.UsingCustomVersion(FClingPropertyBagCustomVersion::GUID);
+
+	const int32 Version = Ar.CustomVer(FClingPropertyBagCustomVersion::GUID);
+	
+	if (Version < FClingPropertyBagCustomVersion::AddedVersioning && Ar.IsLoading())
+	{
+		// Old format was tagged or early binary. Try tagged first for compatibility with older assets.
+		UScriptStruct* Struct = FClingInstancedPropertyBag::StaticStruct();
+		Struct->SerializeTaggedProperties(Ar, (uint8*)this, Struct, nullptr);
+
+		if (PropertyDescs.Num() > 0)
+		{
+			PropertyBagStruct = const_cast<UClingPropertyBag*>(UClingPropertyBag::GetOrCreateFromDescs(PropertyDescs));
+			Value.InitializeAs(PropertyBagStruct);
+
+			if (SerializedValues.Num() > 0 && PropertyBagStruct)
+			{
+				uint8* Data = Value.GetMutableMemory();
+				for (auto& KVP : SerializedValues)
+				{
+					if (FProperty* Prop = PropertyBagStruct->FindPropertyByName(KVP.Key))
+					{
+						const TCHAR* ImportPtr = *KVP.Value;
+						Prop->ImportText_Direct(ImportPtr, Prop->ContainerPtrToValuePtr<void>(Data), nullptr, PPF_None);
+					}
+				}
+			}
+		}
+		return true;
+	}
+
+	// New format inspired by FInstancedPropertyBag
+	bool bHasData = Value.IsValid();
+	Ar << bHasData;
+
+	if (bHasData)
+	{
+		if (Ar.IsLoading())
+		{
+			Ar << PropertyDescs;
+
+			for (FClingPropertyBagPropertyDesc& Desc : PropertyDescs)
+			{
+				if (Desc.ValueTypeObject)
+				{
+					Ar.Preload(Desc.ValueTypeObject.Get());
+				}
+				if (Desc.KeyTypeObject)
+				{
+					Ar.Preload(Desc.KeyTypeObject.Get());
+				}
+			}
+
+			PropertyBagStruct = const_cast<UClingPropertyBag*>(UClingPropertyBag::GetOrCreateFromDescs(PropertyDescs));
+			Value.InitializeAs(PropertyBagStruct);
+
+			int32 SerialSize = 0;
+			Ar << SerialSize;
+
+			if (PropertyBagStruct != nullptr && Value.GetMutableMemory() != nullptr)
+			{
+				PropertyBagStruct->SerializeItem(Ar, Value.GetMutableMemory(), nullptr);
+			}
+			else
+			{
+				Ar.Seek(Ar.Tell() + SerialSize);
+			}
+			
+			// Also load SerializedValues for backward compatibility if needed, 
+			// though new versions should rely on SerializeItem
+			Ar << SerializedValues;
+		}
+		else
+		{
+			Ar << PropertyDescs;
+
+			const int64 SizeOffset = Ar.Tell();
+			int32 SerialSize = 0;
+			Ar << SerialSize;
+
+			const int64 InitialOffset = Ar.Tell();
+			if (PropertyBagStruct != nullptr && Value.GetMutableMemory() != nullptr)
+			{
+				PropertyBagStruct->SerializeItem(Ar, Value.GetMutableMemory(), nullptr);
+			}
+			const int64 FinalOffset = Ar.Tell();
+
+			Ar.Seek(SizeOffset);
+			SerialSize = static_cast<int32>(FinalOffset - InitialOffset);
+			Ar << SerialSize;
+			Ar.Seek(FinalOffset);
+
+			// Keep SerializedValues for now to maintain consistency with old loading logic if ever needed
+			if (PropertyBagStruct)
+			{
+				SerializedValues.Empty();
+				uint8* Data = Value.GetMutableMemory();
+				for (TFieldIterator<FProperty> It(PropertyBagStruct); It; ++It)
+				{
+					if (It->GetFName() == "PropertyDescs") continue;
+					FString Val;
+					It->ExportText_Direct(Val, It->ContainerPtrToValuePtr<void>(Data), nullptr, nullptr, PPF_None);
+					SerializedValues.Add(It->GetFName(), Val);
+				}
+			}
+			Ar << SerializedValues;
+		}
+	}
+	else
+	{
+		if (Ar.IsLoading())
+		{
+			PropertyDescs.Empty();
+			SerializedValues.Empty();
+			Value.Reset();
+		}
+	}
+
+	return true;
 }
