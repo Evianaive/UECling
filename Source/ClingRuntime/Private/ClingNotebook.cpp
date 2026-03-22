@@ -9,7 +9,9 @@
 #include "Interfaces/IPluginManager.h"
 #include "Misc/FileHelper.h"
 #include "Misc/Paths.h"
-#include "StructUtils/PropertyBag.h"
+#include "ClingPropertyBag/ClingPropertyBag.h"
+#include "StructUtils/InstancedStruct.h"
+#include "UObject/UnrealType.h"
 
 #if WITH_EDITOR
 #include "ClingSourceAccess.h"
@@ -241,6 +243,24 @@ namespace ClingNotebookIDE
 #if WITH_EDITOR
 namespace ClingNotebookSymbols
 {
+	static bool SplitTemplateArgs(const FString& InText, TArray<FString>& OutParts)
+	{
+		int32 NestLevel = 0;
+		int32 LastPos = 0;
+		for (int32 i = 0; i < InText.Len(); ++i)
+		{
+			if (InText[i] == '<') NestLevel++;
+			else if (InText[i] == '>') NestLevel--;
+			else if (InText[i] == ',' && NestLevel == 0)
+			{
+				OutParts.Add(InText.Mid(LastPos, i - LastPos).TrimStartAndEnd());
+				LastPos = i + 1;
+			}
+		}
+		OutParts.Add(InText.Mid(LastPos).TrimStartAndEnd());
+		return true;
+	}
+
 	FString StripComments(const FString& InText)
 	{
 		FString Out;
@@ -638,6 +658,21 @@ namespace ClingNotebookSymbols
 			return;
 		}
 
+		if (Working.StartsWith(TEXT("TMap<")))
+		{
+			FString Inner;
+			if (ExtractTemplateArg(Working, Inner))
+			{
+				TArray<FString> Args;
+				SplitTemplateArgs(Inner, Args);
+				for (const FString& Arg : Args)
+				{
+					CollectTypesFromString(Arg, Request);
+				}
+			}
+			return;
+		}
+
 		if (Working.StartsWith(TEXT("TSubclassOf<")) ||
 			Working.StartsWith(TEXT("TSoftObjectPtr<")) ||
 			Working.StartsWith(TEXT("TSoftClassPtr<")) ||
@@ -653,12 +688,34 @@ namespace ClingNotebookSymbols
 
 		Working = StripQualifiers(Working).TrimStartAndEnd();
 
+		{
+			int32 LastDoubleColon = INDEX_NONE;
+			int32 TemplateDepth = 0;
+			for (int32 i = 0; i < Working.Len(); ++i)
+			{
+				if (Working[i] == TEXT('<')) TemplateDepth++;
+				else if (Working[i] == TEXT('>')) TemplateDepth--;
+				else if (TemplateDepth == 0 && i < Working.Len() - 1 && Working[i] == TEXT(':') && Working[i + 1] == TEXT(':'))
+				{
+					LastDoubleColon = i;
+				}
+			}
+			if (LastDoubleColon != INDEX_NONE)
+			{
+				Working = Working.Mid(LastDoubleColon + 2);
+			}
+		}
+
 		static const TSet<FString> BuiltinTypes = {
 			TEXT("void"), TEXT("bool"), TEXT("uint8"), TEXT("uint8_t"), TEXT("byte"),
-			TEXT("int32"), TEXT("int"), TEXT("int64"), TEXT("uint32"), TEXT("uint64"),
-			TEXT("float"), TEXT("double"), TEXT("FName"), TEXT("FString"), TEXT("FText"),
-			TEXT("char"), TEXT("wchar_t"), TEXT("size_t"), TEXT("int8"), TEXT("int16"),
-			TEXT("uint16"), TEXT("long"), TEXT("short")
+			TEXT("int8"), TEXT("int8_t"), TEXT("int16"), TEXT("int16_t"),
+			TEXT("int32"), TEXT("int32_t"), TEXT("int"), TEXT("int64"), TEXT("int64_t"),
+			TEXT("uint16"), TEXT("uint16_t"), TEXT("uint32"), TEXT("uint32_t"),
+			TEXT("uint64"), TEXT("uint64_t"), TEXT("float"), TEXT("double"),
+			TEXT("fname"), TEXT("fstring"), TEXT("ftext"),
+			TEXT("char"), TEXT("wchar_t"), TEXT("size_t"), TEXT("long"), TEXT("short"),
+			TEXT("unsigned char"), TEXT("unsigned short"), TEXT("unsigned int"),
+			TEXT("unsigned long"), TEXT("unsigned long long"), TEXT("long long")
 		};
 
 		FString LowerWorking = Working.ToLower();
@@ -860,39 +917,48 @@ namespace ClingNotebookSymbols
 		return Found ? *Found : nullptr;
 	}
 
-	static bool ParseTypeRecursiveWithLookup(const FString& InType, FClingNotebookTypeDesc& OutDesc, FPropertyBagContainerTypes& InOutContainers, const FTypeLookupResult& LookupResult);
+	static bool ParseTypeRecursiveWithLookup(const FString& InType, FClingNotebookTypeDesc& OutDesc, TArray<EClingPropertyBagContainerType>& InOutContainers, const FTypeLookupResult& LookupResult);
 
-	static bool ParseTypeWithLookup(const FString& Working, FClingNotebookTypeDesc& OutDesc, FPropertyBagContainerTypes& InOutContainers, const FTypeLookupResult& LookupResult)
+	static bool ParseTypeWithLookup(const FString& Working, FClingNotebookTypeDesc& OutDesc, TArray<EClingPropertyBagContainerType>& InOutContainers, const FTypeLookupResult& LookupResult)
 	{
 		static const TSet<FString> BuiltinTypes = {
 			TEXT("void"), TEXT("bool"), TEXT("uint8"), TEXT("uint8_t"), TEXT("byte"),
-			TEXT("int32"), TEXT("int"), TEXT("int64"), TEXT("uint32"), TEXT("uint64"),
-			TEXT("float"), TEXT("double"), TEXT("FName"), TEXT("FString"), TEXT("FText"),
-			TEXT("char"), TEXT("wchar_t"), TEXT("size_t"), TEXT("int8"), TEXT("int16"),
-			TEXT("uint16"), TEXT("long"), TEXT("short")
+			TEXT("int8"), TEXT("int8_t"), TEXT("int16"), TEXT("int16_t"),
+			TEXT("int32"), TEXT("int32_t"), TEXT("int"), TEXT("int64"), TEXT("int64_t"),
+			TEXT("uint16"), TEXT("uint16_t"), TEXT("uint32"), TEXT("uint32_t"),
+			TEXT("uint64"), TEXT("uint64_t"), TEXT("float"), TEXT("double"),
+			TEXT("fname"), TEXT("fstring"), TEXT("ftext"),
+			TEXT("char"), TEXT("wchar_t"), TEXT("size_t"), TEXT("long"), TEXT("short"),
+			TEXT("unsigned char"), TEXT("unsigned short"), TEXT("unsigned int"),
+			TEXT("unsigned long"), TEXT("unsigned long long"), TEXT("long long")
 		};
 
 		FString LowerWorking = Working.ToLower();
 		if (BuiltinTypes.Contains(LowerWorking))
 		{
-			if (Working.Equals(TEXT("void"), ESearchCase::IgnoreCase))
+			if (LowerWorking == TEXT("void"))
 			{
 				OutDesc.bIsVoid = true;
 				OutDesc.bSupported = false;
 				return true;
 			}
-			if (Working.Equals(TEXT("bool"), ESearchCase::IgnoreCase)) { OutDesc.ValueType = EPropertyBagPropertyType::Bool; }
-			else if (Working.Equals(TEXT("uint8"), ESearchCase::IgnoreCase) || Working.Equals(TEXT("uint8_t"), ESearchCase::IgnoreCase) || Working.Equals(TEXT("byte"), ESearchCase::IgnoreCase)) { OutDesc.ValueType = EPropertyBagPropertyType::Byte; }
-			else if (Working.Equals(TEXT("int32"), ESearchCase::IgnoreCase) || Working.Equals(TEXT("int"), ESearchCase::IgnoreCase)) { OutDesc.ValueType = EPropertyBagPropertyType::Int32; }
-			else if (Working.Equals(TEXT("int64"), ESearchCase::IgnoreCase) || Working.Equals(TEXT("long long"), ESearchCase::IgnoreCase)) { OutDesc.ValueType = EPropertyBagPropertyType::Int64; }
-			else if (Working.Equals(TEXT("uint32"), ESearchCase::IgnoreCase) || Working.Equals(TEXT("unsigned int"), ESearchCase::IgnoreCase)) { OutDesc.ValueType = EPropertyBagPropertyType::UInt32; }
-			else if (Working.Equals(TEXT("uint64"), ESearchCase::IgnoreCase) || Working.Equals(TEXT("unsigned long long"), ESearchCase::IgnoreCase)) { OutDesc.ValueType = EPropertyBagPropertyType::UInt64; }
-			else if (Working.Equals(TEXT("float"), ESearchCase::IgnoreCase)) { OutDesc.ValueType = EPropertyBagPropertyType::Float; }
-			else if (Working.Equals(TEXT("double"), ESearchCase::IgnoreCase)) { OutDesc.ValueType = EPropertyBagPropertyType::Double; }
-			else if (Working.Equals(TEXT("FName"), ESearchCase::IgnoreCase)) { OutDesc.ValueType = EPropertyBagPropertyType::Name; }
-			else if (Working.Equals(TEXT("FString"), ESearchCase::IgnoreCase)) { OutDesc.ValueType = EPropertyBagPropertyType::String; }
-			else if (Working.Equals(TEXT("FText"), ESearchCase::IgnoreCase)) { OutDesc.ValueType = EPropertyBagPropertyType::Text; }
+			
+			if (LowerWorking == TEXT("bool")) { OutDesc.ValueType = EClingPropertyBagPropertyType::Bool; }
+			else if (LowerWorking == TEXT("uint8") || LowerWorking == TEXT("uint8_t") || LowerWorking == TEXT("byte") || LowerWorking == TEXT("unsigned char")) { OutDesc.ValueType = EClingPropertyBagPropertyType::Byte; }
+			else if (LowerWorking == TEXT("int8") || LowerWorking == TEXT("int8_t")) { OutDesc.ValueType = EClingPropertyBagPropertyType::Int32; } // UE PropertyBag usually doesn't have Int8, map to Int32
+			else if (LowerWorking == TEXT("int16") || LowerWorking == TEXT("int16_t") || LowerWorking == TEXT("short")) { OutDesc.ValueType = EClingPropertyBagPropertyType::Int32; }
+			else if (LowerWorking == TEXT("int32") || LowerWorking == TEXT("int32_t") || LowerWorking == TEXT("int")) { OutDesc.ValueType = EClingPropertyBagPropertyType::Int32; }
+			else if (LowerWorking == TEXT("int64") || LowerWorking == TEXT("int64_t") || LowerWorking == TEXT("long long") || LowerWorking == TEXT("long")) { OutDesc.ValueType = EClingPropertyBagPropertyType::Int64; }
+			else if (LowerWorking == TEXT("uint16") || LowerWorking == TEXT("uint16_t") || LowerWorking == TEXT("unsigned short")) { OutDesc.ValueType = EClingPropertyBagPropertyType::UInt32; }
+			else if (LowerWorking == TEXT("uint32") || LowerWorking == TEXT("uint32_t") || LowerWorking == TEXT("unsigned int") || LowerWorking == TEXT("unsigned long")) { OutDesc.ValueType = EClingPropertyBagPropertyType::UInt32; }
+			else if (LowerWorking == TEXT("uint64") || LowerWorking == TEXT("uint64_t") || LowerWorking == TEXT("unsigned long long") || LowerWorking == TEXT("size_t")) { OutDesc.ValueType = EClingPropertyBagPropertyType::UInt64; }
+			else if (LowerWorking == TEXT("float")) { OutDesc.ValueType = EClingPropertyBagPropertyType::Float; }
+			else if (LowerWorking == TEXT("double")) { OutDesc.ValueType = EClingPropertyBagPropertyType::Double; }
+			else if (LowerWorking == TEXT("fname")) { OutDesc.ValueType = EClingPropertyBagPropertyType::Name; }
+			else if (LowerWorking == TEXT("fstring")) { OutDesc.ValueType = EClingPropertyBagPropertyType::String; }
+			else if (LowerWorking == TEXT("ftext")) { OutDesc.ValueType = EClingPropertyBagPropertyType::Text; }
 			else { return false; }
+			
 			OutDesc.ContainerTypes = InOutContainers;
 			OutDesc.bSupported = true;
 			return true;
@@ -900,7 +966,7 @@ namespace ClingNotebookSymbols
 
 		if (Working == TEXT("UClass"))
 		{
-			OutDesc.ValueType = EPropertyBagPropertyType::Class;
+			OutDesc.ValueType = EClingPropertyBagPropertyType::Class;
 			OutDesc.ValueTypeObject = UObject::StaticClass();
 			OutDesc.ContainerTypes = InOutContainers;
 			OutDesc.bSupported = true;
@@ -909,7 +975,7 @@ namespace ClingNotebookSymbols
 
 		if (UScriptStruct* Struct = FindStructFromResult(Working, LookupResult))
 		{
-			OutDesc.ValueType = EPropertyBagPropertyType::Struct;
+			OutDesc.ValueType = EClingPropertyBagPropertyType::Struct;
 			OutDesc.ValueTypeObject = Struct;
 			OutDesc.ContainerTypes = InOutContainers;
 			OutDesc.bSupported = true;
@@ -918,7 +984,7 @@ namespace ClingNotebookSymbols
 
 		if (UEnum* Enum = FindEnumFromResult(Working, LookupResult))
 		{
-			OutDesc.ValueType = EPropertyBagPropertyType::Enum;
+			OutDesc.ValueType = EClingPropertyBagPropertyType::Enum;
 			OutDesc.ValueTypeObject = Enum;
 			OutDesc.ContainerTypes = InOutContainers;
 			OutDesc.bSupported = true;
@@ -928,13 +994,31 @@ namespace ClingNotebookSymbols
 		return false;
 	}
 
-	static bool ParseTypeRecursiveWithLookup(const FString& InType, FClingNotebookTypeDesc& OutDesc, FPropertyBagContainerTypes& InOutContainers, const FTypeLookupResult& LookupResult)
+	static bool ParseTypeRecursiveWithLookup(const FString& InType, FClingNotebookTypeDesc& OutDesc, TArray<EClingPropertyBagContainerType>& InOutContainers, const FTypeLookupResult& LookupResult)
 	{
 		FString Working = StripQualifiers(InType).TrimStartAndEnd();
 		Working.ReplaceInline(TEXT("\t"), TEXT(" "));
 		Working.TrimStartAndEndInline();
 
 		if (Working.IsEmpty()) return false;
+
+		// Strip outermost namespace if any (e.g. UE::Math::FVector -> FVector)
+		// but ignore if it's within template brackets.
+		int32 LastDoubleColon = INDEX_NONE;
+		int32 TemplateDepth = 0;
+		for (int32 i = 0; i < Working.Len(); ++i)
+		{
+			if (Working[i] == TEXT('<')) TemplateDepth++;
+			else if (Working[i] == TEXT('>')) TemplateDepth--;
+			else if (TemplateDepth == 0 && i < Working.Len() - 1 && Working[i] == TEXT(':') && Working[i + 1] == TEXT(':'))
+			{
+				LastDoubleColon = i;
+			}
+		}
+		if (LastDoubleColon != INDEX_NONE)
+		{
+			Working = Working.Mid(LastDoubleColon + 2);
+		}
 
 		bool bPointer = Working.EndsWith(TEXT("*"));
 		bool bReference = Working.EndsWith(TEXT("&"));
@@ -946,7 +1030,7 @@ namespace ClingNotebookSymbols
 
 		if (Working.StartsWith(TEXT("TArray<")))
 		{
-			if (!InOutContainers.Add(EPropertyBagContainerType::Array)) return false;
+			InOutContainers.Add(EClingPropertyBagContainerType::Array);
 			FString Inner;
 			if (!ExtractTemplateArg(Working, Inner)) return false;
 			return ParseTypeRecursiveWithLookup(Inner, OutDesc, InOutContainers, LookupResult);
@@ -954,10 +1038,30 @@ namespace ClingNotebookSymbols
 
 		if (Working.StartsWith(TEXT("TSet<")))
 		{
-			if (!InOutContainers.Add(EPropertyBagContainerType::Set)) return false;
+			InOutContainers.Add(EClingPropertyBagContainerType::Set);
 			FString Inner;
 			if (!ExtractTemplateArg(Working, Inner)) return false;
 			return ParseTypeRecursiveWithLookup(Inner, OutDesc, InOutContainers, LookupResult);
+		}
+
+		if (Working.StartsWith(TEXT("TMap<")))
+		{
+			InOutContainers.Add(EClingPropertyBagContainerType::Map);
+			FString Inner;
+			if (!ExtractTemplateArg(Working, Inner)) return false;
+			
+			TArray<FString> Args;
+			SplitTemplateArgs(Inner, Args);
+			if (Args.Num() != 2) return false;
+
+			FClingNotebookTypeDesc KeyDesc;
+			TArray<EClingPropertyBagContainerType> KeyContainers;
+			if (!ParseTypeRecursiveWithLookup(Args[0], KeyDesc, KeyContainers, LookupResult)) return false;
+			
+			OutDesc.KeyType = KeyDesc.ValueType;
+			OutDesc.KeyTypeObject = KeyDesc.ValueTypeObject;
+
+			return ParseTypeRecursiveWithLookup(Args[1], OutDesc, InOutContainers, LookupResult);
 		}
 
 		if (Working.StartsWith(TEXT("TSubclassOf<")))
@@ -966,7 +1070,7 @@ namespace ClingNotebookSymbols
 			if (!ExtractTemplateArg(Working, Inner)) return false;
 			if (UClass* Class = FindClassFromResult(Inner.TrimStartAndEnd(), LookupResult))
 			{
-				OutDesc.ValueType = EPropertyBagPropertyType::Class;
+				OutDesc.ValueType = EClingPropertyBagPropertyType::Class;
 				OutDesc.ValueTypeObject = Class;
 				OutDesc.ContainerTypes = InOutContainers;
 				OutDesc.bSupported = true;
@@ -981,7 +1085,7 @@ namespace ClingNotebookSymbols
 			if (!ExtractTemplateArg(Working, Inner)) return false;
 			if (UClass* Class = FindClassFromResult(Inner.TrimStartAndEnd(), LookupResult))
 			{
-				OutDesc.ValueType = EPropertyBagPropertyType::SoftObject;
+				OutDesc.ValueType = EClingPropertyBagPropertyType::SoftObject;
 				OutDesc.ValueTypeObject = Class;
 				OutDesc.ContainerTypes = InOutContainers;
 				OutDesc.bSupported = true;
@@ -996,7 +1100,7 @@ namespace ClingNotebookSymbols
 			if (!ExtractTemplateArg(Working, Inner)) return false;
 			if (UClass* Class = FindClassFromResult(Inner.TrimStartAndEnd(), LookupResult))
 			{
-				OutDesc.ValueType = EPropertyBagPropertyType::SoftClass;
+				OutDesc.ValueType = EClingPropertyBagPropertyType::SoftClass;
 				OutDesc.ValueTypeObject = Class;
 				OutDesc.ContainerTypes = InOutContainers;
 				OutDesc.bSupported = true;
@@ -1011,7 +1115,7 @@ namespace ClingNotebookSymbols
 			if (!ExtractTemplateArg(Working, Inner)) return false;
 			if (UClass* Class = FindClassFromResult(Inner.TrimStartAndEnd(), LookupResult))
 			{
-				OutDesc.ValueType = EPropertyBagPropertyType::Object;
+				OutDesc.ValueType = EClingPropertyBagPropertyType::Object;
 				OutDesc.ValueTypeObject = Class;
 				OutDesc.ContainerTypes = InOutContainers;
 				OutDesc.bSupported = true;
@@ -1025,7 +1129,7 @@ namespace ClingNotebookSymbols
 			const FString BaseType = Working.TrimStartAndEnd();
 			if (UClass* Class = FindClassFromResult(BaseType, LookupResult))
 			{
-				OutDesc.ValueType = EPropertyBagPropertyType::Object;
+				OutDesc.ValueType = EClingPropertyBagPropertyType::Object;
 				OutDesc.ValueTypeObject = Class;
 				OutDesc.ContainerTypes = InOutContainers;
 				OutDesc.bSupported = true;
@@ -1033,7 +1137,7 @@ namespace ClingNotebookSymbols
 			}
 			if (BaseType == TEXT("UClass"))
 			{
-				OutDesc.ValueType = EPropertyBagPropertyType::Class;
+				OutDesc.ValueType = EClingPropertyBagPropertyType::Class;
 				OutDesc.ValueTypeObject = UObject::StaticClass();
 				OutDesc.ContainerTypes = InOutContainers;
 				OutDesc.bSupported = true;
@@ -1049,11 +1153,16 @@ namespace ClingNotebookSymbols
 	{
 		OutDesc = FClingNotebookTypeDesc();
 		OutDesc.OriginalType = InType.TrimStartAndEnd();
-		FPropertyBagContainerTypes Containers;
-		return ParseTypeRecursiveWithLookup(OutDesc.OriginalType, OutDesc, Containers, LookupResult);
+		TArray<EClingPropertyBagContainerType> Containers;
+		bool bRes = ParseTypeRecursiveWithLookup(OutDesc.OriginalType, OutDesc, Containers, LookupResult);
+		if (!bRes)
+		{
+			UE_LOG(LogTemp, Warning, TEXT("ClingNotebook: Failed to parse type: %s"), *InType);
+		}
+		return bRes;
 	}
 
-	bool ParseTypeRecursive(const FString& InType, FClingNotebookTypeDesc& OutDesc, FPropertyBagContainerTypes& InOutContainers)
+	bool ParseTypeRecursive(const FString& InType, FClingNotebookTypeDesc& OutDesc, TArray<EClingPropertyBagContainerType>& InOutContainers)
 	{
 		FString Working = StripQualifiers(InType).TrimStartAndEnd();
 		Working.ReplaceInline(TEXT("\t"), TEXT(" "));
@@ -1064,50 +1173,66 @@ namespace ClingNotebookSymbols
 			return false;
 		}
 
-	const bool bIsVoid = Working.Equals(TEXT("void"), ESearchCase::IgnoreCase);
-	if (bIsVoid)
-	{
-		OutDesc.bIsVoid = true;
-		OutDesc.bSupported = false;
-		return true;
-	}
+		const bool bIsVoid = Working.Equals(TEXT("void"), ESearchCase::IgnoreCase);
+		if (bIsVoid)
+		{
+			OutDesc.bIsVoid = true;
+			OutDesc.bSupported = false;
+			return true;
+		}
 
-	bool bPointer = Working.EndsWith(TEXT("*"));
-	bool bReference = Working.EndsWith(TEXT("&"));
-	while (Working.EndsWith(TEXT("*")) || Working.EndsWith(TEXT("&")))
-	{
-		Working.LeftChopInline(1);
-		Working.TrimEndInline();
-	}
+		bool bPointer = Working.EndsWith(TEXT("*"));
+		bool bReference = Working.EndsWith(TEXT("&"));
+		while (Working.EndsWith(TEXT("*")) || Working.EndsWith(TEXT("&")))
+		{
+			Working.LeftChopInline(1);
+			Working.TrimEndInline();
+		}
 
-	// Handle templates
-	if (Working.StartsWith(TEXT("TArray<")))
-	{
-		if (!InOutContainers.Add(EPropertyBagContainerType::Array))
+		// Handle templates
+		if (Working.StartsWith(TEXT("TArray<")))
 		{
-			return false;
+			InOutContainers.Add(EClingPropertyBagContainerType::Array);
+			FString Inner;
+			if (!ExtractTemplateArg(Working, Inner))
+			{
+				return false;
+			}
+			return ParseTypeRecursive(Inner, OutDesc, InOutContainers);
 		}
-		FString Inner;
-		if (!ExtractTemplateArg(Working, Inner))
-		{
-			return false;
-		}
-		return ParseTypeRecursive(Inner, OutDesc, InOutContainers);
-	}
 
-	if (Working.StartsWith(TEXT("TSet<")))
-	{
-		if (!InOutContainers.Add(EPropertyBagContainerType::Set))
+		if (Working.StartsWith(TEXT("TSet<")))
 		{
-			return false;
+			InOutContainers.Add(EClingPropertyBagContainerType::Set);
+			FString Inner;
+			if (!ExtractTemplateArg(Working, Inner))
+			{
+				return false;
+			}
+			return ParseTypeRecursive(Inner, OutDesc, InOutContainers);
 		}
-		FString Inner;
-		if (!ExtractTemplateArg(Working, Inner))
+
+		if (Working.StartsWith(TEXT("TMap<")))
 		{
-			return false;
+			InOutContainers.Add(EClingPropertyBagContainerType::Map);
+			FString Inner;
+			if (!ExtractTemplateArg(Working, Inner))
+			{
+				return false;
+			}
+			TArray<FString> Args;
+			SplitTemplateArgs(Inner, Args);
+			if (Args.Num() != 2) return false;
+
+			FClingNotebookTypeDesc KeyDesc;
+			TArray<EClingPropertyBagContainerType> KeyContainers;
+			if (!ParseTypeRecursive(Args[0], KeyDesc, KeyContainers)) return false;
+
+			OutDesc.KeyType = KeyDesc.ValueType;
+			OutDesc.KeyTypeObject = KeyDesc.ValueTypeObject;
+
+			return ParseTypeRecursive(Args[1], OutDesc, InOutContainers);
 		}
-		return ParseTypeRecursive(Inner, OutDesc, InOutContainers);
-	}
 
 	if (Working.StartsWith(TEXT("TSubclassOf<")))
 	{
@@ -1121,7 +1246,7 @@ namespace ClingNotebookSymbols
 		{
 			return false;
 		}
-		OutDesc.ValueType = EPropertyBagPropertyType::Class;
+		OutDesc.ValueType = EClingPropertyBagPropertyType::Class;
 		OutDesc.ValueTypeObject = ResolvedClass;
 		OutDesc.ContainerTypes = InOutContainers;
 		OutDesc.bSupported = true;
@@ -1140,7 +1265,7 @@ namespace ClingNotebookSymbols
 		{
 			return false;
 		}
-		OutDesc.ValueType = EPropertyBagPropertyType::SoftObject;
+		OutDesc.ValueType = EClingPropertyBagPropertyType::SoftObject;
 		OutDesc.ValueTypeObject = ResolvedClass;
 		OutDesc.ContainerTypes = InOutContainers;
 		OutDesc.bSupported = true;
@@ -1159,7 +1284,7 @@ namespace ClingNotebookSymbols
 		{
 			return false;
 		}
-		OutDesc.ValueType = EPropertyBagPropertyType::SoftClass;
+		OutDesc.ValueType = EClingPropertyBagPropertyType::SoftClass;
 		OutDesc.ValueTypeObject = ResolvedClass;
 		OutDesc.ContainerTypes = InOutContainers;
 		OutDesc.bSupported = true;
@@ -1178,7 +1303,7 @@ namespace ClingNotebookSymbols
 		{
 			return false;
 		}
-		OutDesc.ValueType = EPropertyBagPropertyType::Object;
+		OutDesc.ValueType = EClingPropertyBagPropertyType::Object;
 		OutDesc.ValueTypeObject = ResolvedClass;
 		OutDesc.ContainerTypes = InOutContainers;
 		OutDesc.bSupported = true;
@@ -1191,7 +1316,7 @@ namespace ClingNotebookSymbols
 		UClass* ResolvedClass = nullptr;
 		if (TryResolveClass_Legacy(BaseType, ResolvedClass))
 		{
-			OutDesc.ValueType = EPropertyBagPropertyType::Object;
+			OutDesc.ValueType = EClingPropertyBagPropertyType::Object;
 			OutDesc.ValueTypeObject = ResolvedClass;
 			OutDesc.ContainerTypes = InOutContainers;
 			OutDesc.bSupported = true;
@@ -1200,7 +1325,7 @@ namespace ClingNotebookSymbols
 
 		if (BaseType == TEXT("UClass"))
 		{
-			OutDesc.ValueType = EPropertyBagPropertyType::Class;
+			OutDesc.ValueType = EClingPropertyBagPropertyType::Class;
 			OutDesc.ValueTypeObject = UObject::StaticClass();
 			OutDesc.ContainerTypes = InOutContainers;
 			OutDesc.bSupported = true;
@@ -1211,55 +1336,55 @@ namespace ClingNotebookSymbols
 	const FString BaseType = Working.TrimStartAndEnd();
 	if (BaseType.Equals(TEXT("bool"), ESearchCase::IgnoreCase))
 	{
-		OutDesc.ValueType = EPropertyBagPropertyType::Bool;
+		OutDesc.ValueType = EClingPropertyBagPropertyType::Bool;
 	}
 	else if (BaseType.Equals(TEXT("uint8"), ESearchCase::IgnoreCase) || BaseType.Equals(TEXT("uint8_t"), ESearchCase::IgnoreCase)
 		|| BaseType.Equals(TEXT("byte"), ESearchCase::IgnoreCase))
 	{
-		OutDesc.ValueType = EPropertyBagPropertyType::Byte;
+		OutDesc.ValueType = EClingPropertyBagPropertyType::Byte;
 	}
 	else if (BaseType.Equals(TEXT("int32"), ESearchCase::IgnoreCase) || BaseType.Equals(TEXT("int"), ESearchCase::IgnoreCase))
 	{
-		OutDesc.ValueType = EPropertyBagPropertyType::Int32;
+		OutDesc.ValueType = EClingPropertyBagPropertyType::Int32;
 	}
 	else if (BaseType.Equals(TEXT("int64"), ESearchCase::IgnoreCase) || BaseType.Equals(TEXT("long long"), ESearchCase::IgnoreCase))
 	{
-		OutDesc.ValueType = EPropertyBagPropertyType::Int64;
+		OutDesc.ValueType = EClingPropertyBagPropertyType::Int64;
 	}
 	else if (BaseType.Equals(TEXT("uint32"), ESearchCase::IgnoreCase) || BaseType.Equals(TEXT("unsigned int"), ESearchCase::IgnoreCase))
 	{
-		OutDesc.ValueType = EPropertyBagPropertyType::UInt32;
+		OutDesc.ValueType = EClingPropertyBagPropertyType::UInt32;
 	}
 	else if (BaseType.Equals(TEXT("uint64"), ESearchCase::IgnoreCase) || BaseType.Equals(TEXT("unsigned long long"), ESearchCase::IgnoreCase))
 	{
-		OutDesc.ValueType = EPropertyBagPropertyType::UInt64;
+		OutDesc.ValueType = EClingPropertyBagPropertyType::UInt64;
 	}
 	else if (BaseType.Equals(TEXT("float"), ESearchCase::IgnoreCase))
 	{
-		OutDesc.ValueType = EPropertyBagPropertyType::Float;
+		OutDesc.ValueType = EClingPropertyBagPropertyType::Float;
 	}
 	else if (BaseType.Equals(TEXT("double"), ESearchCase::IgnoreCase))
 	{
-		OutDesc.ValueType = EPropertyBagPropertyType::Double;
+		OutDesc.ValueType = EClingPropertyBagPropertyType::Double;
 	}
 	else if (BaseType.Equals(TEXT("FName"), ESearchCase::IgnoreCase))
 	{
-		OutDesc.ValueType = EPropertyBagPropertyType::Name;
+		OutDesc.ValueType = EClingPropertyBagPropertyType::Name;
 	}
 	else if (BaseType.Equals(TEXT("FString"), ESearchCase::IgnoreCase))
 	{
-		OutDesc.ValueType = EPropertyBagPropertyType::String;
+		OutDesc.ValueType = EClingPropertyBagPropertyType::String;
 	}
 	else if (BaseType.Equals(TEXT("FText"), ESearchCase::IgnoreCase))
 	{
-		OutDesc.ValueType = EPropertyBagPropertyType::Text;
+		OutDesc.ValueType = EClingPropertyBagPropertyType::Text;
 	}
 	else
 	{
 		UScriptStruct* Struct = nullptr;
 		if (TryResolveStruct_Legacy(BaseType, Struct))
 		{
-			OutDesc.ValueType = EPropertyBagPropertyType::Struct;
+			OutDesc.ValueType = EClingPropertyBagPropertyType::Struct;
 			OutDesc.ValueTypeObject = Struct;
 		}
 		else
@@ -1267,7 +1392,7 @@ namespace ClingNotebookSymbols
 			UEnum* Enum = nullptr;
 			if (TryResolveEnum_Legacy(BaseType, Enum))
 			{
-				OutDesc.ValueType = EPropertyBagPropertyType::Enum;
+				OutDesc.ValueType = EClingPropertyBagPropertyType::Enum;
 				OutDesc.ValueTypeObject = Enum;
 			}
 			else
@@ -1278,7 +1403,7 @@ namespace ClingNotebookSymbols
 	}
 
 	OutDesc.ContainerTypes = InOutContainers;
-	OutDesc.bSupported = OutDesc.ValueType != EPropertyBagPropertyType::None;
+	OutDesc.bSupported = OutDesc.ValueType != EClingPropertyBagPropertyType::None;
 	return OutDesc.bSupported;
 }
 
@@ -1287,7 +1412,7 @@ namespace ClingNotebookSymbols
 		OutDesc = FClingNotebookTypeDesc();
 		OutDesc.OriginalType = InType.TrimStartAndEnd();
 
-		FPropertyBagContainerTypes Containers;
+		TArray<EClingPropertyBagContainerType> Containers;
 		return ParseTypeRecursive(OutDesc.OriginalType, OutDesc, Containers);
 	}
 
@@ -1513,7 +1638,9 @@ namespace ClingNotebookSymbols
 		TSet<FString> FoundNames;
 		while (Matcher.FindNext())
 		{
-			FoundNames.Add(Matcher.GetCaptureGroup(1));
+			FString FoundName = Matcher.GetCaptureGroup(1);
+			FoundNames.Add(FoundName);
+			UE_LOG(LogTemp, Log, TEXT("ClingNotebook: Regex found potential function: %s"), *FoundName);
 		}
 
 		struct FArgInfo
@@ -1585,22 +1712,30 @@ namespace ClingNotebookSymbols
 			BuildTypeDescWithLookup(Info.RetTypeStr, Sig.ReturnType, TypeResult);
 
 			Sig.OriginalNumArgs = Info.Args.Num();
-			TArray<FPropertyBagPropertyDesc> PropDescs;
+			TArray<FClingPropertyBagPropertyDesc> PropDescs;
 			for (const FArgInfo& Arg : Info.Args)
 			{
 				FClingNotebookTypeDesc ArgTypeDesc;
 				if (BuildTypeDescWithLookup(Arg.TypeStr, ArgTypeDesc, TypeResult) && ArgTypeDesc.bSupported)
 				{
-					PropDescs.Add(FPropertyBagPropertyDesc(*Arg.NameStr, ArgTypeDesc.ValueType, ArgTypeDesc.ValueTypeObject));
-					PropDescs.Last().ContainerTypes = ArgTypeDesc.ContainerTypes;
+					FClingPropertyBagPropertyDesc Desc(*Arg.NameStr, ArgTypeDesc.ValueType, ArgTypeDesc.ValueTypeObject);
+					Desc.ContainerTypes = ArgTypeDesc.ContainerTypes;
+					Desc.KeyType = ArgTypeDesc.KeyType;
+					Desc.KeyTypeObject = ArgTypeDesc.KeyTypeObject;
+					PropDescs.Add(Desc);
 				}
 			}
 
 			if (PropDescs.Num() > 0 || Info.Args.Num() == 0)
 			{
-				Sig.Parameters.AddProperties(PropDescs);
+				const UClingPropertyBag* BagStruct = UClingPropertyBag::GetOrCreateFromDescs(PropDescs);
+				Sig.Parameters.InitializeWithStruct(BagStruct);
 				OutSignatures.Add(MoveTemp(Sig));
 				FinalFuncs.Add(Info.Func);
+			}
+			else
+			{
+				UE_LOG(LogTemp, Warning, TEXT("ClingNotebook: Function %s ignored because none of its %d arguments could be parsed correctly."), *Info.Name, Info.Args.Num());
 			}
 		}
 
@@ -1882,16 +2017,14 @@ void UClingNotebook::ExecuteFunction(const FClingFunctionSignature& Signature)
 	{
 		UE_LOG(LogTemp, Log, TEXT("ClingNotebook: Using cached JitCall for %s"), *NameStr);
 		TArray<void*> ArgPointers;
-		const UPropertyBag* BagStruct = Signature.Parameters.GetPropertyBagStruct();
+		const UClingPropertyBag* BagStruct = Signature.Parameters.GetPropertyBagStruct();
 		if (BagStruct)
 		{
 			const uint8* BagMem = Signature.Parameters.GetValue().GetMemory();
-			for (const FPropertyBagPropertyDesc& Desc : BagStruct->GetPropertyDescs())
+			for (TFieldIterator<FProperty> It(BagStruct); It; ++It)
 			{
-				if (const FProperty* Prop = Desc.CachedProperty)
-				{
-					ArgPointers.Add((void*)Prop->ContainerPtrToValuePtr<void>(BagMem));
-				}
+				if (It->GetFName() == "PropertyDescs") continue;
+				ArgPointers.Add((void*)It->ContainerPtrToValuePtr<void>(BagMem));
 			}
 		}
 
@@ -1907,7 +2040,7 @@ void UClingNotebook::ExecuteFunction(const FClingFunctionSignature& Signature)
 			for (size_t i = 0; i < Num; ++i) LocalFunctions.Add(const_cast<CppImpl::TCppFunction_t>(Funcs[i]));
 		});
 
-	const UPropertyBag* BagStruct = Signature.Parameters.GetPropertyBagStruct();
+	const UClingPropertyBag* BagStruct = Signature.Parameters.GetPropertyBagStruct();
 	int32 ExpectedArgs = Signature.OriginalNumArgs;
 	// Fallback if OriginalNumArgs is not set
 	if (ExpectedArgs == 0 && BagStruct && BagStruct->GetPropertyDescs().Num() > 0)
@@ -1932,12 +2065,10 @@ void UClingNotebook::ExecuteFunction(const FClingFunctionSignature& Signature)
 				if (BagStruct)
 				{
 					const uint8* BagMem = Signature.Parameters.GetValue().GetMemory();
-					for (const FPropertyBagPropertyDesc& Desc : BagStruct->GetPropertyDescs())
+					for (TFieldIterator<FProperty> It(BagStruct); It; ++It)
 					{
-						if (const FProperty* Prop = Desc.CachedProperty)
-						{
-							ArgPointers.Add((void*)Prop->ContainerPtrToValuePtr<void>(BagMem));
-						}
+						if (It->GetFName() == "PropertyDescs") continue;
+						ArgPointers.Add((void*)It->ContainerPtrToValuePtr<void>(BagMem));
 					}
 				}
 
@@ -2140,7 +2271,7 @@ void UClingNotebook::UndoToHere(int32 InIndex)
 }
 
 // ---------------------------------------------------------------------------
-// Static coroutine to process one cell — avoids MSVC lambda-coroutine
+// Static coroutine to process one cell �?avoids MSVC lambda-coroutine
 // capture-by-pointer bug (lambda closure lives on the caller's stack and
 // becomes a dangling pointer once ProcessNextInQueue returns).
 // ---------------------------------------------------------------------------
@@ -2161,7 +2292,7 @@ ClingCoro::TClingTask<void> UClingNotebook::ProcessCellCoro(
 
 	if (!WeakThis.IsValid())
 	{
-		UE_LOG(LogTemp, Warning, TEXT("[ProcessCoro] Cell %d: WeakThis INVALID, notebook was GC'd — aborting."), CellIndex);
+		UE_LOG(LogTemp, Warning, TEXT("[ProcessCoro] Cell %d: WeakThis INVALID, notebook was GC'd �?aborting."), CellIndex);
 		co_return;
 	}
 
@@ -2205,7 +2336,7 @@ void UClingNotebook::ProcessNextInQueue()
 			bIsCompiling = (CompilingCells.Num() > 0);
 
 			// Notebook is idle: queue empty and no active compilation.
-			// Safe to refill the interpreter pool now — pool workers hold CppInterOpLock
+			// Safe to refill the interpreter pool now �?pool workers hold CppInterOpLock
 			// for ~30s, so we must never trigger this while cells are compiling.
 			if (!bIsCompiling)
 			{

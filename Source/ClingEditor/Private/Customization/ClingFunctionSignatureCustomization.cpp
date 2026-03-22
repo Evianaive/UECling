@@ -4,6 +4,39 @@
 #include "IDetailChildrenBuilder.h"
 #include "Widgets/Input/SButton.h"
 #include "PropertyHandle.h"
+#include "IStructureDataProvider.h"
+#include "StructUtils/InstancedStruct.h"
+
+class FClingInstancedPropertyBagStructureDataProvider : public IStructureDataProvider
+{
+public:
+	FClingInstancedPropertyBagStructureDataProvider(FClingInstancedPropertyBag& InPropertyBag)
+		: PropertyBag(InPropertyBag)
+	{
+	}
+
+	virtual bool IsValid() const override
+	{
+		return PropertyBag.GetPropertyBagStruct() != nullptr && PropertyBag.GetValue().IsValid();
+	}
+
+	virtual const UStruct* GetBaseStructure() const override
+	{
+		return PropertyBag.GetPropertyBagStruct();
+	}
+
+	virtual void GetInstances(TArray<TSharedPtr<FStructOnScope>>& OutInstances, const UStruct* ExpectedBaseStructure) const override
+	{
+		const UClingPropertyBag* Struct = PropertyBag.GetPropertyBagStruct();
+		if (Struct && Struct->IsChildOf(ExpectedBaseStructure))
+		{
+			OutInstances.Add(MakeShared<FStructOnScope>(Struct, const_cast<uint8*>(PropertyBag.GetValue().GetMemory())));
+		}
+	}
+
+protected:
+	FClingInstancedPropertyBag& PropertyBag;
+};
 
 TSharedRef<IPropertyTypeCustomization> FClingFunctionSignatureCustomization::MakeInstance()
 {
@@ -44,6 +77,25 @@ void FClingFunctionSignatureCustomization::CustomizeChildren(TSharedRef<IPropert
 	TSharedPtr<IPropertyHandle> ParamsHandle = PropertyHandle->GetChildHandle(GET_MEMBER_NAME_CHECKED(FClingFunctionSignature, Parameters));
 	if (ParamsHandle.IsValid())
 	{
+		void* ParamsPtr = nullptr;
+		if (ParamsHandle->GetValueData(ParamsPtr) == FPropertyAccess::Success && ParamsPtr != nullptr)
+		{
+			FClingInstancedPropertyBag* PropertyBag = (FClingInstancedPropertyBag*)ParamsPtr;
+			if (PropertyBag->GetPropertyBagStruct())
+			{
+				TSharedRef<FClingInstancedPropertyBagStructureDataProvider> Provider = MakeShared<FClingInstancedPropertyBagStructureDataProvider>(*PropertyBag);
+				
+				// Use AddChildStructure to flatten the properties directly into this customization's children
+				TArray<TSharedPtr<IPropertyHandle>> ChildProperties = ParamsHandle->AddChildStructure(Provider);
+				for (TSharedPtr<IPropertyHandle> ChildHandle : ChildProperties)
+				{
+					ChildBuilder.AddProperty(ChildHandle.ToSharedRef());
+				}
+				return;
+			}
+		}
+
+		// Fallback to default if pointer extraction fails or no struct is set
 		ChildBuilder.AddProperty(ParamsHandle.ToSharedRef());
 	}
 }

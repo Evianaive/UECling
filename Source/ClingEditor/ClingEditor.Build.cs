@@ -32,6 +32,7 @@ public class ClingEditor : ModuleRules
                 "InputCore",
                 "ClingSourceAccess",
                 "StructUtils", 
+                "StructUtilsEditor", 
                 "OutputLog"
             }
         );

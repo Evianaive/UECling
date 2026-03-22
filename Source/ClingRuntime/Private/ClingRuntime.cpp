@@ -160,6 +160,7 @@ CppImpl::CppInterpWrapper FClingRuntimeModule::StartInterpreterInternal(FName PC
 	{
 		SCOPED_NAMED_EVENT(TrueStart, FColor::Red);
 		Interp.CreateInterpreter(&Argv[0], Argv.Num(),nullptr,0);
+		// Interp.EnableDebug(true);
 		UE_LOG(LogCling,Log,TEXT("CreateInterpreter %p"), Interp.GetInterpreter());
 	}
 	{

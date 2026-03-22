@@ -7,10 +7,7 @@
 #include "ClingCoroUtils.h"
 #include "ClingSemanticInfoProvider.h"
 #include "CppInterOp/CppInterOp.h"
-#if WITH_EDITORONLY_DATA
-#include "StructUtils/PropertyBag.h"
-#endif
-
+#include "ClingPropertyBag/ClingPropertyBag.h"
 #include "ClingNotebook.generated.h"
 
 UENUM(BlueprintType)
@@ -51,13 +48,19 @@ struct FClingNotebookTypeDesc
 	FString OriginalType;
 
 	UPROPERTY(VisibleAnywhere, Category="Cling")
-	EPropertyBagPropertyType ValueType = EPropertyBagPropertyType::None;
+	EClingPropertyBagPropertyType ValueType = EClingPropertyBagPropertyType::None;
 
 	UPROPERTY(VisibleAnywhere, Category="Cling")
-	FPropertyBagContainerTypes ContainerTypes;
+	TArray<EClingPropertyBagContainerType> ContainerTypes;
 
 	UPROPERTY(VisibleAnywhere, Category="Cling")
 	TObjectPtr<UObject> ValueTypeObject = nullptr;
+
+	UPROPERTY(VisibleAnywhere, Category="Cling")
+	EClingPropertyBagPropertyType KeyType = EClingPropertyBagPropertyType::None;
+
+	UPROPERTY(VisibleAnywhere, Category="Cling")
+	TObjectPtr<UObject> KeyTypeObject = nullptr;
 
 	UPROPERTY(VisibleAnywhere, Category="Cling")
 	bool bSupported = false;
@@ -111,10 +114,12 @@ struct FClingFunctionSignature
 	FClingNotebookTypeDesc ReturnType;
 
 	UPROPERTY(EditAnywhere, Category = "Cling", meta = (FixedLayout))
-	FInstancedPropertyBag Parameters;
+	FClingInstancedPropertyBag Parameters;
 
 	UPROPERTY(VisibleAnywhere, Category = "Cling")
 	int32 OriginalNumArgs = 0;
+
+	FClingFunctionSignature() = default;
 
 	TDelegate<void(const struct FClingFunctionSignature&)> OnExecute;
 
