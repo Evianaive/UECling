@@ -274,6 +274,7 @@ void SClingNotebookCell::UpdateCellUI()
 			[
 				SNew(SBorder)
 				.BorderImage(FAppStyle::Get().GetBrush("ToolPanel.DarkGroupBorder"))
+				.OnMouseButtonDown_Lambda([](const FGeometry&, const FPointerEvent&) { return FReply::Handled(); })
 				.Visibility_Lambda([this]() { 
 					return (CellData->bIsExpanded && CellData->SavedSignatures.Signatures.Num() > 0) ? EVisibility::Visible : EVisibility::Collapsed; 
 				})
@@ -668,7 +669,6 @@ void SNumericNotebook::SetSelectedCell(int32 Index)
 	if (NotebookAsset)
 	{
 		NotebookAsset->SetSelectedCell(Index);
-		UpdateDocumentUI();
 	}
 }
 
