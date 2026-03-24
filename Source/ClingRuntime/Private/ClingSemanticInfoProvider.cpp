@@ -119,3 +119,18 @@ TSet<FString> FClingSemanticInfoProvider::GetAllKnownTypes() const
 	Combined.Append(Templates);
 	return Combined;
 }
+
+TSet<FString> FClingSemanticInfoProvider::GetAllKnownSymbols() const
+{
+	TSet<FString> Combined;
+	Combined.Append(Namespaces);
+	Combined.Append(Classes);
+	Combined.Append(Structs);
+	Combined.Append(Unions);
+	Combined.Append(Enums);
+	Combined.Append(Functions);
+	Combined.Append(Typedefs);
+	Combined.Append(Templates);
+	Combined.Append(Others);
+	return Combined;
+}

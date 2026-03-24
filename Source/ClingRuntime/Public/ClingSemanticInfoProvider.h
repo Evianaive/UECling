@@ -36,6 +36,9 @@ public:
 	/** 获取所有已知的类型（Class, Struct, Union, Enum, Typedef） */
 	TSet<FString> GetAllKnownTypes() const;
 
+	/** 获取所有已知符号（用于补全/检索） */
+	TSet<FString> GetAllKnownSymbols() const;
+
 private:
 	bool bIsReady{false};
 
