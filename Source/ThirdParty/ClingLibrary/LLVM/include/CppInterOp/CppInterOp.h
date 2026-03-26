@@ -1000,6 +1000,12 @@ CPPINTEROP_API void CodeComplete(CppCallback<void(const char* const*, size_t)> c
 ///\param[in] N The number of operations to undo. Defaults to 1.
 ///\returns 0 on success, non-zero on failure.
 CPPINTEROP_API int Undo(unsigned N = 1);
+
+/// Marks a file as dirty so that the next #include will re-read it from disk.
+/// This invalidates the FileManager/SourceManager caches and clears
+/// HeaderSearch state (pragma once, controlling macro, etc.) for the file.
+///\param[in] FileName The path to the file to invalidate.
+CPPINTEROP_API void DirtyFile(const char* FileName);
   
 CPPINTEROP_API void SetJITDLLTemplateRoot(const char* path);
 

@@ -109,6 +109,23 @@ namespace ClingNotebookFile
 
 		FString FileContent;
 		BuildNotebookFileContent(Notebook, FileContent, OutSelectedLine);
+		if (FPaths::FileExists(OutFilePath))
+		{
+			const int64 ExistingFileSize = IFileManager::Get().FileSize(*OutFilePath);
+			FTCHARToUTF8 Converted(*FileContent);
+			const int64 NewContentSize = Converted.Length();
+			if (ExistingFileSize == NewContentSize)
+			{
+				FString ExistingContent;
+				if (FFileHelper::LoadFileToString(ExistingContent, *OutFilePath))
+				{
+					if (ExistingContent == FileContent)
+					{
+						return true;
+					}
+				}
+			}
+		}
 		return FFileHelper::SaveStringToFile(FileContent, *OutFilePath, FFileHelper::EEncodingOptions::ForceUTF8);
 	}
 
@@ -1897,6 +1914,9 @@ ClingCoro::TClingTask<FClingCellCompilationResult> UClingNotebook::CompileCellAs
 	}
 
 	// Generate compilation file
+	const FString PredictedNotebookFilePath = ClingNotebookFile::GetNotebookFilePath(this);
+	const FDateTime BeforeWriteTimeStamp = IFileManager::Get().GetTimeStamp(*PredictedNotebookFilePath);
+
 	FString NotebookFilePath;
 	if (!ClingNotebookFile::WriteNotebookCompileFile(this, CellIndex, NotebookFilePath))
 	{
@@ -1907,6 +1927,11 @@ ClingCoro::TClingTask<FClingCellCompilationResult> UClingNotebook::CompileCellAs
 	}
 
 	const FString IncludePath = ClingNotebookFile::NormalizeIncludePath(NotebookFilePath);
+	const FDateTime AfterWriteTimeStamp = IFileManager::Get().GetTimeStamp(*NotebookFilePath);
+	if (AfterWriteTimeStamp != BeforeWriteTimeStamp)
+	{
+		Interp.DirtyFile(TCHAR_TO_UTF8(*IncludePath));
+	}
 	const FString Code = FString::Printf(TEXT("#undef COMPILE\n#define COMPILE %d\n#include \"%s\"\n"), CellIndex, *IncludePath);
 
 	bool bRunInGameThread = Cells[CellIndex].bExecuteInGameThread;
