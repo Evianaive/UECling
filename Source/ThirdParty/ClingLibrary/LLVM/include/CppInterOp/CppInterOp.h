@@ -455,6 +455,11 @@ CPPINTEROP_API static void GetUsingNamespaces(TCppScope_t scope,
 /// Gets the global scope of the whole C++  instance.
 CPPINTEROP_API TCppScope_t GetGlobalScope();
 
+/// Gets the scope of the translation unit.
+/// The index of the translation unit to get. Defaults to -1, which
+/// returns the latest translation unit. 
+CPPINTEROP_API TCppScope_t GetUnitScope(int Index = -1);
+
 /// Strips the typedef and returns the underlying class, and if the
 /// underlying decl is not a class it returns the input unchanged.
 CPPINTEROP_API static TCppScope_t GetUnderlyingScope(TCppScope_t scope);
@@ -995,6 +1000,13 @@ CPPINTEROP_API void CodeComplete(CppCallback<void(const char* const*, size_t)> c
 ///\param[in] N The number of operations to undo. Defaults to 1.
 ///\returns 0 on success, non-zero on failure.
 CPPINTEROP_API int Undo(unsigned N = 1);
+  
+CPPINTEROP_API void SetJITDLLTemplateRoot(const char* path);
+
+/// Sets the output directory for JIT-generated .dll and .pdb files.
+/// If set, files are written to this directory; otherwise they go to
+/// the system temp directory under "llvm_jit_debug/".
+CPPINTEROP_API static void SetJITDebugOutputDir(const char* path);
 
 CPPINTEROP_API static int CreatePCH(const std::string& rsp_file);
 

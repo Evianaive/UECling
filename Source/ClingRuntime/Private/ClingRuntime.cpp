@@ -44,6 +44,11 @@ void FClingRuntimeModule::StartupModule()
 	BaseInterp = StartInterpreterInternal();
 	// Initial pool fill
 	InterpreterPool.Refill();
+	CppImpl::CppInterpWrapper::EnableDebugOutput();
+	FString TempDllPDBPath = GetLLVMDir()/TEXT("Temp");
+	// CppImpl::CppInterpWrapper* NullWrapper{nullptr};
+	// NullWrapper->SetJITDebugOutputDir(StringCast<ANSICHAR>(*TempDllPDBPath).Get());
+	CppImpl::CppInterpWrapper::SetJITDebugOutputDir(StringCast<ANSICHAR>(*TempDllPDBPath).Get());
 }
 
 void FClingRuntimeModule::ShutdownModule()
@@ -160,7 +165,7 @@ CppImpl::CppInterpWrapper FClingRuntimeModule::StartInterpreterInternal(FName PC
 	{
 		SCOPED_NAMED_EVENT(TrueStart, FColor::Red);
 		Interp.CreateInterpreter(&Argv[0], Argv.Num(),nullptr,0);
-		// Interp.EnableDebug(true);
+		Interp.EnableDebug(true);
 		UE_LOG(LogCling,Log,TEXT("CreateInterpreter %p"), Interp.GetInterpreter());
 	}
 	{
