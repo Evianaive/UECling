@@ -996,6 +996,73 @@ CPPINTEROP_API void CodeComplete(CppCallback<void(const char* const*, size_t)> c
                                 const char* code, unsigned complete_line = 1U,
                                 unsigned complete_column = 1U);
 
+/// Semantic token kind, aligned with clang semantic categories.
+enum class SemanticTokenKind : int {
+  Unknown = 0,
+  Namespace = 1,
+  Class = 2,
+  Struct = 3,
+  Union = 4,
+  Enum = 5,
+  Function = 6,
+  Method = 7,
+  Constructor = 8,
+  Variable = 9,
+  Field = 10,
+  Parameter = 11,
+  TypeAlias = 12,
+  Template = 13,
+  Macro = 14
+};
+
+/// A source-range semantic token entry.
+/// NOTE: `spelling` is owned by CppInterOp implementation and valid only
+/// during callback invocation.
+struct SemanticTokenInfo {
+  unsigned line = 1U;   // 1-based
+  unsigned column = 1U; // 1-based
+  unsigned length = 0U;
+  SemanticTokenKind kind = SemanticTokenKind::Unknown;
+  const char* spelling = nullptr;
+};
+
+/// Symbol info resolved at a single source location.
+/// NOTE: string pointers are valid only during callback invocation.
+struct SymbolLocationInfo {
+  unsigned line = 1U;
+  unsigned column = 1U;
+  SemanticTokenKind kind = SemanticTokenKind::Unknown;
+  const char* spelling = nullptr;
+  const char* qualified_name = nullptr;
+};
+
+/// Collect semantic tokens by parsing a transient code buffer with clang.
+/// Intended for editor semantic highlighting (clangd-like pipeline).
+///\param[out] callback Receives contiguous SemanticTokenInfo entries.
+///\param[in] code C/C++ source content to analyze.
+///\param[in] virtual_file_name Optional virtual file name for diagnostics/cache.
+///\param[in] line_offset Optional line offset added to all returned tokens.
+///\param[in] column_offset Optional column offset for first line.
+CPPINTEROP_API void GetSemanticTokensForCode(
+    CppCallback<void(const SemanticTokenInfo*, size_t)> callback,
+    const char* code,
+    const char* virtual_file_name = "input.cc",
+    unsigned line_offset = 0U,
+    unsigned column_offset = 0U);
+
+/// Resolve symbol information at a given SourceLocation in a code buffer.
+///\param[out] callback Receives SymbolLocationInfo for the requested location.
+///\param[in] code C/C++ source content to analyze.
+///\param[in] line 1-based source line.
+///\param[in] column 1-based source column.
+///\param[in] virtual_file_name Optional virtual file name for diagnostics/cache.
+CPPINTEROP_API void GetSymbolInfoAt(
+    CppCallback<void(const SymbolLocationInfo&)> callback,
+    const char* code,
+    unsigned line,
+    unsigned column,
+    const char* virtual_file_name = "input.cc");
+
 /// Reverts the last N operations performed by the interpreter.
 ///\param[in] N The number of operations to undo. Defaults to 1.
 ///\returns 0 on success, non-zero on failure.

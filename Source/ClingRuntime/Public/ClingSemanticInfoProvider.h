@@ -7,6 +7,46 @@ namespace CppImpl {
 	class CppInterpWrapper;
 }
 
+enum class EClingSemanticSymbolKind : uint8
+{
+	Unknown,
+	Namespace,
+	Class,
+	Struct,
+	Union,
+	Enum,
+	Function,
+	TypeAlias,
+	Template,
+	Variable
+};
+
+USTRUCT()
+struct FClingSemanticToken
+{
+	GENERATED_BODY()
+
+	UPROPERTY()
+	int32 Line{1}; // 1-based
+
+	UPROPERTY()
+	int32 Column{1}; // 1-based
+
+	UPROPERTY()
+	int32 Length{0};
+
+	UPROPERTY()
+	FString Spelling;
+
+	UPROPERTY()
+	EClingSemanticSymbolKind Kind{EClingSemanticSymbolKind::Unknown};
+
+	bool Contains(int32 InLine, int32 InColumn) const
+	{
+		return InLine == Line && InColumn >= Column && InColumn < (Column + Length);
+	}
+};
+
 /**
  * 为 C++ 代码高亮和语义检查提供符号信息
  */
@@ -36,6 +76,24 @@ public:
 	/** 获取所有已知的类型（Class, Struct, Union, Enum, Typedef） */
 	TSet<FString> GetAllKnownTypes() const;
 
+	/** 获取所有已知符号（用于补全/检索） */
+	TSet<FString> GetAllKnownSymbols() const;
+
+	/** 查询单个符号类型（用于语义高亮） */
+	EClingSemanticSymbolKind GetSymbolKind(const FString& Symbol) const;
+
+	/**
+	 * 从编译器语义通道刷新高亮分类。
+	 * 说明：此方法为 CppInterOp/LLVM 侧接口预留，当前默认回退到 Refresh 的分类结果。
+	 */
+	void RefreshSemanticHighlightKinds(CppImpl::CppInterpWrapper& InInterp, const FString& CompiledCode);
+
+	/** 设置由编译器返回的语义 token（按 SourceLocation 映射） */
+	void SetSemanticTokens(const TArray<FClingSemanticToken>& InTokens);
+
+	/** 根据 SourceLocation 查询语义 token（用于精确高亮） */
+	bool TryGetSemanticTokenAtLocation(int32 Line, int32 Column, FClingSemanticToken& OutToken) const;
+
 private:
 	bool bIsReady{false};
 
@@ -49,4 +107,6 @@ private:
 	TSet<FString> Typedefs;
 	TSet<FString> Templates;
 	TSet<FString> Others;
+	TMap<FString, EClingSemanticSymbolKind> SymbolKinds;
+	TArray<FClingSemanticToken> SemanticTokens;
 };
