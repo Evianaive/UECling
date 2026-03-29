@@ -447,9 +447,24 @@ void FCppRichTextSyntaxHighlightMarshaller::ParseTokens(const FString& SourceStr
 		TSharedRef<FString> ModelString = MakeShareable(new FString());
 		TArray<FTokenRunInfo> TokenRunInfos;  // Store run creation info
 		
-		// Parse all tokens in this line
-		for(const ISyntaxTokenizer::FToken& Token : TokenizedLine.Tokens)
+		auto GetNeighborTokenText = [&SourceString, &TokenizedLine](int32 StartIndex, int32 Step) -> FString
 		{
+			for (int32 Index = StartIndex; Index >= 0 && Index < TokenizedLine.Tokens.Num(); Index += Step)
+			{
+				const ISyntaxTokenizer::FToken& Candidate = TokenizedLine.Tokens[Index];
+				const FString CandidateText = SourceString.Mid(Candidate.Range.BeginIndex, Candidate.Range.Len());
+				if (!CandidateText.TrimStartAndEnd().IsEmpty())
+				{
+					return CandidateText;
+				}
+			}
+			return FString();
+		};
+
+		// Parse all tokens in this line
+		for (int32 TokenIndex = 0; TokenIndex < TokenizedLine.Tokens.Num(); ++TokenIndex)
+		{
+			const ISyntaxTokenizer::FToken& Token = TokenizedLine.Tokens[TokenIndex];
 			const FString TokenText = SourceString.Mid(Token.Range.BeginIndex, Token.Range.Len());
 			const FTextRange ModelRange(ModelString->Len(), ModelString->Len() + TokenText.Len());
 			ModelString->Append(TokenText);
@@ -492,44 +507,79 @@ void FCppRichTextSyntaxHighlightMarshaller::ParseTokens(const FString& SourceStr
 						RunInfo.RunTypeName = TEXT("SyntaxHighlight.CPP.Keyword");
 						RunInfo.Style = SyntaxTextStyle.KeywordTextStyle;
 					}
-					else if (SemanticInfoProviderToUse.IsReady())
-					{
-						if (SemanticInfoProviderToUse.GetNamespaces().Contains(TokenText))
+						else if (SemanticInfoProviderToUse.IsReady())
 						{
-							RunInfo.RunTypeName = TEXT("SyntaxHighlight.CPP.Namespace");
-							RunInfo.Style = SyntaxTextStyle.NamespaceTextStyle;
-						}
-						else if (SemanticInfoProviderToUse.GetClasses().Contains(TokenText))
+							const EClingSemanticSymbolKind SymbolKind = SemanticInfoProviderToUse.GetSymbolKind(TokenText);
+							const FString PrevToken = GetNeighborTokenText(TokenIndex - 1, -1);
+							const FString NextToken = GetNeighborTokenText(TokenIndex + 1, +1);
+							const bool bLooksLikeFunctionCall = (NextToken == TEXT("(") || NextToken == TEXT("<"));
+							const bool bLooksLikeNamespace = (NextToken == TEXT("::"));
+
+							if (SymbolKind == EClingSemanticSymbolKind::Namespace && bLooksLikeNamespace)
+							{
+								RunInfo.RunTypeName = TEXT("SyntaxHighlight.CPP.Namespace");
+								RunInfo.Style = SyntaxTextStyle.NamespaceTextStyle;
+							}
+							else if (SymbolKind == EClingSemanticSymbolKind::Class)
 						{
 							RunInfo.RunTypeName = TEXT("SyntaxHighlight.CPP.Class");
 							RunInfo.Style = SyntaxTextStyle.ClassTextStyle;
 						}
-						else if (SemanticInfoProviderToUse.GetStructs().Contains(TokenText))
+						else if (SymbolKind == EClingSemanticSymbolKind::Struct || SymbolKind == EClingSemanticSymbolKind::Union)
 						{
 							RunInfo.RunTypeName = TEXT("SyntaxHighlight.CPP.Struct");
 							RunInfo.Style = SyntaxTextStyle.StructTextStyle;
 						}
-						else if (SemanticInfoProviderToUse.GetEnums().Contains(TokenText))
+						else if (SymbolKind == EClingSemanticSymbolKind::Enum)
 						{
 							RunInfo.RunTypeName = TEXT("SyntaxHighlight.CPP.Enum");
 							RunInfo.Style = SyntaxTextStyle.EnumTextStyle;
 						}
-						else if (SemanticInfoProviderToUse.GetTypedefs().Contains(TokenText))
+						else if (SymbolKind == EClingSemanticSymbolKind::TypeAlias)
 						{
 							RunInfo.RunTypeName = TEXT("SyntaxHighlight.CPP.Type");
 							RunInfo.Style = SyntaxTextStyle.TypeTextStyle;
-						}
-						else if (SemanticInfoProviderToUse.GetFunctions().Contains(TokenText)) // Changed from GetFunctions
-						{
-							RunInfo.RunTypeName = TEXT("SyntaxHighlight.CPP.Function");
-							RunInfo.Style = SyntaxTextStyle.FunctionTextStyle;
-						}
-						else if (SemanticInfoProviderToUse.GetTemplates().Contains(TokenText))
-						{
-							RunInfo.RunTypeName = TEXT("SyntaxHighlight.CPP.Template");
-							RunInfo.Style = SyntaxTextStyle.TemplateTextStyle;
-						}
-						else
+							}
+							else if (SymbolKind == EClingSemanticSymbolKind::Function)
+							{
+								if (bLooksLikeFunctionCall)
+								{
+									RunInfo.RunTypeName = TEXT("SyntaxHighlight.CPP.Function");
+									RunInfo.Style = SyntaxTextStyle.FunctionTextStyle;
+								}
+								else
+								{
+									RunInfo.RunTypeName = TEXT("SyntaxHighlight.CPP.Normal");
+									RunInfo.Style = SyntaxTextStyle.NormalTextStyle;
+								}
+							}
+							else if (SymbolKind == EClingSemanticSymbolKind::Template)
+							{
+								if (NextToken == TEXT("<"))
+								{
+									RunInfo.RunTypeName = TEXT("SyntaxHighlight.CPP.Template");
+									RunInfo.Style = SyntaxTextStyle.TemplateTextStyle;
+								}
+								else
+								{
+									RunInfo.RunTypeName = TEXT("SyntaxHighlight.CPP.Normal");
+									RunInfo.Style = SyntaxTextStyle.NormalTextStyle;
+								}
+							}
+							else if (SymbolKind == EClingSemanticSymbolKind::Variable)
+							{
+								if (PrevToken != TEXT("::"))
+								{
+									RunInfo.RunTypeName = TEXT("SyntaxHighlight.CPP.Var");
+									RunInfo.Style = SyntaxTextStyle.VarTextStyle;
+								}
+								else
+								{
+									RunInfo.RunTypeName = TEXT("SyntaxHighlight.CPP.Normal");
+									RunInfo.Style = SyntaxTextStyle.NormalTextStyle;
+								}
+							}
+							else
 						{
 							RunInfo.RunTypeName = TEXT("SyntaxHighlight.CPP.Normal");
 							RunInfo.Style = SyntaxTextStyle.NormalTextStyle;
