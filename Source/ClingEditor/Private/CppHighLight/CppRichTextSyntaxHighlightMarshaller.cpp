@@ -494,37 +494,38 @@ void FCppRichTextSyntaxHighlightMarshaller::ParseTokens(const FString& SourceStr
 					}
 					else if (SemanticInfoProviderToUse.IsReady())
 					{
-						if (SemanticInfoProviderToUse.GetNamespaces().Contains(TokenText))
+						const EClingSemanticSymbolKind SymbolKind = SemanticInfoProviderToUse.GetSymbolKind(TokenText);
+						if (SymbolKind == EClingSemanticSymbolKind::Namespace)
 						{
 							RunInfo.RunTypeName = TEXT("SyntaxHighlight.CPP.Namespace");
 							RunInfo.Style = SyntaxTextStyle.NamespaceTextStyle;
 						}
-						else if (SemanticInfoProviderToUse.GetClasses().Contains(TokenText))
+						else if (SymbolKind == EClingSemanticSymbolKind::Class)
 						{
 							RunInfo.RunTypeName = TEXT("SyntaxHighlight.CPP.Class");
 							RunInfo.Style = SyntaxTextStyle.ClassTextStyle;
 						}
-						else if (SemanticInfoProviderToUse.GetStructs().Contains(TokenText))
+						else if (SymbolKind == EClingSemanticSymbolKind::Struct || SymbolKind == EClingSemanticSymbolKind::Union)
 						{
 							RunInfo.RunTypeName = TEXT("SyntaxHighlight.CPP.Struct");
 							RunInfo.Style = SyntaxTextStyle.StructTextStyle;
 						}
-						else if (SemanticInfoProviderToUse.GetEnums().Contains(TokenText))
+						else if (SymbolKind == EClingSemanticSymbolKind::Enum)
 						{
 							RunInfo.RunTypeName = TEXT("SyntaxHighlight.CPP.Enum");
 							RunInfo.Style = SyntaxTextStyle.EnumTextStyle;
 						}
-						else if (SemanticInfoProviderToUse.GetTypedefs().Contains(TokenText))
+						else if (SymbolKind == EClingSemanticSymbolKind::TypeAlias)
 						{
 							RunInfo.RunTypeName = TEXT("SyntaxHighlight.CPP.Type");
 							RunInfo.Style = SyntaxTextStyle.TypeTextStyle;
 						}
-						else if (SemanticInfoProviderToUse.GetFunctions().Contains(TokenText)) // Changed from GetFunctions
+						else if (SymbolKind == EClingSemanticSymbolKind::Function)
 						{
 							RunInfo.RunTypeName = TEXT("SyntaxHighlight.CPP.Function");
 							RunInfo.Style = SyntaxTextStyle.FunctionTextStyle;
 						}
-						else if (SemanticInfoProviderToUse.GetTemplates().Contains(TokenText))
+						else if (SymbolKind == EClingSemanticSymbolKind::Template)
 						{
 							RunInfo.RunTypeName = TEXT("SyntaxHighlight.CPP.Template");
 							RunInfo.Style = SyntaxTextStyle.TemplateTextStyle;

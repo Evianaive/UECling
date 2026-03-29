@@ -144,6 +144,7 @@ void FClingCommandExecutor::GetExecHistory(TArray<FString>& Out)
 		if (FClingSemanticInfoProvider* Provider = FClingRuntimeModule::Get().GetSemanticInfoProvider(Interpreter))
 		{
 			Provider->Refresh(Interpreter);
+			Provider->RefreshSemanticHighlightKinds(Interpreter, InputString);
 		}
 	}
 	return true;
