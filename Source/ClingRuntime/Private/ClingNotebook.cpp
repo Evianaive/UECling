@@ -1152,6 +1152,14 @@ namespace ClingNotebookSymbols
 				OutDesc.bSupported = true;
 				return true;
 			}
+			if (BaseType == TEXT("UObject"))
+			{
+				OutDesc.ValueType = EClingPropertyBagPropertyType::Object;
+				OutDesc.ValueTypeObject = UObject::StaticClass();
+				OutDesc.ContainerTypes = InOutContainers;
+				OutDesc.bSupported = true;
+				return true;
+			}
 			if (BaseType == TEXT("UClass"))
 			{
 				OutDesc.ValueType = EClingPropertyBagPropertyType::Class;
