@@ -303,8 +303,8 @@ TSharedRef<SWidget> SClingNotebookCell::GetSignaturesWidget()
 		DetailsViewArgs.bShowScrollBar = false;
 
 		FStructureDetailsViewArgs StructViewArgs;
-		StructViewArgs.bShowObjects = false;
-		StructViewArgs.bShowAssets = true;
+		StructViewArgs.bShowObjects = true;
+		StructViewArgs.bShowAssets = false;
 		StructViewArgs.bShowClasses = true;
 
 		TSharedPtr<FStructOnScope> StructOnScope = MakeShared<FStructOnScope>(FClingFunctionSignatures::StaticStruct(), (uint8*)&CellData->SavedSignatures);
