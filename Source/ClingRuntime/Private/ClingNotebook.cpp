@@ -1880,6 +1880,7 @@ ClingCoro::TClingTask<FClingInterpreterResult> UClingNotebook::StartInterpreterA
 	if (NewInterpreter.IsValid())
 	{
 		Notebook->SemanticInfoProvider.Refresh(NewInterpreter);
+		Notebook->SemanticInfoProvider.RefreshSemanticHighlightKinds(NewInterpreter, TEXT(""));
 		UE_LOG(LogTemp, Log, TEXT("[Notebook] Interpreter ready, semantic info refreshed."));
 	}
 
@@ -2146,6 +2147,7 @@ void UClingNotebook::OnCellCompilationComplete(int32 CellIndex, const FClingCell
 	{
 		CellData.CompilationState = EClingCellCompilationState::Completed;
 		SemanticInfoProvider.Refresh(GetInterpreter());
+		SemanticInfoProvider.RefreshSemanticHighlightKinds(GetInterpreter(), CellData.Content);
 #if WITH_EDITOR
 		UpdateCellSignatures(CellIndex);
 #endif
@@ -2284,6 +2286,7 @@ void UClingNotebook::UndoToHere(int32 InIndex)
 			Interp.Undo(UndoCount);
 			UE_LOG(LogTemp, Log, TEXT("ClingNotebook: After Undo, PTU count: %d"), Interp.GetPTUCounts());
 			SemanticInfoProvider.Refresh(Interp);
+			SemanticInfoProvider.RefreshSemanticHighlightKinds(Interp, TEXT(""));
 		}
 	}
 

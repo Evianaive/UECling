@@ -1,6 +1,8 @@
 ﻿
 #include "ClingCommandExecutor.h"
 #include "CppInterOp/CppInterOp.h"
+#include "ClingRuntime.h"
+#include "Algo/Sort.h"
 #include "Toolkits/GlobalEditorCommonCommands.h"
 
 #define LOCTEXT_NAMESPACE "ClingCommandExecutor"
@@ -38,6 +40,61 @@ FText FClingCommandExecutor::GetHintText() const
 
 void FClingCommandExecutor::GetAutoCompleteSuggestions(const TCHAR* Input, TArray<FString>& Out)
 {
+	Out.Reset();
+	if (!Input || !Interpreter.IsValid())
+	{
+		return;
+	}
+
+	const FString InputString(Input);
+	FString Prefix;
+	int32 PrefixStart = InputString.Len() - 1;
+	while (PrefixStart >= 0)
+	{
+		const TCHAR Char = InputString[PrefixStart];
+		if (!FChar::IsAlnum(Char) && Char != TEXT('_') && Char != TEXT(':') && Char != TEXT('.'))
+		{
+			break;
+		}
+		--PrefixStart;
+	}
+	Prefix = InputString.Mid(PrefixStart + 1);
+
+	const FString RequestSource = InputString + TEXT("\n");
+	const int32 CompleteColumn = FMath::Max(1, InputString.Len() + 1);
+
+	Interpreter.CodeComplete([&Out](const char* const* Suggestions, size_t Count)
+	{
+		for (size_t Index = 0; Index < Count; ++Index)
+		{
+			if (!Suggestions[Index])
+			{
+				continue;
+			}
+			FString Suggestion = UTF8_TO_TCHAR(Suggestions[Index]);
+			Suggestion = Suggestion.TrimStartAndEnd();
+			if (!Suggestion.IsEmpty())
+			{
+				Out.AddUnique(Suggestion);
+			}
+		}
+	}, TCHAR_TO_ANSI(*RequestSource), 1U, static_cast<unsigned>(CompleteColumn));
+
+	if (FClingSemanticInfoProvider* Provider = FClingRuntimeModule::Get().GetSemanticInfoProvider(Interpreter))
+	{
+		for (const FString& Symbol : Provider->GetAllKnownSymbols())
+		{
+			if (!Symbol.IsEmpty() && (Prefix.IsEmpty() || Symbol.StartsWith(Prefix)))
+			{
+				Out.AddUnique(Symbol);
+			}
+		}
+	}
+
+	Out.Sort([](const FString& Lhs, const FString& Rhs)
+	{
+		return Lhs < Rhs;
+	});
 }
 
 void FClingCommandExecutor::GetExecHistory(TArray<FString>& Out)
@@ -82,6 +139,14 @@ void FClingCommandExecutor::GetExecHistory(TArray<FString>& Out)
 		UE_LOG(LogTemp,Error,TEXT("%hs"),Result)
 	};
 	Interpreter.EndStdStreamCapture(CompileResultCallBack);
+	if (CompilationResult == 0)
+	{
+		if (FClingSemanticInfoProvider* Provider = FClingRuntimeModule::Get().GetSemanticInfoProvider(Interpreter))
+		{
+			Provider->Refresh(Interpreter);
+			Provider->RefreshSemanticHighlightKinds(Interpreter, InputString);
+		}
+	}
 	return true;
 }
 
@@ -115,6 +180,12 @@ FInputChord FClingCommandExecutor::GetIterateExecutorHotKey() const
 #if ENGINE_MAJOR_VERSION==5 && ENGINE_MINOR_VERSION>=5
 void FClingCommandExecutor::GetSuggestedCompletions(const TCHAR* Input, TArray<FConsoleSuggestion>& Out)
 {
+	TArray<FString> Suggestions;
+	GetAutoCompleteSuggestions(Input, Suggestions);
+	for (const FString& Suggestion : Suggestions)
+	{
+		Out.Emplace(Suggestion, Suggestion);
+	}
 }
 #endif
 #undef LOCTEXT_NAMESPACE

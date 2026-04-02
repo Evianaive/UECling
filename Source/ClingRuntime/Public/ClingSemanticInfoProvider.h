@@ -7,6 +7,20 @@ namespace CppImpl {
 	class CppInterpWrapper;
 }
 
+enum class EClingSemanticSymbolKind : uint8
+{
+	Unknown,
+	Namespace,
+	Class,
+	Struct,
+	Union,
+	Enum,
+	Function,
+	TypeAlias,
+	Template,
+	Variable
+};
+
 /**
  * 为 C++ 代码高亮和语义检查提供符号信息
  */
@@ -36,6 +50,18 @@ public:
 	/** 获取所有已知的类型（Class, Struct, Union, Enum, Typedef） */
 	TSet<FString> GetAllKnownTypes() const;
 
+	/** 获取所有已知符号（用于补全/检索） */
+	TSet<FString> GetAllKnownSymbols() const;
+
+	/** 查询单个符号类型（用于语义高亮） */
+	EClingSemanticSymbolKind GetSymbolKind(const FString& Symbol) const;
+
+	/**
+	 * 从编译器语义通道刷新高亮分类。
+	 * 说明：此方法为 CppInterOp/LLVM 侧接口预留，当前默认回退到 Refresh 的分类结果。
+	 */
+	void RefreshSemanticHighlightKinds(CppImpl::CppInterpWrapper& InInterp, const FString& CompiledCode);
+
 private:
 	bool bIsReady{false};
 
@@ -49,4 +75,5 @@ private:
 	TSet<FString> Typedefs;
 	TSet<FString> Templates;
 	TSet<FString> Others;
+	TMap<FString, EClingSemanticSymbolKind> SymbolKinds;
 };
