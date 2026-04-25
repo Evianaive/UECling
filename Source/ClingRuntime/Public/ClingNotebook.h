@@ -199,7 +199,7 @@ public:
 	TArray<FClingNotebookCellData> Cells;
 
 	UPROPERTY(EditAnywhere, Category = "Cling")
-	bool bShowCodeInline = false;
+	bool bShowCodeInline = true;
 
 	FClingSemanticInfoProvider SemanticInfoProvider;
 	const FClingSemanticInfoProvider& GetUsableSemanticInfoProvider() const;

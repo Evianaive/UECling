@@ -1,5 +1,9 @@
 #include "SNumericNotebook.h"
+#include "SClingNotebookStickyHeader.h"
 #include "IStructureDetailsView.h"
+
+// Forward declarations for Sticky Header functionality
+class SBorder;
 #include "PropertyEditorModule.h"
 #include "Modules/ModuleManager.h"
 #include "ClingRuntime.h"
@@ -16,12 +20,15 @@
 #include "Widgets/Input/SSearchBox.h"
 #include "Widgets/Layout/SBox.h"
 #include "Widgets/Layout/SSeparator.h"
+#include "Widgets/SOverlay.h"
 #include "Widgets/Layout/SUniformGridPanel.h"
 #include "Widgets/Layout/SBorder.h"
+#include "Styling/StyleDefaults.h"
 #include "Styling/SlateTypes.h"
 #include "Styling/AppStyle.h"
 #include "HAL/PlatformApplicationMisc.h"
 #include "Engine/Engine.h"
+#include "UObject/StructOnScope.h"
 #include "SlateWidgets/CppMultiLineEditableTextBox.h"
 #include "Widgets/Images/SThrobber.h"
 #include "Widgets/Input/SCheckBox.h"
@@ -35,6 +42,7 @@ void SClingNotebookCell::Construct(const FArguments& InArgs)
 	OnUndoToHereDelegate = InArgs._OnUndoToHere;
 	OnDeleteCellDelegate = InArgs._OnDeleteCell;
 	OnAddCellBelowDelegate = InArgs._OnAddCellBelow;
+	OnToggleExpandDelegate = InArgs._OnToggleExpand;
 	OnContentChangedDelegate = InArgs._OnContentChanged;
 	OnSelectedDelegate = InArgs._OnSelected;
 	IsSelected = InArgs._IsSelected;
@@ -55,7 +63,7 @@ void SClingNotebookCell::UpdateCellUI()
 		SNew(SBorder)
 		.BorderImage(FAppStyle::Get().GetBrush("ToolPanel.GroupBorder"))
 		.BorderBackgroundColor_Lambda([this]() { return IsSelected.Get() ? FLinearColor::Gray : FLinearColor::White; })
-		.Padding(2.0f)
+		.Padding(ClingNotebookLayout::CellBorderPadding)
 		[
 			SNew(SVerticalBox)
 			
@@ -232,9 +240,8 @@ void SClingNotebookCell::UpdateCellUI()
 				.Text(FText::FromString(CellData->Content))
 				//.HintText(INVTEXT("// Enter your code here...\n// void Function will reflect to a button automatically\n// Run in GameThread if create UI Directly!"))
 				.OnTextChanged(this, &SClingNotebookCell::OnCodeTextChanged)
-				.Visibility_Lambda([this]() { 
-					const bool bShowInline = NotebookAsset ? NotebookAsset->bShowCodeInline : true;
-					return (bShowInline && CellData->bIsExpanded) ? EVisibility::Visible : EVisibility::Collapsed; 
+				.Visibility_Lambda([this]() {
+					return CellData->bIsExpanded ? EVisibility::Visible : EVisibility::Collapsed;
 				})
 				.IsReadOnly_Lambda([this]() {
 					return NotebookAsset ? NotebookAsset->IsCellReadOnly(CellIndex) : false;
@@ -247,16 +254,10 @@ void SClingNotebookCell::UpdateCellUI()
 			[
 				SNew(SBorder)
 				.BorderImage(FAppStyle::Get().GetBrush("ToolPanel.DarkGroupBorder"))
-				.Visibility_Lambda([this]() { 
+				.Visibility_Lambda([this]() {
 					if (CellData->bIsExpanded && CellData->bHasOutput)
 					{
-						if (CellData->LastCompilationResult.bSuccess)
-						{
-							return EVisibility::Visible;
-						}
-
-						const bool bShowInline = NotebookAsset ? NotebookAsset->bShowCodeInline : true;
-						return bShowInline ? EVisibility::Visible : EVisibility::Collapsed;
+						return EVisibility::Visible;
 					}
 					return EVisibility::Collapsed;
 				})
@@ -288,6 +289,8 @@ void SClingNotebookCell::UpdateCellUI()
 
 TSharedRef<SWidget> SClingNotebookCell::GetSignaturesWidget()
 {
+	RefreshSignaturesStructureData();
+
 	if (!SignaturesDetailsView.IsValid())
 	{
 		FPropertyEditorModule& PropertyEditorModule = FModuleManager::LoadModuleChecked<FPropertyEditorModule>("PropertyEditor");
@@ -307,25 +310,32 @@ TSharedRef<SWidget> SClingNotebookCell::GetSignaturesWidget()
 		StructViewArgs.bShowAssets = false;
 		StructViewArgs.bShowClasses = true;
 
-		TSharedPtr<FStructOnScope> StructOnScope = MakeShared<FStructOnScope>(FClingFunctionSignatures::StaticStruct(), (uint8*)&CellData->SavedSignatures);
-		if (NotebookAsset)
-		{
-			StructOnScope->SetPackage(NotebookAsset->GetOutermost());
-		}
-
-		SignaturesDetailsView = PropertyEditorModule.CreateStructureDetailView(DetailsViewArgs, StructViewArgs, StructOnScope);
+		SignaturesDetailsView = PropertyEditorModule.CreateStructureDetailView(DetailsViewArgs, StructViewArgs, SignaturesStructData);
 	}
 	else
 	{
-		TSharedPtr<FStructOnScope> StructOnScope = MakeShared<FStructOnScope>(FClingFunctionSignatures::StaticStruct(), (uint8*)&CellData->SavedSignatures);
-		if (NotebookAsset)
-		{
-			StructOnScope->SetPackage(NotebookAsset->GetOutermost());
-		}
-		SignaturesDetailsView->SetStructureData(StructOnScope);
+		SignaturesDetailsView->SetStructureData(SignaturesStructData);
 	}
 
 	return SignaturesDetailsView->GetWidget().ToSharedRef();
+}
+
+void SClingNotebookCell::RefreshSignaturesStructureData()
+{
+	SignaturesStructData = MakeShared<FStructOnScope>(FClingFunctionSignatures::StaticStruct());
+
+	if (NotebookAsset)
+	{
+		SignaturesStructData->SetPackage(NotebookAsset->GetOutermost());
+	}
+
+	if (CellData)
+	{
+		if (const UScriptStruct* ScriptStruct = Cast<UScriptStruct>(SignaturesStructData->GetStruct()))
+		{
+			ScriptStruct->CopyScriptStruct(SignaturesStructData->GetStructMemory(), &CellData->SavedSignatures);
+		}
+	}
 }
 
 FReply SClingNotebookCell::OnRunToHereButtonClicked()
@@ -354,7 +364,14 @@ FReply SClingNotebookCell::OnAddBelowButtonClicked()
 
 FReply SClingNotebookCell::OnToggleExpandClicked()
 {
-	CellData->bIsExpanded = !CellData->bIsExpanded;
+	if (OnToggleExpandDelegate.IsBound())
+	{
+		OnToggleExpandDelegate.Execute();
+	}
+	else if (CellData)
+	{
+		CellData->bIsExpanded = !CellData->bIsExpanded;
+	}
 	return FReply::Handled();
 }
 
@@ -655,13 +672,41 @@ void SNumericNotebook::Construct(const FArguments& InArgs)
 			+SVerticalBox::Slot()
 			.FillHeight(1.0f)
 			[
-				SAssignNew(ScrollBox, SScrollBox)
-				.Orientation(Orient_Vertical)
+				SNew(SOverlay)
+				.Clipping(EWidgetClipping::ClipToBounds)
+				+SOverlay::Slot()
+				[
+					SAssignNew(ScrollBox, SScrollBox)
+					.Orientation(Orient_Vertical)
+					.OnUserScrolled(this, &SNumericNotebook::OnNotebookScrolled)
+				]
+				+SOverlay::Slot()
+				.HAlign(HAlign_Fill)
+				.VAlign(VAlign_Top)
+				[
+					SAssignNew(StickyHeaderContainer, SBorder)
+					.BorderImage(FStyleDefaults::GetNoBrush())
+					.Padding(ClingNotebookLayout::StickyContainerInnerPadding)
+					.Visibility(EVisibility::Collapsed)
+				]
 			]
 		]
 	];
+
+	// Initialize the sticky header manager
+	StickyManager.Initialize(ScrollBox, NotebookAsset, StickyHeaderContainer);
+	StickyManager.OnGenerateStickyHeader.BindRaw(this, &SNumericNotebook::GenerateStickyHeader);
 	
 	UpdateDocumentUI();
+}
+
+SNumericNotebook::~SNumericNotebook()
+{
+	if (PendingStickyUpdateHandle.IsValid() && FSlateApplication::IsInitialized())
+	{
+		FSlateApplication::Get().OnPostTick().Remove(PendingStickyUpdateHandle);
+		PendingStickyUpdateHandle = FDelegateHandle();
+	}
 }
 
 void SNumericNotebook::SetSelectedCell(int32 Index)
@@ -678,55 +723,174 @@ void SNumericNotebook::UpdateDocumentUI()
 
 	ScrollBox->ClearChildren();
 
+	TArray<TWeakPtr<SWidget>> CellWidgets;
+
 	for (int32 i = 0; i < NotebookAsset->Cells.Num(); i++)
 	{
 		int32 CurrentIndex = i;
-		
+		TSharedPtr<SClingNotebookCell> NewCell;
+
 		ScrollBox->AddSlot()
-		.Padding(5.0f)
+		.Padding(ClingNotebookLayout::CellSlotPadding)
 		[
-			SNew(SClingNotebookCell)
+			SAssignNew(NewCell, SClingNotebookCell)
 			.CellData(&NotebookAsset->Cells[i])
 			.NotebookAsset(NotebookAsset)
 			.CellIndex(CurrentIndex)
-			.OnRunToHere_Lambda([this, CurrentIndex]() { 
-				if (NotebookAsset) 
+			.OnRunToHere_Lambda([this, CurrentIndex]() {
+				if (NotebookAsset)
 				{
 					NotebookAsset->RunToHere(CurrentIndex);
 					UpdateDocumentUI();
 				}
 			})
-			.OnUndoToHere_Lambda([this, CurrentIndex]() { 
+			.OnUndoToHere_Lambda([this, CurrentIndex]() {
 				if (NotebookAsset)
 				{
 					NotebookAsset->UndoToHere(CurrentIndex);
 					UpdateDocumentUI();
 				}
 			})
-			.OnDeleteCell_Lambda([this, CurrentIndex]() { 
+			.OnDeleteCell_Lambda([this, CurrentIndex]() {
 				if (NotebookAsset)
 				{
 					NotebookAsset->DeleteCell(CurrentIndex);
 					UpdateDocumentUI();
 				}
 			})
-			.OnAddCellBelow_Lambda([this, CurrentIndex]() { 
+			.OnAddCellBelow_Lambda([this, CurrentIndex]() {
 				if (NotebookAsset)
 				{
 					NotebookAsset->AddNewCell(CurrentIndex + 1);
 					UpdateDocumentUI();
 				}
 			})
-			.OnContentChanged_Lambda([this](const FText&) { if (NotebookAsset) NotebookAsset->MarkPackageDirty(); })
-			.IsEnabled_Lambda([this, CurrentIndex]() { 
-				return NotebookAsset ? !NotebookAsset->CompilingCells.Contains(CurrentIndex) : true; 
+			.OnToggleExpand_Lambda([this, CurrentIndex]() {
+				if (NotebookAsset && NotebookAsset->Cells.IsValidIndex(CurrentIndex))
+				{
+					NotebookAsset->Cells[CurrentIndex].bIsExpanded = !NotebookAsset->Cells[CurrentIndex].bIsExpanded;
+					UpdateDocumentUI();
+				}
+			})
+			.OnContentChanged_Lambda([this](const FText&) {
+				if (NotebookAsset)
+				{
+					NotebookAsset->MarkPackageDirty();
+				}
+				ScheduleStickyHeaderUpdate();
+			})
+			.IsEnabled_Lambda([this, CurrentIndex]() {
+				return NotebookAsset ? !NotebookAsset->CompilingCells.Contains(CurrentIndex) : true;
 			})
 			.OnSelected_Lambda([this, CurrentIndex]() { SetSelectedCell(CurrentIndex); })
-			.IsSelected_Lambda([this, CurrentIndex]() { 
-				return NotebookAsset ? NotebookAsset->SelectedCellIndex == CurrentIndex : false; 
+			.IsSelected_Lambda([this, CurrentIndex]() {
+				return NotebookAsset ? NotebookAsset->SelectedCellIndex == CurrentIndex : false;
 			})
 		];
+
+		if (NewCell.IsValid())
+		{
+			CellWidgets.Add(NewCell);
+		}
 	}
+
+	// Set cell widgets for sticky header tracking
+	StickyManager.SetCellWidgets(CellWidgets);
+
+	// Clear sticky header when UI is updated (cells may have changed)
+	StickyManager.ClearStickyHeader();
+
+	// Trigger initial sticky header update (will run on next tick when geometry is available)
+	ScheduleStickyHeaderUpdate();
+}
+
+TSharedRef<SWidget> SNumericNotebook::GenerateStickyHeader(int32 CellIndex)
+{
+	if (!NotebookAsset || !NotebookAsset->Cells.IsValidIndex(CellIndex))
+	{
+		return SNullWidget::NullWidget;
+	}
+
+	FClingNotebookCellData* CellData = &NotebookAsset->Cells[CellIndex];
+
+	return SNew(SClingNotebookStickyHeader)
+		.CellData(CellData)
+		.NotebookAsset(NotebookAsset)
+		.CellIndex(CellIndex)
+		.OnRunToHere_Lambda([this, CellIndex]() {
+			if (NotebookAsset)
+			{
+				NotebookAsset->RunToHere(CellIndex);
+				UpdateDocumentUI();
+			}
+		})
+		.OnUndoToHere_Lambda([this, CellIndex]() {
+			if (NotebookAsset)
+			{
+				NotebookAsset->UndoToHere(CellIndex);
+				UpdateDocumentUI();
+			}
+		})
+		.OnDeleteCell_Lambda([this, CellIndex]() {
+			if (NotebookAsset)
+			{
+				NotebookAsset->DeleteCell(CellIndex);
+				UpdateDocumentUI();
+			}
+		})
+		.OnAddCellBelow_Lambda([this, CellIndex]() {
+			if (NotebookAsset)
+			{
+				NotebookAsset->AddNewCell(CellIndex + 1);
+				UpdateDocumentUI();
+			}
+		})
+		.OnToggleExpand_Lambda([this, CellIndex]() {
+			if (NotebookAsset && NotebookAsset->Cells.IsValidIndex(CellIndex))
+			{
+				NotebookAsset->Cells[CellIndex].bIsExpanded = !NotebookAsset->Cells[CellIndex].bIsExpanded;
+				UpdateDocumentUI();
+			}
+		})
+		.OnJumpToCell_Lambda([this, CellIndex]() {
+			if (ScrollBox.IsValid() && StickyManager.GetCellWidgets().IsValidIndex(CellIndex))
+			{
+				TSharedPtr<SWidget> CellWidget = StickyManager.GetCellWidgets()[CellIndex].Pin();
+				if (CellWidget.IsValid())
+				{
+					ScrollBox->ScrollDescendantIntoView(CellWidget.ToSharedRef(), true, EDescendantScrollDestination::IntoView);
+				}
+			}
+		});
+}
+
+void SNumericNotebook::OnNotebookScrolled(float InScrollOffset)
+{
+	StickyManager.UpdateStickyHeader();
+}
+
+void SNumericNotebook::ScheduleStickyHeaderUpdate()
+{
+	if (!FSlateApplication::IsInitialized())
+	{
+		return;
+	}
+
+	if (PendingStickyUpdateHandle.IsValid())
+	{
+		FSlateApplication::Get().OnPostTick().Remove(PendingStickyUpdateHandle);
+		PendingStickyUpdateHandle = FDelegateHandle();
+	}
+
+	PendingStickyUpdateHandle = FSlateApplication::Get().OnPostTick().AddLambda([this](float) {
+		if (PendingStickyUpdateHandle.IsValid() && FSlateApplication::IsInitialized())
+		{
+			FSlateApplication::Get().OnPostTick().Remove(PendingStickyUpdateHandle);
+			PendingStickyUpdateHandle = FDelegateHandle();
+		}
+
+		StickyManager.UpdateStickyHeader();
+	});
 }
 
 FReply SNumericNotebook::OnAddNewCellButtonClicked()
@@ -859,3 +1023,4 @@ void SClingNotebookDetailsPanel::PerformSearch(bool bReverse)
 	ESearchCase::Type SearchCase = bSearchCaseSensitive ? ESearchCase::CaseSensitive : ESearchCase::IgnoreCase;
 	DetailCodeTextBox->BeginSearch(FText::FromString(SearchFilterText), SearchCase, bReverse);
 }
+

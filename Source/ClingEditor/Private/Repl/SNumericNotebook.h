@@ -11,10 +11,12 @@
 #include "Widgets/Text/STextBlock.h"
 #include "Widgets/Layout/SSeparator.h"
 #include "Framework/MultiBox/MultiBoxBuilder.h"
+#include "SClingNotebookStickyHeader.h"
 
 #include "ClingNotebook.h"
 
 class SNumericNotebook;
+class FStructOnScope;
 
 /**
  * Notebook Cell Widget
@@ -30,6 +32,7 @@ public:
 		SLATE_EVENT(FSimpleDelegate, OnUndoToHere)
 		SLATE_EVENT(FSimpleDelegate, OnDeleteCell)
 		SLATE_EVENT(FSimpleDelegate, OnAddCellBelow)
+		SLATE_EVENT(FSimpleDelegate, OnToggleExpand)
 		SLATE_EVENT(FOnTextChanged, OnContentChanged)
 		SLATE_EVENT(FSimpleDelegate, OnSelected)
 		SLATE_ATTRIBUTE(bool, IsSelected)
@@ -48,17 +51,20 @@ private:
 	// Cell UI
 	TSharedPtr<SMultiLineEditableTextBox> CodeTextBox;
 	TSharedPtr<class IStructureDetailsView> SignaturesDetailsView;
+	TSharedPtr<FStructOnScope> SignaturesStructData;
 
 	// Delegate
 	FSimpleDelegate OnRunToHereDelegate;
 	FSimpleDelegate OnUndoToHereDelegate;
 	FSimpleDelegate OnDeleteCellDelegate;
 	FSimpleDelegate OnAddCellBelowDelegate;
+	FSimpleDelegate OnToggleExpandDelegate;
 	FOnTextChanged OnContentChangedDelegate;
 	FSimpleDelegate OnSelectedDelegate;
 	
 	void UpdateCellUI();
 	TSharedRef<SWidget> GetSignaturesWidget();
+	void RefreshSignaturesStructureData();
 
 	// Button press event
 	FReply OnRunToHereButtonClicked();
@@ -111,6 +117,7 @@ public:
 		SLATE_ARGUMENT(UClingNotebook*, NotebookAsset)
 	SLATE_END_ARGS()
 
+	virtual ~SNumericNotebook() override;
 	void Construct(const FArguments& InArgs);
 
 public:
@@ -120,11 +127,16 @@ public:
 private:
 	// ScrollBox
 	TSharedPtr<SScrollBox> ScrollBox;
+	TSharedPtr<SBorder> StickyHeaderContainer;
+	FClingNotebookStickyHeaderManager StickyManager;
 
 public:
 	void SetSelectedCell(int32 Index);
 	void UpdateDocumentUI();
 	
+	TSharedRef<SWidget> GenerateStickyHeader(int32 CellIndex);
+	void OnNotebookScrolled(float InScrollOffset);
+
 	// Exposed for toolbar
 	FReply OnFoldAllButtonClicked();
 	FReply OnUnfoldAllButtonClicked();
@@ -137,4 +149,7 @@ private:
 	// PCH Profile selection
 	TSharedRef<SWidget> GeneratePCHProfileMenu();
 	void OnPCHProfileSelected(FName ProfileName);
+	void ScheduleStickyHeaderUpdate();
+
+	FDelegateHandle PendingStickyUpdateHandle;
 };

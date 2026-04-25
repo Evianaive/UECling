@@ -10,7 +10,7 @@
 class FClingInstancedPropertyBagStructureDataProvider : public IStructureDataProvider
 {
 public:
-	FClingInstancedPropertyBagStructureDataProvider(FClingInstancedPropertyBag& InPropertyBag)
+	FClingInstancedPropertyBagStructureDataProvider(const FClingInstancedPropertyBag& InPropertyBag)
 		: PropertyBag(InPropertyBag)
 	{
 	}
@@ -30,12 +30,17 @@ public:
 		const UClingPropertyBag* Struct = PropertyBag.GetPropertyBagStruct();
 		if (Struct && Struct->IsChildOf(ExpectedBaseStructure))
 		{
-			OutInstances.Add(MakeShared<FStructOnScope>(Struct, const_cast<uint8*>(PropertyBag.GetValue().GetMemory())));
+			TSharedPtr<FStructOnScope> StructOnScope = MakeShared<FStructOnScope>(Struct);
+			if (const UScriptStruct* ScriptStruct = Cast<UScriptStruct>(StructOnScope->GetStruct()))
+			{
+				ScriptStruct->CopyScriptStruct(StructOnScope->GetStructMemory(), PropertyBag.GetValue().GetMemory());
+				OutInstances.Add(StructOnScope);
+			}
 		}
 	}
 
 protected:
-	FClingInstancedPropertyBag& PropertyBag;
+	FClingInstancedPropertyBag PropertyBag;
 };
 
 TSharedRef<IPropertyTypeCustomization> FClingFunctionSignatureCustomization::MakeInstance()
