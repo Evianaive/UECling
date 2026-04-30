@@ -324,7 +324,7 @@ void FClingNotebookStickyHeaderManager::UpdateStickyHeader()
 
 	if (StickyContainer.IsValid())
 	{
-		StickyContainer.Pin()->SetRenderTransform(FSlateRenderTransform(FVector2D(0.0f, OffsetY)));
+		StickyContainer.Pin()->SetRenderTransform(FSlateRenderTransform(FVector2D(0.0f, OffsetY - ClingNotebookLayout::HeaderViewportOffset)));
 	}
 }
 
